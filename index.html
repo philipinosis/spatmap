@@ -86,15 +86,19 @@
 
   /* ---------- Stats strip ---------- */
   .stats{
-    display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+    display:grid;grid-template-columns:repeat(5,1fr);gap:6px;
     padding:12px;max-width:900px;margin:0 auto;
   }
   .stat{
     background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);
-    padding:10px 6px;text-align:center;min-width:0;
+    padding:10px 4px;text-align:center;min-width:0;
   }
-  .stat .num{font-size:1.25rem;font-weight:800;color:var(--deep);font-variant-numeric:tabular-nums}
-  .stat .lbl{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .stat .num{font-size:1.1rem;font-weight:800;color:var(--deep);font-variant-numeric:tabular-nums}
+  .stat .lbl{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  /* tappable stat cell — same card look, pressable */
+  .statbtn{display:block;width:100%}
+  .statbtn:active{box-shadow:0 1px 4px rgba(11,79,108,.14);transform:translateY(1px)}
+  .statbtn .aff{color:var(--teal)}
 
   /* ---------- Live conditions panel (water / tides / weather) ---------- */
   .waterChip{
@@ -167,6 +171,7 @@
     position:relative;background:rgba(255,255,255,.07);
     border:1.5px solid rgba(255,255,255,.22);border-radius:12px;
     padding:8px 8px 6px;min-height:88px;min-width:0;
+    touch-action:manipulation; /* no double-tap zoom — second tap is "open" */
   }
   .qname{
     color:#bfe0ea;font-size:.66rem;font-weight:800;text-transform:uppercase;
@@ -211,6 +216,7 @@
     flex:none;display:flex;flex-direction:column;align-items:center;gap:0;
     min-width:36px;padding:0 1px 2px;border-radius:8px;position:relative;
     transition:transform .15s var(--ease),background .15s ease;
+    touch-action:manipulation; /* no double-tap zoom — second tap is "open" */
   }
   .cage:active{background:rgba(255,255,255,.10);transform:scale(.9)}
   .cage .shapeBox svg{filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.28))}
@@ -278,6 +284,27 @@
     width:2px;flex:1;min-height:40px;border-radius:1px;opacity:.8;
     background:repeating-linear-gradient(25deg,#e6cc92 0 5px,#bd9a62 5px 10px);
   }
+  /* rope behind the overview dots — same gradient family as .cageStrip::before
+     so the minis read as cages strung on a line.  dots get z-index so they
+     paint on top; a gap dot stays see-through (bare spot on the line). */
+  .miniDots{position:relative}
+  .miniDots::before{
+    content:'';position:absolute;left:0;right:0;top:50%;height:2px;
+    margin-top:-1px;border-radius:1px;opacity:.8;
+    background:repeating-linear-gradient(115deg,#e6cc92 0 5px,#bd9a62 5px 10px);
+  }
+  .miniCol{position:relative}
+  /* top:17px clears the .mlbl label (.6rem × 1.45 line-height ≈ 14px + 3px gap) */
+  .miniCol::before{
+    content:'';position:absolute;top:17px;bottom:0;left:50%;width:2px;
+    margin-left:-1px;border-radius:1px;opacity:.8;
+    background:repeating-linear-gradient(25deg,#e6cc92 0 5px,#bd9a62 5px 10px);
+  }
+  .miniDots .dot,.miniCol .dot{position:relative;z-index:1}
+  /* pulled lines draw their own .minirope dash in the same spot — skip the
+     backdrop rope so it doesn't double-paint (pre-:has browsers paint both,
+     which overlaps invisibly) */
+  .miniDots:has(.minirope)::before,.miniCol:has(.minirope)::before{content:none}
   /* pulled (empty) line in the plot: dimmed, still spans the plot */
   .cageStrip.pulled{opacity:.6}
   .cageStrip.vert.pulled{min-height:160px;min-width:36px}
@@ -515,6 +542,7 @@
   .menuItem .mico{font-size:1.25rem;width:30px;text-align:center;flex:none}
   .menuItem .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .menuItem .sub{display:block;font-size:.78rem;color:var(--muted);font-weight:400}
+  .menuItem .mval{flex:none;font-size:.92rem;font-weight:700;color:var(--deep);white-space:nowrap;font-variant-numeric:tabular-nums}
   .menuItem.danger{color:var(--danger)}
   .typeRow{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line)}
   .typeRow:last-child{border-bottom:none}
@@ -547,6 +575,22 @@
     transition:opacity .22s ease,transform .28s var(--ease);
   }
   #toast.show{opacity:1;transform:translate(-50%,0)}
+
+  /* ---------- Peek popup — quick cage info on hover / single tap ---------- */
+  #peek{
+    position:absolute;z-index:30; /* must stay under .overlay (z-index:40) */
+    background:var(--card);color:var(--ink);border-radius:12px;
+    box-shadow:0 6px 20px rgba(0,0,0,.28);padding:9px 12px;
+    max-width:250px;font-size:.84rem;line-height:1.35;
+    font-variant-numeric:tabular-nums;
+    pointer-events:none; /* never swallows the second tap */
+    display:none;
+  }
+  #peek.show{display:block}
+  #peek .phead{display:flex;align-items:center;gap:6px;font-weight:800;color:var(--deep);white-space:nowrap}
+  #peek .pdot{width:9px;height:9px;border-radius:50%;flex:none}
+  #peek .prow{color:var(--muted)}
+  #peek .pnum{color:var(--ink);font-weight:700}
 </style>
 </head>
 <body>
@@ -774,6 +818,13 @@ function fmtDate(iso){
   if (!isValidISO(iso)) return iso || '';
   var p = iso.split('-');
   return MONTHS[+p[1]-1] + ' ' + (+p[2]) + ', ' + p[0];
+}
+/* compact count for tight cells: 999 → "999", 1500 → "1,500", 12400 → "12.4k" */
+function fmtCompact(n){
+  n = Math.round(n);
+  if (n < 1000) return String(n);
+  if (n < 10000) return String(n).replace(/\B(?=(\d{3})+$)/g, ',');
+  return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
 }
 function daysSince(iso){
   if (!isValidISO(iso)) return 0;
@@ -1443,7 +1494,7 @@ function needsWork(cage){
 /* farm-wide summary for the stats strip.  detached spots are excluded
    from total so the number matches physical cages, not map positions. */
 function farmStats(farm){
-  var total = 0, stocked = 0, ready = 0, sizeSum = 0, sizeN = 0;
+  var total = 0, stocked = 0, ready = 0, sizeSum = 0, sizeN = 0, countSum = 0, anyCount = false;
   farm.lines.forEach(function(l){
     l.cages.forEach(function(c){
       if (c.detached) return;
@@ -1452,10 +1503,13 @@ function farmStats(farm){
         stocked++;
         var s = latestSize(c);
         if (typeof s === 'number'){ sizeSum += s; sizeN++; if (s >= farm.marketSizeMm) ready++; }
+        var n = estCount(c);
+        if (n !== null){ countSum += n; anyCount = true; } /* null = never recorded; skip the sum, keep the cage */
       }
     });
   });
-  return {total: total, stocked: stocked, avgSize: sizeN ? Math.round(sizeSum / sizeN) : null, ready: ready};
+  return {total: total, stocked: stocked, avgSize: sizeN ? Math.round(sizeSum / sizeN) : null, ready: ready,
+          totalCount: countSum, anyCount: anyCount};
 }
 
 /* ================================================================
@@ -1575,6 +1629,91 @@ function growthModel(cage, farm){
 }
 
 /* ================================================================
+   Market-ready outlook (per-month harvest buckets)
+================================================================ */
+/* groups stocked cages by when the model says they hit market size.
+   pure (farm + nowMs in, plain object out) so it stays testable outside
+   the DOM.  buckets: ready (measured at size today), months (next 12,
+   skip-empties handled by the caller since empties never get created),
+   farOut (capped projection or >11 months off), unknown (no usable model).
+   each bucket: {cages, oysters, known} — known=false means every count
+   in the bucket was null, so the oyster figure is meaningless. */
+function outlookBuckets(farm, nowMs){
+  var now = new Date(nowMs);
+  var nowY = now.getFullYear(), nowM = now.getMonth();
+  function bucket(){ return {cages: 0, oysters: 0, known: false}; }
+  function drop(b, c){
+    b.cages++;
+    var n = estCount(c);
+    if (n !== null){ b.oysters += n; b.known = true; }
+  }
+  var ready = bucket(), farOut = bucket(), unknown = bucket();
+  var byKey = {}; /* (year*12+month) → bucket, so plain sort orders them */
+  var rateSum = 0, rateN = 0;
+  farm.lines.forEach(function(l){
+    l.cages.forEach(function(c){
+      if (c.detached || !c.batch) return;
+      var gm = growthModel(c, farm);
+      if (gm.ok){ rateSum += gm.rateMmPerDay; rateN++; }
+      if (cageStatus(c, farm).ready){ drop(ready, c); return; } /* measured at size — no projection needed */
+      if (!gm.ok){ drop(unknown, c); return; }
+      if (gm.projectionCapped){ drop(farOut, c); return; } /* hit the 730-day cap: "1+ years" */
+      var y, m;
+      if (gm.readyNow){ y = nowY; m = nowM; } /* model says at size; waiting on a check to confirm */
+      else if (gm.projectedDate){
+        var p = gm.projectedDate.split('-');
+        y = +p[0]; m = +p[1] - 1;
+      } else { drop(unknown, c); return; } /* rate under the projection floor */
+      var diff = (y - nowY) * 12 + (m - nowM);
+      if (diff < 0){ y = nowY; m = nowM; diff = 0; } /* stale projection in the past reads as "now" */
+      if (diff > 11){ drop(farOut, c); return; }
+      var key = y * 12 + m;
+      if (!byKey[key]) byKey[key] = bucket();
+      drop(byKey[key], c);
+    });
+  });
+  var months = Object.keys(byKey).map(Number).sort(function(a, b){ return a - b; }).map(function(key){
+    var b = byKey[key];
+    b.label = MONTHS[key % 12] + ' ' + Math.floor(key / 12);
+    return b;
+  });
+  return {ready: ready, months: months, farOut: farOut, unknown: unknown,
+          avgRate: rateN ? rateSum / rateN : null};
+}
+function buildOutlook(){
+  var farm = getFarm();
+  var wrap = h('div', null, sheetHead('Market-ready outlook'));
+  if (!farmStats(farm).stocked){
+    wrap.appendChild(h('div', {class: 'hint', style: 'margin:4px 0 12px'},
+      'Nothing stocked yet — stock a cage and the outlook will project when it reaches market size.'));
+    return wrap;
+  }
+  var o = outlookBuckets(farm, Date.now());
+  if (o.avgRate !== null){
+    wrap.appendChild(h('div', {class: 'hint', style: 'margin:0 0 8px'},
+      '≈ ' + o.avgRate.toFixed(2) + ' mm/day · seasonal model'));
+  }
+  function val(b){
+    var s = b.cages + (b.cages === 1 ? ' cage' : ' cages');
+    if (b.known) s += ' · ~' + fmtCompact(b.oysters) + ' oysters';
+    return s;
+  }
+  function row(label, b, sub){
+    return h('div', {class: 'menuItem'},
+      h('span', {class: 'grow'}, label, sub ? h('span', {class: 'sub'}, sub) : null),
+      h('span', {class: 'mval'}, val(b))
+    );
+  }
+  var list = h('div', {class: 'menuList'});
+  if (o.ready.cages) list.appendChild(row('Ready now', o.ready));
+  o.months.forEach(function(b){ list.appendChild(row(b.label, b)); });
+  if (o.farOut.cages) list.appendChild(row('1+ year out', o.farOut));
+  if (o.unknown.cages) list.appendChild(row('No growth data yet', o.unknown, 'log a growth check to sharpen the estimate'));
+  wrap.appendChild(list);
+  return wrap;
+}
+
+/* ================================================================
    SVG shape rendering (all inputs numeric / palette constants)
 ================================================================ */
 /* returns an inline SVG string.
@@ -1682,7 +1821,7 @@ function growthChartSVG(cage, marketMm, model){
    Sheet (bottom sheet / modal) system
 ================================================================ */
 var sheet = null; /* {build: function} */
-function openSheet(build){ sheet = {build: build}; renderSheet(); }
+function openSheet(build){ hidePeek(); sheet = {build: build}; renderSheet(); }
 function refreshSheet(){ if (sheet) renderSheet(); }
 function closeSheet(){ sheet = null; switcherRenaming = null; typeRenaming = null; layoutRenaming = null; renderSheet(); }
 function renderSheet(){
@@ -1721,6 +1860,173 @@ function field(labelText, inputEl, hintText){
 
 /* mutation helper: persist + repaint main view */
 function commit(){ save(); render(); }
+
+/* ================================================================
+   Peek popup — quick cage info on hover / single tap
+================================================================ */
+/* one floating card reused for every cage: size / stock date / count
+   without opening the big sheet.  hover (or a single tap) shows it;
+   a second tap on the same cage — or a desktop dblclick, or Enter/Space
+   from the keyboard — opens the full cage sheet.  the card itself is
+   pointer-events:none so it can never swallow that second tap. */
+var CAN_HOVER = window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches;
+var peekEl = null, peekAnchor = null;
+var lastTap = {id: null, t: 0}; /* touch double-tap detector (native dblclick is unreliable on phones) */
+var TAP_GAP_MS = 400;
+
+/* lazily builds the singleton #peek node + its dismissal listeners */
+function ensurePeek(){
+  if (peekEl) return peekEl;
+  peekEl = h('div', {id: 'peek', role: 'status'});
+  document.body.appendChild(peekEl);
+  /* a press anywhere outside the popup and its anchor dismisses it */
+  function away(e){
+    if (!peekAnchor) return;
+    var t = e.target;
+    if (t && t.nodeType && (peekEl.contains(t) || peekAnchor.contains(t))) return;
+    hidePeek();
+  }
+  if (window.PointerEvent) document.addEventListener('pointerdown', away, true);
+  else {
+    document.addEventListener('touchstart', away, true);
+    document.addEventListener('mousedown', away, true);
+  }
+  /* capture catches the inner cageScroller panes scrolling too */
+  window.addEventListener('scroll', hidePeek, {capture: true, passive: true});
+  return peekEl;
+}
+function hidePeek(){
+  if (!peekEl) return;
+  peekEl.className = '';
+  peekEl.textContent = '';
+  peekAnchor = null;
+}
+/* compact card body: header dot+label, then size / stocked / count rows */
+function buildPeekContent(farm, line, cage){
+  var wrap = h('div');
+  if (cage.detached){
+    wrap.appendChild(h('div', {class: 'phead'}, cage.label + ' · ' + line.name));
+    wrap.appendChild(h('div', {class: 'prow'}, 'No cage on this spot'));
+    return wrap;
+  }
+  var stt = cageStatus(cage, farm);
+  wrap.appendChild(h('div', {class: 'phead'},
+    h('span', {class: 'pdot', style: 'background:' + stt.color}),
+    cage.label + ' · ' + line.name
+  ));
+  if (!cage.batch){
+    wrap.appendChild(h('div', {class: 'prow'}, 'Empty · ' + getType(farm, cage.typeId).name));
+    return wrap;
+  }
+  var size = latestSize(cage), sizeTxt;
+  if (typeof size === 'number'){
+    sizeTxt = size + ' mm';
+  } else {
+    var model = growthModel(cage, farm);
+    sizeTxt = model.ok ? '~' + model.estTodayMm.toFixed(0) + ' mm est' : '—';
+  }
+  var n = estCount(cage);
+  wrap.appendChild(h('div', {class: 'prow'}, h('span', {class: 'pnum'}, sizeTxt)));
+  wrap.appendChild(h('div', {class: 'prow'}, 'in ' + fmtDate(cage.batch.stockDate) + ' · ' + inWaterLabel(cage.batch.stockDate)));
+  wrap.appendChild(h('div', {class: 'prow'},
+    n === null ? 'count —' : [h('span', {class: 'pnum'}, String(n)), ' oysters']
+  ));
+  return wrap;
+}
+/* fills the card and floats it next to anchorEl: above-centered when it
+   fits, flipped below when clipped by the viewport top, clamped to 8px
+   side margins.  page-absolute, so rect + scroll offsets. */
+function showPeek(anchorEl, lineId, cageId){
+  var farm = getFarm();
+  if (!farm) return;
+  var found = findCage(farm, lineId, cageId);
+  if (!found) return;
+  var el = ensurePeek();
+  el.textContent = '';
+  el.appendChild(buildPeekContent(farm, found.line, found.cage));
+  peekAnchor = anchorEl;
+  el.className = 'show';
+  el.style.left = '0px'; el.style.top = '0px'; /* park at origin to measure unclamped */
+  var r = anchorEl.getBoundingClientRect();
+  var w = el.offsetWidth, ht = el.offsetHeight;
+  var x = r.left + r.width / 2 - w / 2;
+  var maxX = document.documentElement.clientWidth - w - 8;
+  if (x > maxX) x = maxX;
+  if (x < 8) x = 8;
+  /* keep clear of the sticky topbar (~54px) above and the fixed
+     selbar/sortbar/fab zone (~76px) below — peek is pointer-events:none
+     so overlap is only cosmetic, but those bars matter mid-task */
+  var y = r.top - ht - 8;
+  if (y < 62) y = r.bottom + 8; /* clipped above / under topbar → flip below */
+  var maxY = document.documentElement.clientHeight - ht - 76;
+  if (y > maxY && r.top - ht - 8 >= 62) y = r.top - ht - 8; /* re-flip above if clear */
+  if (y > maxY) y = maxY; /* neither side clear → pin above the bar zone */
+  el.style.left = (x + window.scrollX) + 'px';
+  el.style.top = (y + window.scrollY) + 'px';
+}
+/* normal-mode tap on a cage button (renderLine's sortWiz / selMode
+   branches return before reaching this).  desktop: every click just
+   pins the peek — dblclick (wired in peekWire) opens the sheet.
+   touch: second tap on the same cage within TAP_GAP_MS opens it. */
+function cageTapped(btn, lineId, cageId){
+  if (!CAN_HOVER){
+    var now = Date.now();
+    if (lastTap.id === cageId && now - lastTap.t < TAP_GAP_MS){
+      lastTap = {id: null, t: 0};
+      hidePeek();
+      openSheet(function(){ return buildCageSheet(lineId, cageId); });
+      return;
+    }
+    lastTap = {id: cageId, t: now};
+  }
+  showPeek(btn, lineId, cageId);
+}
+/* extra cage-button wiring: dblclick + Enter/Space open the full sheet,
+   hover peeks on pointer devices.  all of it stands down while the sort
+   wizard or select mode owns the taps. */
+function peekWire(btn, lineId, cageId){
+  function openFull(){
+    hidePeek();
+    openSheet(function(){ return buildCageSheet(lineId, cageId); });
+  }
+  btn.addEventListener('dblclick', function(e){
+    if (!CAN_HOVER || sortWiz || selMode) return; /* touch path uses the tap timer */
+    e.preventDefault();
+    openFull();
+  });
+  /* keyboard users skip the peek — Enter/Space goes straight to the sheet
+     (preventDefault stops the synthetic click from peeking first) */
+  btn.addEventListener('keydown', function(e){
+    if (sortWiz || selMode) return;
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar'){
+      e.preventDefault();
+      openFull();
+    }
+  });
+  if (CAN_HOVER){
+    btn.addEventListener('mouseenter', function(){
+      if (sortWiz || selMode) return;
+      showPeek(btn, lineId, cageId);
+    });
+    btn.addEventListener('mouseleave', function(){
+      if (peekAnchor === btn) hidePeek();
+    });
+  }
+}
+/* overview dots: same peek, but the dot sits inside the plot-card button —
+   the tap must not fall through and open the plot.  a second tap on the
+   same dot just re-peeks; the card opens the plot everywhere else. */
+function peekDotWire(dot, lineId, cageId){
+  dot.addEventListener('click', function(e){
+    e.stopPropagation();
+    e.preventDefault();
+    showPeek(dot, lineId, cageId);
+  });
+  if (CAN_HOVER){
+    dot.addEventListener('mouseenter', function(){ showPeek(dot, lineId, cageId); });
+    dot.addEventListener('mouseleave', function(){ if (peekAnchor === dot) hidePeek(); });
+  }
+}
 
 /* ================================================================
    Main render
@@ -1859,6 +2165,7 @@ window.addEventListener('popstate', function(){
 /* top-level render: setup screen if no farms exist, otherwise the map
    (which dispatches to viewPlot when curPlot is set) */
 function render(){
+  hidePeek(); /* repaint orphans the peek's anchor */
   var app = document.getElementById('app');
   app.textContent = '';
   var farm = getFarm();
@@ -1922,8 +2229,10 @@ function viewMap(farm){
   wrap.appendChild(h('div', {class: 'stats'},
     statCell(st.total, 'Cages'),
     statCell(st.stocked, 'Stocked'),
+    /* stocked cages but no recorded counts → unknown, not zero */
+    statCell(st.stocked && !st.anyCount ? '—' : fmtCompact(st.totalCount), 'Oysters'),
     statCell(st.avgSize !== null ? st.avgSize + 'mm' : '—', 'Avg size'),
-    statCell(st.ready, 'Market ready')
+    statCell(st.ready, 'Market ready', function(){ openSheet(buildOutlook); })
   ));
 
   /* live conditions (renders from cache instantly; refreshes in place) */
@@ -1965,16 +2274,19 @@ function viewMap(farm){
         var dots = h('div', {class: 'miniDots'});
         if (!line.cages.length) dots.appendChild(h('span', {class: 'minirope', 'aria-hidden': 'true'}));
         line.cages.forEach(function(cage){
+          var d;
           if (cage.detached){
-            dots.appendChild(h('span', {class: 'dot gap'}));
-            return;
+            d = h('span', {class: 'dot gap'});
+          } else {
+            var type = getType(farm, cage.typeId);
+            var stt = cageStatus(cage, farm);
+            d = h('span', {
+              class: 'dot' + (type.shape === 'circle' ? ' rnd' : '') + (stt.ready ? ' rdy' : '') + (stt.needsWork ? ' work' : ''),
+              style: 'background:' + stt.color
+            });
           }
-          var type = getType(farm, cage.typeId);
-          var stt = cageStatus(cage, farm);
-          dots.appendChild(h('span', {
-            class: 'dot' + (type.shape === 'circle' ? ' rnd' : '') + (stt.ready ? ' rdy' : '') + (stt.needsWork ? ' work' : ''),
-            style: 'background:' + stt.color
-          }));
+          peekDotWire(d, line.id, cage.id); /* dot tap peeks, never opens the card */
+          dots.appendChild(d);
         });
         if (sec.vert){
           dots.classList.add('miniCol');
@@ -2116,8 +2428,14 @@ function viewPlot(farm, sec){
   }
   return wrap;
 }
-function statCell(num, lbl){
-  return h('div', {class: 'stat'}, h('div', {class: 'num'}, String(num)), h('div', {class: 'lbl'}, lbl));
+/* onclick optional — with it the cell becomes a pressable button with a ▸ tell */
+function statCell(num, lbl, onclick){
+  var kids = [
+    h('div', {class: 'num'}, String(num)),
+    h('div', {class: 'lbl'}, lbl, onclick ? h('span', {class: 'aff'}, ' ▸') : null)
+  ];
+  if (!onclick) return h('div', {class: 'stat'}, kids);
+  return h('button', {class: 'stat statbtn', onclick: onclick}, kids);
 }
 /* renders one line as a scrollable strip of cage buttons.
    vertical: true → vert layout (Acre 2 style, columns); false → horizontal rows
@@ -2174,9 +2492,11 @@ function renderLine(farm, line, vertical, big){
           updateSelbar();
           return;
         }
-        openSheet(function(){ return buildCageSheet(line.id, cage.id); });
+        /* normal mode: tap peeks; a second tap / dblclick opens the sheet */
+        cageTapped(btn, line.id, cage.id);
       }
     });
+    peekWire(btn, line.id, cage.id); /* dblclick + Enter/Space + hover peek */
     if ((selMode || sortPicking()) && !cage.detached) btn.appendChild(h('span', {class: 'selmark', 'aria-hidden': 'true'}, '✓'));
     btn.appendChild(cage.detached
       ? h('div', {class: 'shapeBox'}, h('div', {class: 'gapMark'}))
