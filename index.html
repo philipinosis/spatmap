@@ -178,6 +178,9 @@
   .cageScroller::-webkit-scrollbar{height:4px}
   .cageScroller::-webkit-scrollbar-track{background:transparent}
   .cageScroller::-webkit-scrollbar-thumb{background:rgba(255,255,255,.25);border-radius:2px}
+  /* min-width:100% fills the scroller width; width:max-content lets it
+     grow past that when there are many cages; space-between distributes
+     cages evenly so anchors sit at the ends of the rope visual */
   .cageStrip{
     display:flex;align-items:flex-start;gap:2px;
     justify-content:space-between;min-width:100%;width:max-content;
@@ -213,6 +216,8 @@
     flex:1;display:flex;flex-direction:column;
   }
   .cageScroller.vscroll::-webkit-scrollbar{display:none}
+  /* flex:1 + min-height:100% makes each vertical strip grow to the tallest
+     column in the linesRow so all lines are the same visual height */
   .cageStrip.vert{
     flex-direction:column;align-items:center;justify-content:space-between;
     min-width:0;width:auto;min-height:100%;flex:1;padding:1px 3px;
@@ -246,11 +251,14 @@
   .dot.rdy{box-shadow:0 0 0 2px var(--c-ring)}
   .dot.work{box-shadow:0 0 0 2px var(--c-work)}
   .dot.rdy.work{box-shadow:0 0 0 2px var(--c-ring),0 0 0 4px var(--c-work)}
+  /* hollow dashed dot = detached spot (no cage hanging there) */
   .dot.gap{background:transparent;border:1.5px dashed rgba(255,255,255,.45);width:8px;height:8px}
   .miniCols{display:flex;gap:10px;overflow:hidden;align-items:stretch}
   .miniCol{display:flex;flex-direction:column;align-items:center;gap:3px;justify-content:space-between}
   .miniCol .mlbl{width:auto;max-width:44px;flex:none}
-  /* pulled (empty) line on the overview: a bare dash spans its place */
+  /* pulled (empty) line on the overview: a bare dash spans its place.
+     class name is 'minirope' for legacy reasons — "rope" is not the
+     product term (UI always says "line"), but the class is not renamed. */
   .miniDots .minirope{
     flex:1;height:2px;border-radius:1px;align-self:center;opacity:.8;
     background:repeating-linear-gradient(115deg,#e6cc92 0 5px,#bd9a62 5px 10px);
@@ -324,6 +332,8 @@
     color:#fff;font-size:.74rem;font-weight:800;background:rgba(255,255,255,.16);
   }
   .lineTop .lsel:active{background:rgba(255,255,255,.3)}
+  /* max-width:calc(100vw - 12px) keeps the bar from clipping on 390px phones
+     (iPhone 12/13/14 base); white-space:nowrap prevents label wrapping */
   .selbar{
     position:fixed;left:50%;transform:translateX(-50%);
     bottom:calc(16px + env(safe-area-inset-bottom));z-index:15;
@@ -539,11 +549,98 @@
 /* ================================================================
    Utilities
 ================================================================ */
+
+/* ----------------------------------------------------------------
+   PERSISTED DATA MODEL  (localStorage key: 'cageTrackerData')
+
+   root:
+     { v: 1,
+       farms: Farm[],
+       activeFarmId: string|null }
+
+   Farm:
+     { id, name,
+       brightside?: true,           // seeded from real spreadsheet
+       brightsideV?: number,        // seed version; guards re-seeding
+       sample?: true,               // sample farm; shows banner + clear btn
+       marketSizeMm: number,        // harvest threshold (default 76 mm)
+       cageTypes: CageType[],
+       areas: Area[],
+       lines: Line[] }
+     There is no separate archive store — "archiving" a finished batch
+     means pushing a summary note event and setting cage.batch = null;
+     the events array is the permanent history.
+
+   Area  (displayed as "Acre"):
+     { id, name, sections: Section[] }
+
+   Section  (displayed as "Quarter" or "Plot"):
+     { id, name, vert: bool }
+     vert = true → lines run vertically (columns); false → horizontal rows
+
+   Line:
+     { id, name, section: sectionId, cages: Cage[], pulled?: true }
+     pulled = true means cages were physically removed; the line object
+     stays in farm.lines and renders as a bare rope on the map.
+     INVARIANT: pulling cages or detaching a cage preserves the line's
+     array index so the map never reflows. "Remove line from map"
+     (deleteLine) is the ONE operation that shifts later lines up —
+     its confirm dialog warns about exactly that.
+
+   Cage:
+     { id, typeId, label, batch: Batch|null, events: Event[],
+       detached?: true }
+     detached = true means no physical cage is hanging at that spot;
+     the slot renders as a hollow gap mark and is excluded from all
+     counts and not selectable in select-then-fill mode.
+     label is the display string (e.g. "A-3") set by relabelLine():
+     prefix from the line name, suffix = 1-based position. Appending
+     cages leaves existing labels alone; removing one renumbers the rest.
+
+   Batch  (set when a cage is stocked; null = empty):
+     { id, stockDate: ISO, ploidy: ''|'Trips'|'Dips'|'Mixed',
+       source: string, initialSizeMm: number|null,
+       count: number|null, prep: string[], notes: string }
+     (sample-farm batches predate ploidy and leave it undefined;
+     renderers fall back with `b.ploidy || '—'`)
+     initialSizeMm and count may be null when not recorded;
+     null count → estCount returns null, harvest caps are skipped,
+     display shows "—" rather than 0.
+
+   Event:
+     { id, type: 'growth'|'mortality'|'harvest'|'note',
+       date: ISO, batchId: string,
+       sizeMm?: number,   // growth only
+       count?: number,    // mortality / harvest
+       note?: string }
+     Events accumulate across batch lifecycles; batchId ties each
+     event to the batch that was active when it was logged.
+
+   STORAGE_KEY stays 'cageTrackerData' (not 'spatmapData') so that
+   data saved before the app was renamed to SpatMap keeps loading.
+
+   Transient UI state (not persisted):
+     curPlot      — section id of the open plot (null = overview)
+     plotPushed   — whether history.pushState was called for curPlot;
+                    closePlot() uses history.back() when true so the
+                    phone's back button works
+     selMode      — true while select-then-fill is active
+     selCages     — { cageId: lineId } for each tapped cage
+     sheet        — { build: fn } for the open bottom sheet
+     switcherRenaming, typeRenaming, layoutRenaming — in-sheet edit state
+---------------------------------------------------------------- */
+
+/* key deliberately kept at its pre-rename value; see DATA MODEL above */
 var STORAGE_KEY = 'cageTrackerData';
 var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 var PREP_OPTIONS = ['Graded','Tumbled','Desiccated','Cleaned','Split','Shaken'];
 var PLOIDY_OPTIONS = ['', 'Trips', 'Dips', 'Mixed']; /* ploidy = chromosome sets: trips are triploid, dips diploid */
 var PREP_RENAMES = {'Air-dried':'Desiccated','Split from another cage':'Split'};
+/* product vocabulary: the physical longline is always called "line" in the UI.
+   The only identifier still carrying the legacy "rope" name is the
+   .minirope CSS class (the rope visual itself is drawn by the
+   .cageStrip::before pseudo-element); not renamed because the selector
+   is referenced from both the stylesheet and JS. */
 var SHAPES = ['square','rect','circle'];
 var SHAPE_LABELS = {square:'Bag', rect:'Flip', circle:'OyGrow'};
 
@@ -646,7 +743,7 @@ function daysSince(iso){
   if (!isValidISO(iso)) return 0;
   return Math.max(0, Math.round((isoToMs(todayISO()) - isoToMs(iso)) / 86400000));
 }
-function monthsSince(iso){ return daysSince(iso) / 30.44; }
+function monthsSince(iso){ return daysSince(iso) / 30.44; } /* 30.44 = mean days/month (365.25/12) */
 function inWaterLabel(iso){
   var d = daysSince(iso);
   if (d < 61) return d + (d === 1 ? ' day' : ' days') + ' in water';
@@ -676,6 +773,12 @@ function readWaterCache(){
   }catch(e){ return null; }
 }
 var waterFetchInFlight = false;
+/* fetch the latest readings from USGS instantaneous-values service.
+   parameterCd: 00010=water temp °C, 00480=salinity ppt,
+                00065=gage height ft.
+   results are cached in localStorage for WATER_MAX_AGE_MS (3 h); the chip
+   shows "cached" when the cache is stale but still present.
+   this is display-only — nothing in the app logic gates on water conditions. */
 function fetchWater(){
   var cached = readWaterCache();
   if (cached && Date.now() - cached.fetchedAt < WATER_MAX_AGE_MS) return;
@@ -691,7 +794,7 @@ function fetchWater(){
       if (!code || !vals || !vals.length) return;
       var v = vals[vals.length - 1];
       var num = parseFloat(v.value);
-      if (!isFinite(num) || num <= -999) return; /* USGS missing-data sentinel */
+      if (!isFinite(num) || num <= -999) return; /* USGS reports -999999 / -9999 for missing data */
       if (code === '00480') out.salinity = num;
       else if (code === '00010') out.tempC = num;
       else if (code === '00065') out.gageFt = num;
@@ -781,6 +884,10 @@ function newFarm(name){
 }
 function freshState(){ return {v: 1, farms: [], activeFarmId: null}; }
 
+/* load + migrate persisted state.  every branch is a migration that
+   fires exactly once per affected farm; new data passes through silently.
+   on any parse / shape error the whole blob is discarded and a fresh
+   state is returned — preferable to corrupted data reaching the UI. */
 function loadState(){
   try{
     var raw = localStorage.getItem(STORAGE_KEY);
@@ -789,8 +896,10 @@ function loadState(){
     if (!d || typeof d !== 'object' || !Array.isArray(d.farms)) return freshState();
     d.v = 1;
     d.farms.forEach(function(f){
+      /* missing cageTypes → default set (very old saves had none) */
       if (!Array.isArray(f.cageTypes) || !f.cageTypes.length) f.cageTypes = defaultCageTypes();
       if (!Array.isArray(f.lines)) f.lines = [];
+      /* marketSizeMm introduced after first release; default 76 mm */
       if (typeof f.marketSizeMm !== 'number' || !(f.marketSizeMm > 0)) f.marketSizeMm = 76;
       /* migrate pre-rename default type names */
       f.cageTypes.forEach(function(t){
@@ -798,6 +907,8 @@ function loadState(){
         else if (t.shape === 'rect' && t.name === 'Bag') t.name = 'Flip';
         else if (t.shape === 'circle' && t.name === 'Basket') t.name = 'OyGrow';
       });
+      /* areas/sections introduced after first release; assign defaults
+         if missing or malformed (at least one area with at least one section) */
       if (!Array.isArray(f.areas) || !f.areas.some(function(a){ return Array.isArray(a.sections) && a.sections.length; })){
         f.areas = defaultAreas();
       }
@@ -810,15 +921,18 @@ function loadState(){
           var idx = Math.min(Math.max(1, Math.round(l.section)), flat.length) - 1;
           l.section = flat[idx].id;
         } else if (!flat.some(function(sc){ return sc.id === l.section; })){
+          /* section id no longer exists (area deleted) — park on first section */
           l.section = flat[0].id;
         }
         l.cages.forEach(function(c){
           if (!Array.isArray(c.events)) c.events = [];
           if (c.batch === undefined) c.batch = null;
           if (c.batch && !c.batch.ploidy && (c.batch.source === 'Trips' || c.batch.source === 'Dips' || c.batch.source === 'Mixed')){
-            c.batch.ploidy = c.batch.source; /* ploidy used to live in Source */
+            /* migrate: ploidy used to be stored in the Source field */
+            c.batch.ploidy = c.batch.source;
             c.batch.source = '';
           }
+          /* migrate renamed prep options (PREP_RENAMES map) */
           if (c.batch && Array.isArray(c.batch.prep)){
             c.batch.prep = c.batch.prep.map(function(p){ return PREP_RENAMES[p] || p; });
           }
@@ -867,6 +981,10 @@ function linePrefix(name){
   var c = s.charAt(0);
   return c ? c.toUpperCase() : 'L';
 }
+/* assigns display labels like "A-1", "A-2" … to every cage on the line.
+   prefix from the line name (linePrefix extracts the letter/number),
+   suffix = 1-based array position. appending cages leaves existing
+   labels alone; removing a cage renumbers everything after it. */
 function relabelLine(line){
   var p = linePrefix(line.name);
   line.cages.forEach(function(c, i){ c.label = p + '-' + (i + 1); });
@@ -890,6 +1008,9 @@ function latestSize(cage){
   growth.sort(function(a,b){ return isoToMs(a.date) - isoToMs(b.date); });
   return growth[growth.length - 1].sizeMm;
 }
+/* estimated oysters remaining in this batch.
+   returns null (not 0) when the stocked count was never recorded —
+   callers must treat null as "unknown" and skip harvest caps accordingly. */
 function estCount(cage){
   if (!cage.batch) return 0;
   if (typeof cage.batch.count !== 'number') return null; /* stocked without a recorded count */
@@ -899,6 +1020,8 @@ function estCount(cage){
   });
   return Math.max(0, cage.batch.count - removed);
 }
+/* age-based status for color coding: empty / fresh (<6 mo) / mid (6–12 mo) / old (>12 mo).
+   ready is independent of age — it trips only when measured size ≥ marketSizeMm. */
 function cageStatus(cage, farm){
   if (!cage.batch) return {key: 'empty', color: STATUS_COLORS.empty, ready: false, needsWork: false};
   var m = monthsSince(cage.batch.stockDate);
@@ -922,6 +1045,8 @@ function needsWork(cage){
   var d = lastWorked(cage);
   return !!d && daysSince(d) > WORK_RESET_DAYS;
 }
+/* farm-wide summary for the stats strip.  detached spots are excluded
+   from total so the number matches physical cages, not map positions. */
 function farmStats(farm){
   var total = 0, stocked = 0, ready = 0, sizeSum = 0, sizeN = 0;
   farm.lines.forEach(function(l){
@@ -941,7 +1066,8 @@ function farmStats(farm){
 /* ================================================================
    Growth model + harvest projection (pure, numeric in/out)
 ================================================================ */
-/* size series for the current batch: stock point + growth checks, ascending */
+/* all (date, size) measurement points for the current batch, chronological.
+   stock point is included so a single check produces a two-point slope. */
 function growthPoints(cage){
   var pts = [];
   if (!cage.batch) return pts;
@@ -969,6 +1095,14 @@ function integrateGrowth(fromMs, size, ratePerDay, targetSize, maxDays){
   }
   return {ms: ms, size: size, days: days, reached: size >= targetSize};
 }
+/* main growth model: picks a daily rate, projects forward to market size,
+   and rates confidence.
+   rate selection:
+     1 point  → DEFAULT_GROWTH_MM_DAY prior (Gulf triploid typical rate)
+     2 points → simple slope between them
+     ≥3 points → ordinary least-squares slope over all points
+   a flat or negative observed slope means measurement noise; the prior
+   is used instead and noisy is set so confidence degrades to low/medium. */
 function growthModel(cage, farm){
   var pts = growthPoints(cage);
   if (!cage.batch || !pts.length) return {ok: false};
@@ -1029,7 +1163,7 @@ function growthModel(cage, farm){
     ok: true,
     points: pts.length,
     rateMmPerDay: rate,
-    rateMmPerMonth: rate * 30.44,
+    rateMmPerMonth: rate * 30.44, /* 30.44 = mean days/month */
     rateSource: rateSource,
     noisy: noisy,
     lastMeasuredSizeMm: last.s,
@@ -1048,6 +1182,14 @@ function growthModel(cage, farm){
 /* ================================================================
    SVG shape rendering (all inputs numeric / palette constants)
 ================================================================ */
+/* returns an inline SVG string.
+   shape : 'square' | 'rect' | 'circle'
+   fill  : hex/rgba fill color
+   ring  : bool — market-ready: recolor the cage outline blue and thicken
+           its stroke (the separate outer path is reserved for `work`)
+   size  : nominal px size — height for square/circle; rect draws
+           ~1.3× wide and ~0.9× tall
+   work  : bool — draw the red dashed needs-work ring (overdue handling) */
 function shapeSVG(shape, fill, ring, size, work){
   size = size || 48;
   var stroke = ring ? RING_COLOR : 'rgba(16,48,61,0.25)';
@@ -1078,6 +1220,10 @@ function shapeSVG(shape, fill, ring, size, work){
 /* ================================================================
    Growth chart (inline SVG, numeric data only)
 ================================================================ */
+/* builds the size-over-time chart returned as an HTML string.
+   real measurements are solid teal dots; the dashed segment from the
+   last dot to the market line is the model projection.
+   all coordinate math is local — no external charting library. */
 function growthChartSVG(cage, marketMm, model){
   var pts = growthPoints(cage);
   if (!pts.length) return '<div class="hint" style="padding:18px 8px;text-align:center">No sizes recorded yet — log a growth check to start the chart.</div>';
@@ -1189,7 +1335,10 @@ function commit(){ save(); render(); }
    full view. The phone's back button closes an open plot. */
 var curPlot = null, plotPushed = false;
 /* select-then-fill: in a plot, tap Select, mark the cages you worked,
-   then Log work applies one form to all of them. Transient state. */
+   then Log work applies one form to all of them. Transient state.
+   lifecycle: selMode+selCages are cleared on back-navigation (popstate),
+   on chip-hop between plots, and on Cancel.  they intentionally survive
+   opening/closing a sheet so the user can review a cage mid-selection. */
 var selMode = false, selCages = {}; /* cage id -> line id */
 function selCount(){ return Object.keys(selCages).length; }
 function clearSel(){ selMode = false; selCages = {}; }
@@ -1210,19 +1359,27 @@ function rerenderKeepScroll(){
 function openPlot(secId){
   curPlot = secId;
   clearSel();
+  /* push a history entry so the phone's back button closes the plot
+     instead of navigating away from the page altogether */
   try { history.pushState({spatmapPlot: true}, ''); plotPushed = true; } catch(e){}
   render();
   window.scrollTo(0, 0);
 }
 function closePlot(){
   clearSel();
-  if (plotPushed){ history.back(); return; } /* popstate does the render */
+  /* if we pushed a history entry, let history.back() trigger the popstate
+     listener below — it handles the render.  fallback for environments
+     where pushState failed (e.g. file:// with strict security) */
+  if (plotPushed){ history.back(); return; }
   curPlot = null;
   render();
 }
 window.addEventListener('popstate', function(){
+  /* fires when the back button pops the entry we pushed in openPlot */
   if (curPlot){ curPlot = null; plotPushed = false; clearSel(); render(); }
 });
+/* top-level render: setup screen if no farms exist, otherwise the map
+   (which dispatches to viewPlot when curPlot is set) */
 function render(){
   var app = document.getElementById('app');
   app.textContent = '';
@@ -1261,6 +1418,8 @@ function viewSetup(){
 }
 
 /* ---------------- Map (home) view ---------------- */
+/* builds either the full-farm overview (sections as tappable cards)
+   or delegates to viewPlot when curPlot is set */
 function viewMap(farm){
   /* an open plot that no longer exists (deleted, farm switched) falls
      back to the overview */
@@ -1386,6 +1545,9 @@ function viewMap(farm){
 }
 
 /* ---------------- Plot view: one plot, big cages ---------------- */
+/* full-screen view for one section.  big=true on renderLine gives larger
+   tap targets for stylus use on the water.  the selbar replaces the FAB
+   while selMode is active. */
 function viewPlot(farm, sec){
   var wrap = h('div');
 
@@ -1414,7 +1576,8 @@ function viewPlot(farm, sec){
     }}, selMode ? 'Cancel' : 'Select') : null
   ));
 
-  /* quick hop between plots without going back to the overview */
+  /* quick hop between plots without going back to the overview.
+     clearSel() on each hop keeps selection state from leaking across plots. */
   var chips = h('div', {class: 'plotChips'});
   farm.areas.forEach(function(a){
     a.sections.forEach(function(sc){
@@ -1468,6 +1631,11 @@ function viewPlot(farm, sec){
 function statCell(num, lbl){
   return h('div', {class: 'stat'}, h('div', {class: 'num'}, String(num)), h('div', {class: 'lbl'}, lbl));
 }
+/* renders one line as a scrollable strip of cage buttons.
+   vertical: true → vert layout (Acre 2 style, columns); false → horizontal rows
+   big      : true → plot view (larger tap targets); false → overview mini dots
+   a pulled line (bare=true) renders as a bare rope with no cage buttons — its
+   position is still rendered to maintain the map layout invariant. */
 function renderLine(farm, line, vertical, big){
   var stockedN = line.cages.filter(function(c){ return c.batch; }).length;
   var bare = !line.cages.length; /* pulled line — rope holds the place */
@@ -1601,6 +1769,11 @@ function buildAddLine(preSecId){
 /* ================================================================
    Line menu
 ================================================================ */
+/* "Pull cages" vs "Remove line from map" are distinct operations:
+   pull  — clears cage array + sets pulled:true; the line object stays,
+           rendering as a bare rope (position preserved)
+   remove — deletes the line object entirely; only available when the
+            line is already bare (pulled or never had cages) */
 function buildLineMenu(lineId){
   var farm = getFarm();
   var line = findLine(farm, lineId);
@@ -1718,6 +1891,10 @@ function buildLineMenu(lineId){
 /* ================================================================
    Cage sheet
 ================================================================ */
+/* three distinct cage states, each with a different UI:
+   detached — spot on the line, no physical cage; shows attach form
+   empty    — cage is hanging but has no current batch; shows stock form
+   stocked  — cage has a batch; shows summary, chart, and action grid */
 function buildCageSheet(lineId, cageId){
   var farm = getFarm();
   var found = findCage(farm, lineId, cageId);
@@ -1832,6 +2009,9 @@ function renderEventRow(lineId, cageId, ev){
 }
 
 /* ---------------- stock form (empty cage) ---------------- */
+/* buildStockForm: form for stocking one cage or a range on the same line.
+   when multiCb is checked, the from/to range selects positions; cages
+   that are already stocked or detached within the range are silently skipped. */
 function prepChips(){
   var boxes = [];
   var wrap = h('div', {class: 'chips'});
@@ -1986,6 +2166,10 @@ function buildBatchEdit(lineId, cageId){
 }
 
 /* ---------------- stocked cage summary ---------------- */
+/* shows current size (measured or estimated), growth rate, projected
+   harvest date, count, and action buttons.  the projection rows are
+   omitted with no size data; the chart box always renders, showing a
+   "No sizes recorded yet" prompt instead of a graph when empty. */
 function buildBatchSummary(farm, line, cage){
   var b = cage.batch;
   var size = latestSize(cage);
@@ -2116,11 +2300,14 @@ function buildEventForm(lineId, cageId, evType){
       var n = parseInt(countIn.value, 10);
       if (!(n >= 1)){ toast('Enter a count'); countIn.focus(); return; }
       var capped = false;
+      /* cap at remaining only when remaining is known (not null) */
       if (remaining !== null && n > remaining){ n = remaining; capped = true; }
       if (n < 1){ toast('No oysters left in this cage'); return; }
       cage.events.push({id: uid(), type: evType, date: date, count: n, note: note, batchId: cage.batch.id});
       var nowLeft = estCount(cage);
       var emptied = false;
+      /* full-harvest auto-archive: only fires when the count is known;
+         if count was never recorded (nowLeft === null) the cage stays stocked */
       if (evType === 'harvest' && nowLeft !== null && nowLeft <= 0){
         var b = cage.batch;
         cage.events.push({id: uid(), type: 'note', date: date, batchId: b.id,
@@ -2221,6 +2408,8 @@ var switcherRenaming = null;
 /* ================================================================
    Bulk log — select the cages you worked, then fill it in once
 ================================================================ */
+/* resolves selCages {cageId:lineId} map into an array of {line,cage,index}
+   objects, filtering out any that are no longer findable (e.g. deleted) */
 function bulkSelection(){
   var farm = getFarm();
   var sel = [];
@@ -2339,6 +2528,11 @@ function buildBulkStock(){
     h('button', {class: 'btn', onclick: submit}, h('span', {style: 'display:flex', html: icon('shell', 19)}), 'Stock cages')
   );
 }
+/* log one event type across all selected stocked cages.
+   mortality / harvest counts are applied per-cage and capped at each
+   cage's own remaining count (null = uncapped).  a full harvest (fullCb)
+   takes whatever is left from each cage and triggers the archive path
+   (batch → null, archival note logged) per cage individually. */
 function buildBulkEvent(evType){
   var stocked = bulkSelection().filter(function(f){ return f.cage.batch; });
   if (!stocked.length) return sheetHead('No stocked cages selected');
@@ -2423,6 +2617,9 @@ function buildBulkEvent(evType){
   return h('div', null, kids);
 }
 
+/* farm switcher sheet: lists all farms with rename/delete, plus a new-farm
+   form at the bottom.  switcherRenaming holds the id of the farm currently
+   being renamed inline; null = display mode. */
 function buildFarmSwitcher(){
   var wrap = h('div', null, sheetHead('Farms'));
   var list = h('div', {class: 'menuList'});
@@ -2519,8 +2716,9 @@ function buildSettings(){
 ================================================================ */
 var layoutRenaming = null; /* {kind:'area'|'sec', id} */
 var MAX_AREAS = 6, MAX_SECTIONS = 4;
-/* a section is removable when none of its lines hold a stocked cage —
-   empty lines get swept away with the plot */
+/* counts stocked cages across all lines belonging to secId.
+   a section is removable when this returns 0 (empty lines are swept away
+   with the plot — the user only needs to clear stocked cages first). */
 function sectionStockedCount(farm, secId){
   return farm.lines.reduce(function(n, l){
     if (l.section !== secId) return n;
@@ -2731,6 +2929,9 @@ function buildCageTypes(){
 /* ================================================================
    Export / import
 ================================================================ */
+/* triggers a browser download of the full state as pretty-printed JSON.
+   the Blob + revokeObjectURL is the standard approach for client-side
+   file saves without a server round-trip. */
 function exportData(){
   try{
     var blob = new Blob([JSON.stringify(state, null, 2)], {type: 'application/json'});
@@ -2745,6 +2946,9 @@ function exportData(){
     toast('Export failed');
   }
 }
+/* reads the selected file, validates shape, confirms, then runs loadState()
+   for migration (same path as a normal boot) before re-rendering.
+   this.value = '' resets the input so the same file can be re-selected. */
 document.getElementById('importFile').addEventListener('change', function(){
   var file = this.files && this.files[0];
   this.value = '';
@@ -2866,6 +3070,12 @@ function loadSampleFarm(){
    to fill them in. Dates marked "placeholder" need the real stock date.
 ================================================================ */
 var BRIGHTSIDE_SEED_V = 6;
+/* seeds the real Brightside farm layout on first boot, or re-seeds it
+   when BRIGHTSIDE_SEED_V is bumped (data model / layout correction).
+   once the user has edited the farm the seed stops running — the version
+   check ensures re-seeding only fires for the specific revision that changed,
+   not on every load.  Philip's live edits survive any version that already
+   matches. */
 function loadBrightsideFarm(){
   var existing = state.farms.find(function(f){ return f.brightside; });
   if (existing && existing.brightsideV === BRIGHTSIDE_SEED_V) return;
@@ -2903,6 +3113,8 @@ function loadBrightsideFarm(){
   var r1 = {date: '2026-01-28', ploidy: 'Trips', prep: ['Graded'], notes: 'Smaller trips — sorted end of Jan (sort date used as stock date)'};
   var r2 = {date: '2026-01-25', ploidy: 'Dips', prep: ['Graded'], notes: 'Sorted mid/end Jan — sort date used as stock date'};
   var r4 = {date: '2025-12-05', ploidy: 'Dips', prep: ['Graded'], notes: 'Sorted early December — sort date used as stock date'};
+  /* 'Brightsides' here is a stock grade name (a size/quality sort), not
+     the farm name — a Brightside farm bag can hold Jumbos or Smalls too */
   var jumbos  = {date: '2026-01-01', notes: 'Jumbos' + TBD};
   var brights = {date: '2026-01-01', notes: 'Brightsides' + TBD};
   var smalls  = {date: '2026-01-01', notes: 'Smalls — out of 3s into 4mm gros, then flats' + TBD};
