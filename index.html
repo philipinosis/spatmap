@@ -1,0 +1,2308 @@
+<!DOCTYPE html>
+<!--
+  SpatMap — a self-contained, offline-first web app for oyster farmers
+  to track cage stocking and growth across longlines.
+
+  - ONE file: all HTML, CSS and vanilla JavaScript live in this document.
+  - No frameworks, no CDN, no network access required. Open it in any browser.
+  - All data is stored locally in your browser's localStorage under the key
+    "cageTrackerData" (versioned JSON: {v:1, farms:[...], activeFarmId}).
+  - Use the gear menu inside the app to Export a JSON backup or Import one.
+  - Clearing browser site data will erase the data, so export backups often.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b4f6c">
+<title>SpatMap</title>
+<style>
+  :root{
+    --bg:#eef5f8;
+    --card:#ffffff;
+    --ink:#10303d;
+    --muted:#5b7a87;
+    --line:#d6e2e8;
+    --deep:#0b4f6c;
+    --teal:#0e7c86;
+    --teal-dark:#0a626a;
+    --danger:#c0392b;
+    --c-empty:#c8d4db;
+    --c-fresh:#43a86f;
+    --c-mid:#e3b34e;
+    --c-old:#e2853f;
+    --c-ring:#1f6fd6;
+    --radius:14px;
+    --shadow:0 2px 10px rgba(11,79,108,.10);
+    --tap:48px;
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html{font-size:16px}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.45;
+    min-height:100vh;
+  }
+  button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
+  button:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  .topbar button:focus-visible,.cage:focus-visible,.lineTop .menu:focus-visible{outline-color:#fff}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{transition-duration:.01ms !important;animation-duration:.01ms !important}
+  }
+  input,select,textarea{
+    font:inherit;font-size:16px;color:var(--ink);
+    border:1.5px solid var(--line);border-radius:10px;
+    padding:11px 12px;width:100%;background:#fff;min-height:var(--tap);
+  }
+  textarea{min-height:72px;resize:vertical}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal)}
+  h1,h2,h3{line-height:1.2}
+
+  /* ---------- App header ---------- */
+  .topbar{
+    position:sticky;top:0;z-index:20;
+    background:var(--deep);color:#fff;
+    padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top));
+    display:flex;align-items:center;gap:8px;
+    box-shadow:0 2px 8px rgba(0,0,0,.18);
+  }
+  .topbar .farm-btn{
+    flex:1;min-width:0;min-height:var(--tap);
+    display:flex;align-items:center;gap:8px;
+    color:#fff;font-weight:700;font-size:1.12rem;
+    padding:4px 8px;border-radius:10px;text-align:left;
+  }
+  .topbar .farm-btn:active{background:rgba(255,255,255,.14)}
+  .topbar .farm-btn .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topbar .farm-btn .chev{font-size:.8rem;opacity:.8;flex:none}
+  .iconbtn{
+    min-width:var(--tap);min-height:var(--tap);
+    display:inline-flex;align-items:center;justify-content:center;
+    font-size:1.35rem;border-radius:10px;color:#fff;flex:none;
+  }
+  .iconbtn:active{background:rgba(255,255,255,.14)}
+
+  /* ---------- Stats strip ---------- */
+  .stats{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+    padding:12px;max-width:900px;margin:0 auto;
+  }
+  .stat{
+    background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);
+    padding:10px 6px;text-align:center;min-width:0;
+  }
+  .stat .num{font-size:1.25rem;font-weight:800;color:var(--deep);font-variant-numeric:tabular-nums}
+  .stat .lbl{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+
+  /* ---------- Map / lines ---------- */
+  .map{max-width:900px;margin:0 auto;padding:0 12px 110px}
+  .banner{
+    background:#fdf3d7;border:1.5px solid #e9d290;color:#7a5d11;
+    border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.92rem;
+  }
+  .banner button{
+    background:#fff;border:1.5px solid #d8bd6c;border-radius:10px;
+    padding:8px 14px;font-weight:700;min-height:44px;color:#7a5d11;
+  }
+  /* ---------- Ocean map ---------- */
+  .ocean{
+    background:linear-gradient(180deg,#0a4a68 0%,#0c5d7d 45%,#0e7186 100%);
+    border-radius:18px;padding:14px 10px 14px;
+    box-shadow:inset 0 2px 18px rgba(0,0,0,.25),var(--shadow);
+  }
+  .acre{margin-bottom:18px}
+  .acre:last-of-type{margin-bottom:4px}
+  .acreTitle{
+    color:#cfe8f0;font-size:.78rem;font-weight:800;text-transform:uppercase;
+    letter-spacing:.08em;margin:0 4px 8px;display:flex;align-items:center;gap:8px;
+  }
+  .acreTitle::after{content:'';flex:1;border-top:1px solid rgba(255,255,255,.18)}
+  .quarters{
+    display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;
+    gap:26px;position:relative;
+  }
+  .quarters::before{
+    content:'';position:absolute;left:50%;top:4px;bottom:4px;
+    border-left:2px dashed rgba(255,255,255,.4);transform:translateX(-50%);
+  }
+  .quarters::after{
+    content:'';position:absolute;top:50%;left:4px;right:4px;
+    border-top:2px dashed rgba(255,255,255,.4);transform:translateY(-50%);
+  }
+  .quarters.onerow::after{display:none}
+  .quarters .lane{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:1;color:rgba(255,255,255,.9);display:flex;
+  }
+  .quarters .lane svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
+  .quarter{
+    position:relative;background:rgba(255,255,255,.07);
+    border:1.5px solid rgba(255,255,255,.22);border-radius:12px;
+    padding:8px 8px 6px;min-height:88px;min-width:0;
+  }
+  .qname{
+    color:#bfe0ea;font-size:.66rem;font-weight:800;text-transform:uppercase;
+    letter-spacing:.06em;margin:0 2px 4px;
+  }
+  .qEmpty{color:#9cc4d2;font-size:.74rem;padding:6px 2px}
+
+  /* ---------- Lines: rope + anchors + cages ---------- */
+  .lineWrap{margin:2px 0 8px}
+  .lineWrap:last-child{margin-bottom:2px}
+  .lineTop{display:flex;align-items:center;gap:4px;padding:0 2px}
+  .lineTop .lname{color:#fff;font-weight:800;font-size:.84rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lineTop .lcount{color:#b5d6e2;font-size:.7rem;flex:1;white-space:nowrap}
+  .lineTop .menu{
+    min-width:38px;min-height:38px;font-size:1.15rem;color:#cfe3ea;
+    display:inline-flex;align-items:center;justify-content:center;border-radius:10px;
+  }
+  .lineTop .menu:active{background:rgba(255,255,255,.14)}
+  .cageScroller{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
+  .cageScroller::-webkit-scrollbar{height:4px}
+  .cageScroller::-webkit-scrollbar-track{background:transparent}
+  .cageScroller::-webkit-scrollbar-thumb{background:rgba(255,255,255,.25);border-radius:2px}
+  .cageStrip{
+    display:inline-flex;align-items:flex-start;gap:2px;
+    position:relative;padding:3px 2px 1px;
+  }
+  .cageStrip::before{
+    content:'';position:absolute;left:7px;right:7px;top:20px;height:2px;border-radius:1px;
+    background:repeating-linear-gradient(115deg,#e6cc92 0 5px,#bd9a62 5px 10px);
+    box-shadow:0 1px 1px rgba(0,0,0,.25);
+  }
+  .anch{
+    flex:none;display:flex;align-items:center;justify-content:center;
+    height:36px;width:18px;position:relative;color:#ecd9a8;
+  }
+  .anch svg{filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+  .cage{
+    flex:none;display:flex;flex-direction:column;align-items:center;gap:0;
+    min-width:36px;padding:0 1px 2px;border-radius:8px;position:relative;
+    transition:transform .15s var(--ease),background .15s ease;
+  }
+  .cage:active{background:rgba(255,255,255,.10);transform:scale(.9)}
+  .cage .shapeBox svg{filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.28))}
+  .cage .shapeBox{height:36px;display:flex;align-items:center}
+  .cage .clabel{font-size:.58rem;color:#cfe3ea;font-weight:600;max-width:48px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* vertical lines (Acre 2) */
+  .linesRow{display:flex;gap:12px;overflow-x:auto;padding:2px;-webkit-overflow-scrolling:touch}
+  .lineWrap.vert{flex:none;display:flex;flex-direction:column;align-items:center;margin:0}
+  .lineWrap.vert .lineTop{max-width:90px}
+  .cageScroller.vscroll{
+    overflow-x:hidden;overflow-y:auto;max-height:430px;
+    scrollbar-width:none;
+  }
+  .cageScroller.vscroll::-webkit-scrollbar{display:none}
+  .cageStrip.vert{
+    flex-direction:column;align-items:center;
+    min-width:0;padding:1px 3px;
+  }
+  .cageStrip.vert::before{
+    left:50%;right:auto;top:7px;bottom:7px;height:auto;width:2px;
+    transform:translateX(-50%);
+    background:repeating-linear-gradient(25deg,#e6cc92 0 5px,#bd9a62 5px 10px);
+    box-shadow:1px 0 1px rgba(0,0,0,.25);
+  }
+  .cageStrip.vert .anch{height:18px;width:36px}
+
+  /* ---------- Farm overview: tappable plot cards with status-dot minis ---------- */
+  .quarter.qtap{
+    display:block;width:100%;text-align:left;
+    transition:transform .12s var(--ease),background .12s ease;
+  }
+  .quarter.qtap:active{background:rgba(255,255,255,.13);transform:scale(.98)}
+  .qhead{display:flex;align-items:center;gap:6px}
+  .qhead .qname{flex:1;margin:0 2px}
+  .qhead .qgo{color:#9cc4d2;font-size:.9rem;line-height:1}
+  .qsub{color:#9cc4d2;font-size:.68rem;margin:0 2px 6px}
+  .miniLine{display:flex;align-items:center;gap:4px;margin:3px 0;min-width:0}
+  .miniLine .mlbl,.miniCol .mlbl{
+    color:#bfe0ea;font-size:.6rem;font-weight:700;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;flex:none;width:38px;
+  }
+  .miniDots{display:flex;gap:3px;flex-wrap:wrap;min-width:0}
+  .dot{width:9px;height:9px;border-radius:3px;flex:none}
+  .dot.rnd{border-radius:50%}
+  .dot.rdy{box-shadow:0 0 0 2px var(--c-ring)}
+  .miniCols{display:flex;gap:10px;overflow:hidden}
+  .miniCol{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .miniCol .mlbl{width:auto;max-width:44px}
+
+  /* ---------- Plot view: one plot full-screen, big stylus targets ---------- */
+  .plotbar{display:flex;align-items:center;gap:8px;max-width:900px;margin:0 auto 10px;padding:12px 12px 0}
+  .plotbar .backbtn{
+    display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 14px 0 8px;
+    background:var(--card);border-radius:12px;box-shadow:var(--shadow);
+    font-weight:800;font-size:.95rem;color:var(--ink);
+  }
+  .plotbar .backbtn:active{transform:scale(.96)}
+  .plotbar .ptitle{flex:1;min-width:0}
+  .plotbar .ptitle .pname{font-weight:800;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .plotbar .ptitle .psub{color:var(--muted);font-size:.78rem}
+  .plotChips{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:900px;margin:0 auto;padding:0 12px 10px;scrollbar-width:none}
+  .plotChips::-webkit-scrollbar{display:none}
+  .plotChips .chip{
+    flex:none;min-height:40px;padding:0 14px;border-radius:20px;font-weight:700;font-size:.84rem;
+    background:var(--card);color:var(--muted);box-shadow:var(--shadow);
+  }
+  .plotChips .chip.on{background:#0b4f6c;color:#fff}
+  .lineWrap.big .lineTop .lname{font-size:.95rem}
+  .lineWrap.big .lineTop .lcount{font-size:.78rem}
+  .cage.big{min-width:52px;padding:0 2px 3px}
+  .cage.big .shapeBox{height:50px}
+  .cage.big .clabel{font-size:.74rem;max-width:60px}
+  .cageStrip.bigstrip{gap:4px}
+  .cageStrip.bigstrip::before{top:27px}
+  .cageStrip.vert.bigstrip::before{top:7px}
+  .cageStrip.bigstrip .anch{height:50px}
+  .cageStrip.vert.bigstrip .anch{height:18px}
+  /* plot view: vertical lines run full length, the page itself scrolls
+     so side-by-side lines stay aligned while you work down them */
+  .cageScroller.vscroll.tall{max-height:none;overflow-y:visible}
+  .lineWrap.big.vert .lineTop{max-width:116px}
+
+  /* ---------- Legend (on water) ---------- */
+  .legend{margin:6px 0 0}
+  .legend summary{
+    color:#cfe3ea;font-size:.85rem;font-weight:600;cursor:pointer;
+    padding:10px 4px;min-height:44px;display:flex;align-items:center;list-style:none;
+  }
+  .legend summary::-webkit-details-marker{display:none}
+  .legend summary::before{content:"▸ ";margin-right:4px}
+  .legend[open] summary::before{content:"▾ "}
+  .legend .keys{display:flex;flex-wrap:wrap;gap:10px 16px;padding:2px 4px 8px;font-size:.82rem;color:#dceaf0}
+  .legend .key{display:flex;align-items:center;gap:6px}
+  .swatch{width:16px;height:16px;border-radius:5px;flex:none;border:1px solid rgba(16,48,61,.2)}
+  .swatch.ringed{background:#fff;border:3px solid var(--c-ring);border-radius:50%}
+
+  /* ---------- Empty states ---------- */
+  .empty{
+    text-align:center;padding:42px 20px;color:var(--muted);
+    background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:14px;
+  }
+  .empty .big{display:flex;justify-content:center;margin-bottom:10px;color:var(--teal)}
+  .empty h2{color:var(--ink);margin-bottom:6px;font-size:1.15rem}
+  .empty p{max-width:340px;margin:0 auto 8px}
+  .linklike{color:var(--teal);font-weight:700;text-decoration:underline;min-height:44px;padding:8px}
+
+  /* ---------- FAB ---------- */
+  .fab{
+    position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(16px + env(safe-area-inset-bottom));z-index:15;
+    background:var(--teal);color:#fff;font-weight:800;font-size:1.05rem;
+    border-radius:999px;padding:15px 26px;min-height:52px;
+    box-shadow:0 4px 16px rgba(14,124,134,.45);
+    transition:transform .18s var(--ease),background .15s ease,box-shadow .18s ease;
+  }
+  .fab:active{background:var(--teal-dark);transform:translateX(-50%) scale(.95);box-shadow:0 2px 8px rgba(14,124,134,.4)}
+
+  /* ---------- Sheets / modals ---------- */
+  .overlay{
+    position:fixed;inset:0;z-index:40;
+    background:rgba(11,40,53,.5);
+    opacity:0;visibility:hidden;
+    transition:opacity .22s ease,visibility 0s linear .26s;
+  }
+  .overlay.open{opacity:1;visibility:visible;transition:opacity .22s ease}
+  .sheet{
+    position:absolute;left:0;right:0;bottom:0;
+    background:var(--card);border-radius:20px 20px 0 0;
+    max-height:90vh;max-height:90dvh;overflow-y:auto;
+    padding:8px 16px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 -6px 30px rgba(0,0,0,.25);
+    -webkit-overflow-scrolling:touch;
+    transform:translateY(100%);
+    transition:transform .26s var(--ease);
+  }
+  .overlay.open .sheet{transform:translateY(0)}
+  .sheet .grab{width:42px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 6px}
+  .sheetHead{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+  .sheetHead h2{flex:1;font-size:1.15rem}
+  .sheetHead .back,.sheetHead .close{
+    min-width:var(--tap);min-height:var(--tap);font-size:1.3rem;color:var(--muted);
+    display:inline-flex;align-items:center;justify-content:center;border-radius:10px;
+  }
+  .sheetHead .back:active,.sheetHead .close:active{background:var(--bg)}
+  @media (min-width:700px){
+    .sheet{
+      left:50%;right:auto;bottom:auto;top:50%;
+      transform:translate(-50%,-46%);opacity:0;
+      width:480px;max-height:86vh;border-radius:20px;
+      transition:transform .24s var(--ease),opacity .18s ease;
+    }
+    .overlay.open .sheet{transform:translate(-50%,-50%);opacity:1}
+    .sheet .grab{display:none}
+  }
+
+  /* ---------- Forms ---------- */
+  .field{margin-bottom:13px}
+  .field>label{display:block;font-size:.82rem;font-weight:700;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.03em}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{position:relative}
+  .chip input{position:absolute;opacity:0;width:100%;height:100%;left:0;top:0;margin:0;cursor:pointer;min-height:0}
+  .chip span{
+    display:inline-flex;align-items:center;min-height:44px;padding:8px 16px;
+    border:1.5px solid var(--line);border-radius:999px;font-size:.92rem;
+    background:#fff;color:var(--ink);
+  }
+  .chip input:checked+span{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:700}
+  .btn{
+    display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+    min-height:50px;border-radius:12px;font-weight:800;font-size:1rem;
+    background:var(--teal);color:#fff;padding:10px 14px;margin-top:4px;
+    transition:transform .15s var(--ease),background .15s ease;
+  }
+  .btn:active{background:var(--teal-dark);transform:scale(.985)}
+  .btn.secondary{background:var(--bg);color:var(--deep);border:1.5px solid var(--line)}
+  .btn.secondary:active{background:var(--line)}
+  .btn.danger{background:#fdf0ee;color:var(--danger);border:1.5px solid #eccac5}
+  .btn.danger:active{background:#f6ded9}
+  .btn.sm{min-height:44px;font-size:.9rem;width:auto;padding:8px 14px;margin-top:0}
+  .toggleRow{
+    display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 2px;
+    font-weight:600;cursor:pointer;font-size:.95rem;
+  }
+  .toggleRow input{width:22px;height:22px;min-height:0;flex:none;accent-color:var(--teal)}
+  .hint{font-size:.82rem;color:var(--muted);margin-top:4px}
+  .err{color:var(--danger);font-size:.86rem;font-weight:600;margin:6px 0;display:none}
+  .err.show{display:block}
+
+  /* ---------- Cage sheet details ---------- */
+  .batchCard{background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .batchCard .bigsize{font-size:1.7rem;font-weight:800;color:var(--deep)}
+  .batchCard .ready{color:var(--c-ring);font-weight:800;font-size:.85rem}
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:.92rem}
+  .kv .k{color:var(--muted)}
+  .kv .v{font-weight:600;text-align:right;overflow-wrap:anywhere}
+  .actGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+  .actGrid .btn{margin-top:0;min-height:56px;flex-direction:column;gap:3px;font-size:.9rem}
+  .actGrid .btn .ico{display:flex;color:var(--teal)}
+  .chartBox{background:var(--bg);border-radius:12px;padding:8px 6px 2px;margin-bottom:12px}
+  .chartBox svg{display:block;width:100%;height:auto}
+  .evt{
+    display:flex;gap:10px;align-items:flex-start;padding:10px 2px;
+    border-bottom:1px solid var(--line);
+  }
+  .evt:last-child{border-bottom:none}
+  .evt .eico{flex:none;width:28px;display:flex;justify-content:center;padding-top:1px;color:var(--muted)}
+  .evt .ebody{flex:1;min-width:0;font-size:.92rem}
+  .evt .edate{color:var(--muted);font-size:.78rem}
+  .evt .enote{color:var(--muted);overflow-wrap:anywhere}
+  .evt .ebtns{display:flex;flex:none}
+  .evt .ebtns button{
+    min-width:44px;min-height:44px;border-radius:10px;font-size:1.05rem;color:var(--muted);
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .evt .ebtns button:active{background:var(--bg)}
+  .sectionTitle{font-size:.82rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:16px 0 4px}
+
+  /* ---------- Menu list rows ---------- */
+  .menuList{display:flex;flex-direction:column}
+  .menuItem{
+    display:flex;align-items:center;gap:12px;min-height:54px;padding:8px 6px;
+    border-bottom:1px solid var(--line);text-align:left;font-size:1rem;font-weight:600;width:100%;
+  }
+  .menuItem:last-child{border-bottom:none}
+  .menuItem:active{background:var(--bg)}
+  .menuItem .mico{font-size:1.25rem;width:30px;text-align:center;flex:none}
+  .menuItem .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .menuItem .sub{display:block;font-size:.78rem;color:var(--muted);font-weight:400}
+  .menuItem.danger{color:var(--danger)}
+  .typeRow{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line)}
+  .typeRow:last-child{border-bottom:none}
+  .typeRow .tname{flex:1;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .shapePick{display:flex;gap:8px}
+  .shapeOpt{position:relative;flex:1}
+  .shapeOpt input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer;min-height:0;width:100%;height:100%}
+  .shapeOpt span{
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+    border:1.5px solid var(--line);border-radius:12px;padding:10px 4px;min-height:74px;
+    font-size:.78rem;font-weight:700;color:var(--muted);background:#fff;
+  }
+  .shapeOpt input:checked+span{border-color:var(--teal);background:#e7f4f5;color:var(--teal-dark)}
+
+  /* ---------- Setup ---------- */
+  .setup{max-width:420px;margin:0 auto;padding:48px 20px}
+  .setup .logo{display:flex;justify-content:center;margin-bottom:10px;color:var(--teal)}
+  .setup h1{text-align:center;color:var(--deep);margin-bottom:4px}
+  .setup .tag{text-align:center;color:var(--muted);margin-bottom:28px}
+  .setupCard{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+  .setup .or{text-align:center;margin-top:18px;color:var(--muted);font-size:.9rem}
+
+  /* ---------- Toast ---------- */
+  #toast{
+    position:fixed;left:50%;transform:translate(-50%,10px);
+    bottom:calc(86px + env(safe-area-inset-bottom));z-index:60;
+    background:var(--ink);color:#fff;padding:11px 18px;border-radius:999px;
+    font-size:.92rem;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.3);
+    opacity:0;pointer-events:none;max-width:88vw;text-align:center;
+    transition:opacity .22s ease,transform .28s var(--ease);
+  }
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="overlay" id="overlay">
+  <div class="sheet" id="sheetBody" role="dialog" aria-modal="true"></div>
+</div>
+<div id="toast" role="status"></div>
+<input type="file" id="importFile" accept=".json,application/json" hidden>
+
+<script>
+(function(){
+'use strict';
+
+/* ================================================================
+   Utilities
+================================================================ */
+var STORAGE_KEY = 'cageTrackerData';
+var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var PREP_OPTIONS = ['Graded','Tumbled','Desiccated','Cleaned','Split','Shaken'];
+var PLOIDY_OPTIONS = ['', 'Trips', 'Dips', 'Mixed']; /* ploidy = chromosome sets: trips are triploid, dips diploid */
+var PREP_RENAMES = {'Air-dried':'Desiccated','Split from another cage':'Split'};
+var SHAPES = ['square','rect','circle'];
+var SHAPE_LABELS = {square:'Bag', rect:'Flip', circle:'OyGrow'};
+
+/* Inline icon set — 24×24 strokes, inherit color via currentColor */
+var ICON_PATHS = {
+  anchor:  '<circle cx="12" cy="5" r="2.4"/><line x1="12" y1="7.4" x2="12" y2="20"/><line x1="8" y1="10.6" x2="16" y2="10.6"/><path d="M5 14.5a7 7 0 0 0 14 0"/>',
+  boat:    '<path d="M12 3.5V14"/><path d="M12 4.5c3.6 1.8 5.2 4.6 5.8 7.5H12z" fill="currentColor" stroke="none" opacity=".9"/><path d="M12 7c-2.2 1.4-3.3 3.2-3.7 5H12z" fill="currentColor" stroke="none" opacity=".55"/><path d="M4.5 16.5h15L17.6 20H6.4z" fill="currentColor" stroke="none"/>',
+  tune:    '<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="14.5" cy="7" r="2.2" fill="#0b4f6c"/><circle cx="8.5" cy="12" r="2.2" fill="#0b4f6c"/><circle cx="15.5" cy="17" r="2.2" fill="#0b4f6c"/>',
+  ruler:   '<rect x="3" y="8.5" width="18" height="7" rx="1.6"/><line x1="7.5" y1="8.5" x2="7.5" y2="12"/><line x1="12" y1="8.5" x2="12" y2="12"/><line x1="16.5" y1="8.5" x2="16.5" y2="12"/>',
+  skull:   '<path d="M12 3.5a7 7 0 0 0-7 7c0 2.4 1.2 4.4 3 5.7l.4 4.3h7.2l.4-4.3a7 7 0 0 0 3-5.7 7 7 0 0 0-7-7z"/><circle cx="9.4" cy="10.8" r="1.3" fill="currentColor" stroke="none"/><circle cx="14.6" cy="10.8" r="1.3" fill="currentColor" stroke="none"/><line x1="10.7" y1="16.8" x2="10.7" y2="18.2"/><line x1="13.3" y1="16.8" x2="13.3" y2="18.2"/>',
+  basket:  '<path d="M4.5 9.5h15l-1.6 9.5H6.1z"/><path d="M8.5 9.5a3.5 3.5 0 0 1 7 0"/><line x1="9.6" y1="12.5" x2="10" y2="16"/><line x1="14.4" y1="12.5" x2="14" y2="16"/>',
+  note:    '<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14.5 3.5V8H19"/><line x1="9" y1="12.5" x2="16" y2="12.5"/><line x1="9" y1="16" x2="14" y2="16"/>',
+  pencil:  '<path d="M4.5 19.5l.9-3.6L15.8 5.5l2.7 2.7L8.1 18.6l-3.6.9z"/><line x1="13.9" y1="7.4" x2="16.6" y2="10.1"/>',
+  trash:   '<line x1="4.5" y1="6.5" x2="19.5" y2="6.5"/><path d="M9.5 6.5V4.5h5v2"/><path d="M6.5 6.5l.9 13h9.2l.9-13"/><line x1="10.2" y1="10" x2="10.5" y2="16.5"/><line x1="13.8" y1="10" x2="13.5" y2="16.5"/>',
+  shell:   '<path d="M12 3.5C6.8 6.6 4 11 4 14.5a8 8 0 0 0 16 0C20 11 17.2 6.6 12 3.5z"/><path d="M12 4.5v17"/><path d="M12 5c-2.8 3.4-4.2 7.3-4.4 11.8"/><path d="M12 5c2.8 3.4 4.2 7.3 4.4 11.8"/>',
+  waves:   '<path d="M3 9.5c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/><path d="M3 15.5c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/>',
+  swap:    '<path d="M7 4.5L3.5 8 7 11.5"/><path d="M3.5 8H17a3.5 3.5 0 0 1 0 7h-1"/><path d="M17 19.5L20.5 16 17 12.5"/><path d="M20.5 16H7a3.5 3.5 0 0 1 0-7h1"/>',
+  shapes:  '<rect x="3.5" y="3.5" width="9" height="9" rx="2"/><circle cx="15.5" cy="15.5" r="5"/>',
+  download:'<path d="M12 4v10"/><path d="M8 10.5L12 14l4-3.5"/><path d="M4.5 16v3.5h15V16"/>',
+  grid:    '<rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.5"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.5"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.5"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.5"/>',
+  upload:  '<path d="M12 14V4"/><path d="M8 7.5L12 4l4 3.5"/><path d="M4.5 16v3.5h15V16"/>'
+};
+function icon(name, size){
+  size = size || 20;
+  return '<svg viewBox="0 0 24 24" width="' + size + '" height="' + size + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON_PATHS[name] + '</svg>';
+}
+var STATUS_COLORS = {empty:'#c8d4db', fresh:'#43a86f', mid:'#e3b34e', old:'#e2853f'};
+var RING_COLOR = '#1f6fd6';
+var MAX_TYPES = 6;
+
+function uid(){
+  try{
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  }catch(e){}
+  return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,10);
+}
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+/* tiny DOM builder: h('div',{class:'x',onclick:fn},'text',childEl,...) */
+function h(tag, attrs){
+  var el = document.createElement(tag);
+  if (attrs){
+    for (var k in attrs){
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) continue;
+      if (k === 'class') el.className = v;
+      else if (k === 'html') el.innerHTML = v; /* only pre-escaped/static markup */
+      else if (k.indexOf('on') === 0 && typeof v === 'function') el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? '' : v);
+    }
+  }
+  for (var i = 2; i < arguments.length; i++) appendKid(el, arguments[i]);
+  return el;
+}
+function appendKid(el, kid){
+  if (kid === null || kid === undefined || kid === false) return;
+  if (Array.isArray(kid)){ kid.forEach(function(k){ appendKid(el, k); }); return; }
+  el.appendChild(kid.nodeType ? kid : document.createTextNode(String(kid)));
+}
+
+/* ---------- dates ---------- */
+function todayISO(){
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function isValidISO(s){ return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+function isoToMs(iso){
+  var p = iso.split('-');
+  return Date.UTC(+p[0], +p[1]-1, +p[2]);
+}
+function fmtDate(iso){
+  if (!isValidISO(iso)) return iso || '';
+  var p = iso.split('-');
+  return MONTHS[+p[1]-1] + ' ' + (+p[2]) + ', ' + p[0];
+}
+function daysSince(iso){
+  if (!isValidISO(iso)) return 0;
+  return Math.max(0, Math.round((isoToMs(todayISO()) - isoToMs(iso)) / 86400000));
+}
+function monthsSince(iso){ return daysSince(iso) / 30.44; }
+function inWaterLabel(iso){
+  var d = daysSince(iso);
+  if (d < 61) return d + (d === 1 ? ' day' : ' days') + ' in water';
+  var m = d / 30.44;
+  return (m >= 24 ? Math.round(m) : Math.round(m*10)/10) + ' months in water';
+}
+
+function toast(msg){
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(function(){ t.classList.remove('show'); }, 2400);
+}
+
+/* ================================================================
+   State module
+================================================================ */
+var state;
+
+function defaultCageTypes(){
+  return [
+    {id: uid(), name: 'Bag',    shape: 'square'},
+    {id: uid(), name: 'Flip',   shape: 'rect'},
+    {id: uid(), name: 'OyGrow', shape: 'circle'}
+  ];
+}
+function defaultAreas(){
+  /* the layout every new farm starts with — fully editable in Settings → Farm layout */
+  return [
+    {id: uid(), name: 'Acre 1', sections: [
+      {id: uid(), name: 'Quarter 1', vert: false},
+      {id: uid(), name: 'Quarter 2', vert: false},
+      {id: uid(), name: 'Quarter 3', vert: false},
+      {id: uid(), name: 'Quarter 4', vert: false}
+    ]},
+    {id: uid(), name: 'Acre 2', sections: [
+      {id: uid(), name: 'Acre 2', vert: true}
+    ]}
+  ];
+}
+function flatSections(farm){
+  var out = [];
+  farm.areas.forEach(function(a){ a.sections.forEach(function(sc){ out.push(sc); }); });
+  return out;
+}
+function sectionLabel(farm, secId){
+  for (var i = 0; i < farm.areas.length; i++){
+    var a = farm.areas[i];
+    for (var j = 0; j < a.sections.length; j++){
+      if (a.sections[j].id === secId){
+        return a.sections.length > 1 ? a.name + ' — ' + a.sections[j].name : a.name;
+      }
+    }
+  }
+  return '';
+}
+function sectionLineCount(farm, secId){
+  return farm.lines.filter(function(l){ return l.section === secId; }).length;
+}
+function newFarm(name){
+  return {id: uid(), name: name, marketSizeMm: 76, cageTypes: defaultCageTypes(), areas: defaultAreas(), lines: []};
+}
+function freshState(){ return {v: 1, farms: [], activeFarmId: null}; }
+
+function loadState(){
+  try{
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return freshState();
+    var d = JSON.parse(raw);
+    if (!d || typeof d !== 'object' || !Array.isArray(d.farms)) return freshState();
+    d.v = 1;
+    d.farms.forEach(function(f){
+      if (!Array.isArray(f.cageTypes) || !f.cageTypes.length) f.cageTypes = defaultCageTypes();
+      if (!Array.isArray(f.lines)) f.lines = [];
+      if (typeof f.marketSizeMm !== 'number' || !(f.marketSizeMm > 0)) f.marketSizeMm = 76;
+      /* migrate pre-rename default type names */
+      f.cageTypes.forEach(function(t){
+        if (t.shape === 'square' && t.name === 'Cage') t.name = 'Bag';
+        else if (t.shape === 'rect' && t.name === 'Bag') t.name = 'Flip';
+        else if (t.shape === 'circle' && t.name === 'Basket') t.name = 'OyGrow';
+      });
+      if (!Array.isArray(f.areas) || !f.areas.some(function(a){ return Array.isArray(a.sections) && a.sections.length; })){
+        f.areas = defaultAreas();
+      }
+      f.areas = f.areas.filter(function(a){ return Array.isArray(a.sections) && a.sections.length; });
+      var flat = flatSections(f);
+      f.lines.forEach(function(l){
+        if (!Array.isArray(l.cages)) l.cages = [];
+        if (typeof l.section === 'number'){
+          /* migrate pre-layout farms: numeric sections 1–5 map onto the default layout in order */
+          var idx = Math.min(Math.max(1, Math.round(l.section)), flat.length) - 1;
+          l.section = flat[idx].id;
+        } else if (!flat.some(function(sc){ return sc.id === l.section; })){
+          l.section = flat[0].id;
+        }
+        l.cages.forEach(function(c){
+          if (!Array.isArray(c.events)) c.events = [];
+          if (c.batch === undefined) c.batch = null;
+          if (c.batch && !c.batch.ploidy && (c.batch.source === 'Trips' || c.batch.source === 'Dips' || c.batch.source === 'Mixed')){
+            c.batch.ploidy = c.batch.source; /* ploidy used to live in Source */
+            c.batch.source = '';
+          }
+          if (c.batch && Array.isArray(c.batch.prep)){
+            c.batch.prep = c.batch.prep.map(function(p){ return PREP_RENAMES[p] || p; });
+          }
+        });
+      });
+    });
+    if (!d.activeFarmId || !d.farms.some(function(f){ return f.id === d.activeFarmId; })){
+      d.activeFarmId = d.farms.length ? d.farms[0].id : null;
+    }
+    return d;
+  }catch(e){
+    return freshState();
+  }
+}
+function save(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch(e){ toast('Could not save — storage may be full'); }
+}
+
+function getFarm(){
+  if (!state.farms.length) return null;
+  return state.farms.find(function(f){ return f.id === state.activeFarmId; }) || state.farms[0];
+}
+function getType(farm, typeId){
+  return farm.cageTypes.find(function(t){ return t.id === typeId; }) || farm.cageTypes[0];
+}
+function findLine(farm, lineId){
+  return farm.lines.find(function(l){ return l.id === lineId; }) || null;
+}
+function findCage(farm, lineId, cageId){
+  var line = findLine(farm, lineId);
+  if (!line) return null;
+  for (var i = 0; i < line.cages.length; i++){
+    if (line.cages[i].id === cageId) return {line: line, cage: line.cages[i], index: i};
+  }
+  return null;
+}
+
+/* ---------- labels ---------- */
+function linePrefix(name){
+  var s = String(name || '').trim();
+  var m = s.match(/^line\s+(\S+)/i); /* "Line A" -> "A", "Line 12" -> "12" */
+  if (m) s = m[1];
+  var d = s.match(/\d+/);
+  if (d) return d[0];
+  var c = s.charAt(0);
+  return c ? c.toUpperCase() : 'L';
+}
+function relabelLine(line){
+  var p = linePrefix(line.name);
+  line.cages.forEach(function(c, i){ c.label = p + '-' + (i + 1); });
+}
+function makeCage(typeId){
+  return {id: uid(), label: '', typeId: typeId, batch: null, events: []};
+}
+
+/* ================================================================
+   Domain calculations
+================================================================ */
+function batchEvents(cage){
+  if (!cage.batch) return [];
+  var bid = cage.batch.id;
+  return cage.events.filter(function(e){ return e.batchId === bid; });
+}
+function latestSize(cage){
+  if (!cage.batch) return null;
+  var growth = batchEvents(cage).filter(function(e){ return e.type === 'growth' && typeof e.sizeMm === 'number'; });
+  if (!growth.length) return cage.batch.initialSizeMm;
+  growth.sort(function(a,b){ return isoToMs(a.date) - isoToMs(b.date); });
+  return growth[growth.length - 1].sizeMm;
+}
+function estCount(cage){
+  if (!cage.batch) return 0;
+  if (typeof cage.batch.count !== 'number') return null; /* stocked without a recorded count */
+  var removed = 0;
+  batchEvents(cage).forEach(function(e){
+    if ((e.type === 'mortality' || e.type === 'harvest') && typeof e.count === 'number') removed += e.count;
+  });
+  return Math.max(0, cage.batch.count - removed);
+}
+function cageStatus(cage, farm){
+  if (!cage.batch) return {key: 'empty', color: STATUS_COLORS.empty, ready: false};
+  var m = monthsSince(cage.batch.stockDate);
+  var key = m < 6 ? 'fresh' : (m <= 12 ? 'mid' : 'old');
+  var size = latestSize(cage);
+  var ready = typeof size === 'number' && size >= farm.marketSizeMm;
+  return {key: key, color: STATUS_COLORS[key], ready: ready};
+}
+function farmStats(farm){
+  var total = 0, stocked = 0, ready = 0, sizeSum = 0, sizeN = 0;
+  farm.lines.forEach(function(l){
+    l.cages.forEach(function(c){
+      total++;
+      if (c.batch){
+        stocked++;
+        var s = latestSize(c);
+        if (typeof s === 'number'){ sizeSum += s; sizeN++; if (s >= farm.marketSizeMm) ready++; }
+      }
+    });
+  });
+  return {total: total, stocked: stocked, avgSize: sizeN ? Math.round(sizeSum / sizeN) : null, ready: ready};
+}
+
+/* ================================================================
+   SVG shape rendering (all inputs numeric / palette constants)
+================================================================ */
+function shapeSVG(shape, fill, ring, size){
+  size = size || 48;
+  var stroke = ring ? RING_COLOR : 'rgba(16,48,61,0.25)';
+  var sw = ring ? 4 : 1.5;
+  var vb, inner, w = size, ht = size;
+  if (shape === 'rect'){
+    vb = '0 0 76 52';
+    inner = '<rect x="4" y="9" width="68" height="34" rx="10"/>';
+    w = Math.round(size * 1.3); ht = Math.round(size * 0.9);
+  } else if (shape === 'circle'){
+    vb = '0 0 56 56';
+    inner = '<circle cx="28" cy="28" r="23"/>';
+  } else {
+    vb = '0 0 56 56';
+    inner = '<rect x="5" y="5" width="46" height="46" rx="12"/>';
+  }
+  return '<svg viewBox="' + vb + '" width="' + w + '" height="' + ht + '" aria-hidden="true">' +
+         '<g fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + sw + '">' + inner + '</g></svg>';
+}
+
+/* ================================================================
+   Growth chart (inline SVG, numeric data only)
+================================================================ */
+function growthChartSVG(cage, marketMm){
+  var pts = [];
+  if (typeof cage.batch.initialSizeMm === 'number') pts.push({d: cage.batch.stockDate, s: cage.batch.initialSizeMm});
+  batchEvents(cage).forEach(function(e){
+    if (e.type === 'growth' && typeof e.sizeMm === 'number' && isValidISO(e.date)) pts.push({d: e.date, s: e.sizeMm});
+  });
+  if (!pts.length) return '<div class="hint" style="padding:18px 8px;text-align:center">No sizes recorded yet — log a growth check to start the chart.</div>';
+  pts.sort(function(a,b){ return isoToMs(a.d) - isoToMs(b.d); });
+
+  var W = 320, H = 150, padL = 36, padR = 14, padT = 16, padB = 26;
+  var t0 = isoToMs(pts[0].d), t1 = isoToMs(pts[pts.length-1].d);
+  if (t1 <= t0) t1 = t0 + 86400000;
+  var lo = Infinity, hi = -Infinity;
+  pts.forEach(function(p){ if (p.s < lo) lo = p.s; if (p.s > hi) hi = p.s; });
+  var showMarket = (marketMm >= lo - 15 && marketMm <= hi + 30);
+  if (showMarket && marketMm > hi) hi = marketMm;
+  if (showMarket && marketMm < lo) lo = marketMm;
+  var pad = Math.max(3, (hi - lo) * 0.15);
+  lo -= pad; hi += pad;
+
+  function x(d){ return padL + (isoToMs(d) - t0) / (t1 - t0) * (W - padL - padR); }
+  function y(s){ return H - padB - (s - lo) / (hi - lo) * (H - padT - padB); }
+
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">';
+  svg += '<line x1="' + padL + '" y1="' + (H-padB) + '" x2="' + (W-padR) + '" y2="' + (H-padB) + '" stroke="#b9cad3" stroke-width="1"/>';
+  svg += '<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (H-padB) + '" stroke="#b9cad3" stroke-width="1"/>';
+  if (showMarket){
+    var my = y(marketMm).toFixed(1);
+    svg += '<line x1="' + padL + '" y1="' + my + '" x2="' + (W-padR) + '" y2="' + my + '" stroke="' + RING_COLOR + '" stroke-width="1.2" stroke-dasharray="5 4" opacity="0.7"/>';
+    svg += '<text x="' + (W-padR) + '" y="' + (my - 4) + '" text-anchor="end" font-size="9" fill="' + RING_COLOR + '">market ' + marketMm + ' mm</text>';
+  }
+  var poly = pts.map(function(p){ return x(p.d).toFixed(1) + ',' + y(p.s).toFixed(1); }).join(' ');
+  if (pts.length > 1){
+    svg += '<polyline points="' + poly + '" fill="none" stroke="#0e7c86" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>';
+  }
+  pts.forEach(function(p){
+    svg += '<circle cx="' + x(p.d).toFixed(1) + '" cy="' + y(p.s).toFixed(1) + '" r="3.6" fill="#0e7c86"/>';
+  });
+  var last = pts[pts.length-1];
+  var lx = Math.min(x(last.d), W - padR - 4);
+  svg += '<text x="' + lx.toFixed(1) + '" y="' + (y(last.s) - 8).toFixed(1) + '" text-anchor="end" font-size="11" font-weight="700" fill="#10303d">' + last.s + ' mm</text>';
+  svg += '<text x="' + padL + '" y="' + (H - 8) + '" font-size="9" fill="#5b7a87">' + esc(fmtDate(pts[0].d)) + '</text>';
+  if (pts.length > 1){
+    svg += '<text x="' + (W-padR) + '" y="' + (H - 8) + '" text-anchor="end" font-size="9" fill="#5b7a87">' + esc(fmtDate(last.d)) + '</text>';
+  }
+  svg += '<text x="6" y="' + (y(hi - pad) + 3).toFixed(1) + '" font-size="9" fill="#5b7a87">mm</text>';
+  svg += '</svg>';
+  return svg;
+}
+
+/* ================================================================
+   Sheet (bottom sheet / modal) system
+================================================================ */
+var sheet = null; /* {build: function} */
+function openSheet(build){ sheet = {build: build}; renderSheet(); }
+function refreshSheet(){ if (sheet) renderSheet(); }
+function closeSheet(){ sheet = null; switcherRenaming = null; typeRenaming = null; layoutRenaming = null; renderSheet(); }
+function renderSheet(){
+  var ov = document.getElementById('overlay');
+  var body = document.getElementById('sheetBody');
+  /* keep content in place while the sheet animates out */
+  if (!sheet){ ov.classList.remove('open'); return; }
+  body.textContent = '';
+  ov.classList.add('open');
+  body.appendChild(h('div', {class: 'grab'}));
+  appendKid(body, sheet.build());
+  body.scrollTop = 0;
+}
+document.getElementById('overlay').addEventListener('click', function(e){
+  if (e.target === this) closeSheet();
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && sheet) closeSheet();
+});
+
+function sheetHead(title, opts){
+  opts = opts || {};
+  return h('div', {class: 'sheetHead'},
+    opts.onBack ? h('button', {class: 'back', 'aria-label': 'Back', onclick: opts.onBack}, '←') : null,
+    h('h2', null, title),
+    h('button', {class: 'close', 'aria-label': 'Close', onclick: closeSheet}, '✕')
+  );
+}
+function field(labelText, inputEl, hintText){
+  return h('div', {class: 'field'},
+    h('label', null, labelText),
+    inputEl,
+    hintText ? h('div', {class: 'hint'}, hintText) : null
+  );
+}
+
+/* mutation helper: persist + repaint main view */
+function commit(){ save(); render(); }
+
+/* ================================================================
+   Main render
+================================================================ */
+/* Navigation: land on the whole-farm overview, tap a plot to open it.
+   curPlot is transient (not persisted) so the app always opens on the
+   full view. The phone's back button closes an open plot. */
+var curPlot = null, plotPushed = false;
+function openPlot(secId){
+  curPlot = secId;
+  try { history.pushState({spatmapPlot: true}, ''); plotPushed = true; } catch(e){}
+  render();
+  window.scrollTo(0, 0);
+}
+function closePlot(){
+  if (plotPushed){ history.back(); return; } /* popstate does the render */
+  curPlot = null;
+  render();
+}
+window.addEventListener('popstate', function(){
+  if (curPlot){ curPlot = null; plotPushed = false; render(); }
+});
+function render(){
+  var app = document.getElementById('app');
+  app.textContent = '';
+  var farm = getFarm();
+  if (!farm){ app.appendChild(viewSetup()); return; }
+  state.activeFarmId = farm.id;
+  app.appendChild(viewMap(farm));
+}
+
+/* ---------------- First-run setup ---------------- */
+function viewSetup(){
+  var nameInput = h('input', {type: 'text', placeholder: 'e.g. Brightside Bay', maxlength: '60', autocomplete: 'off'});
+  function create(){
+    var name = nameInput.value.trim();
+    if (!name){ nameInput.focus(); toast('Give your farm a name'); return; }
+    var f = newFarm(name);
+    state.farms.push(f);
+    state.activeFarmId = f.id;
+    commit();
+    toast('Welcome aboard! Add your first line.');
+  }
+  nameInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') create(); });
+  return h('div', {class: 'setup'},
+    h('div', {class: 'logo', html: icon('shell', 56)}),
+    h('h1', null, 'SpatMap'),
+    h('p', {class: 'tag'}, 'Track your oyster cages, lines and growth — right from the boat. Works offline, data stays on this device.'),
+    h('div', {class: 'setupCard'},
+      field('Farm name', nameInput),
+      h('button', {class: 'btn', onclick: create}, 'Create farm')
+    ),
+    h('p', {class: 'or'},
+      'Just looking around? ',
+      h('button', {class: 'linklike', onclick: loadSampleFarm}, 'Load sample farm')
+    )
+  );
+}
+
+/* ---------------- Map (home) view ---------------- */
+function viewMap(farm){
+  /* an open plot that no longer exists (deleted, farm switched) falls
+     back to the overview */
+  if (curPlot){
+    var openSec = flatSections(farm).find(function(s){ return s.id === curPlot; });
+    if (openSec) return viewPlot(farm, openSec);
+    curPlot = null;
+  }
+  var wrap = h('div');
+
+  /* header */
+  wrap.appendChild(h('div', {class: 'topbar'},
+    h('button', {class: 'farm-btn', onclick: function(){ openSheet(buildFarmSwitcher); }},
+      h('span', {class: 'name'}, farm.name),
+      h('span', {class: 'chev'}, '▾')
+    ),
+    h('button', {class: 'iconbtn', 'aria-label': 'Settings', onclick: function(){ openSheet(buildSettings); }, html: icon('tune', 22)})
+  ));
+
+  /* stats strip */
+  var st = farmStats(farm);
+  wrap.appendChild(h('div', {class: 'stats'},
+    statCell(st.total, 'Cages'),
+    statCell(st.stocked, 'Stocked'),
+    statCell(st.avgSize !== null ? st.avgSize + 'mm' : '—', 'Avg size'),
+    statCell(st.ready, 'Market ready')
+  ));
+
+  var map = h('div', {class: 'map'});
+
+  if (farm.sample){
+    map.appendChild(h('div', {class: 'banner'},
+      h('span', null, '🧪 This is sample data — explore freely.'),
+      h('button', {onclick: clearSampleFarm}, 'Clear sample data')
+    ));
+  }
+
+  if (!farm.lines.length){
+    map.appendChild(h('div', {class: 'empty'},
+      h('div', {class: 'big', html: icon('waves', 44)}),
+      h('h2', null, 'Add your first line'),
+      h('p', null, 'Tap “+ Add line” below to lay out your first longline of cages. You pick the cage type and how many cages it holds.'),
+      farm.sample ? null : h('p', null,
+        'Or ',
+        h('button', {class: 'linklike', onclick: loadSampleFarm}, 'load a sample farm'),
+        ' to explore.'
+      )
+    ));
+  } else {
+    var ocean = h('div', {class: 'ocean'});
+
+    /* overview: every plot is a tappable card showing each line as a
+       row (or column) of status dots — tap to open the full plot */
+    function miniDots(sec, lines){
+      var holder = h('div', {class: sec.vert ? 'miniCols' : null});
+      lines.forEach(function(line){
+        var dots = h('div', {class: 'miniDots'});
+        line.cages.forEach(function(cage){
+          var type = getType(farm, cage.typeId);
+          var stt = cageStatus(cage, farm);
+          dots.appendChild(h('span', {
+            class: 'dot' + (type.shape === 'circle' ? ' rnd' : '') + (stt.ready ? ' rdy' : ''),
+            style: 'background:' + stt.color
+          }));
+        });
+        if (sec.vert){
+          dots.classList.add('miniCol');
+          dots.classList.remove('miniDots');
+          dots.insertBefore(h('span', {class: 'mlbl'}, line.name), dots.firstChild);
+          holder.appendChild(dots);
+        } else {
+          holder.appendChild(h('div', {class: 'miniLine'}, h('span', {class: 'mlbl'}, line.name), dots));
+        }
+      });
+      return holder;
+    }
+
+    function plotCard(sec){
+      var lines = farm.lines.filter(function(l){ return l.section === sec.id; });
+      var total = 0, stocked = 0;
+      lines.forEach(function(l){ l.cages.forEach(function(c){ total++; if (c.batch) stocked++; }); });
+      var card = h('button', {class: 'quarter qtap', 'aria-label': 'Open ' + sec.name, onclick: function(){ openPlot(sec.id); }},
+        h('div', {class: 'qhead'}, h('div', {class: 'qname'}, sec.name), h('span', {class: 'qgo', 'aria-hidden': 'true'}, '›')),
+        h('div', {class: 'qsub'}, lines.length + (lines.length === 1 ? ' line · ' : ' lines · ') + stocked + '/' + total + ' stocked')
+      );
+      card.appendChild(lines.length ? miniDots(sec, lines) : h('div', {class: 'qEmpty'}, 'No lines'));
+      return card;
+    }
+
+    farm.areas.forEach(function(area){
+      var secs = area.sections;
+      var areaEl = h('div', {class: 'acre'}, h('div', {class: 'acreTitle'}, area.name));
+      if (secs.length > 1){
+        /* sections in a grid with boat lanes between them */
+        var grid = h('div', {class: 'quarters' + (secs.length <= 2 ? ' onerow' : '')});
+        secs.forEach(function(sec){ grid.appendChild(plotCard(sec)); });
+        if (secs.length > 2) grid.appendChild(h('span', {class: 'lane', 'aria-hidden': 'true', html: icon('boat', 18)}));
+        areaEl.appendChild(grid);
+      } else {
+        areaEl.appendChild(plotCard(secs[0]));
+      }
+      ocean.appendChild(areaEl);
+    });
+
+    ocean.appendChild(renderLegend());
+    map.appendChild(ocean);
+  }
+
+  wrap.appendChild(map);
+  wrap.appendChild(h('button', {class: 'fab', onclick: function(){ openSheet(buildAddLine); }}, '+ Add line'));
+  return wrap;
+}
+
+/* ---------------- Plot view: one plot, big cages ---------------- */
+function viewPlot(farm, sec){
+  var wrap = h('div');
+
+  wrap.appendChild(h('div', {class: 'topbar'},
+    h('button', {class: 'farm-btn', onclick: function(){ openSheet(buildFarmSwitcher); }},
+      h('span', {class: 'name'}, farm.name),
+      h('span', {class: 'chev'}, '▾')
+    ),
+    h('button', {class: 'iconbtn', 'aria-label': 'Settings', onclick: function(){ openSheet(buildSettings); }, html: icon('tune', 22)})
+  ));
+
+  var area = farm.areas.find(function(a){ return a.sections.indexOf(sec) !== -1; });
+  var lines = farm.lines.filter(function(l){ return l.section === sec.id; });
+  var total = 0, stocked = 0;
+  lines.forEach(function(l){ l.cages.forEach(function(c){ total++; if (c.batch) stocked++; }); });
+
+  wrap.appendChild(h('div', {class: 'plotbar'},
+    h('button', {class: 'backbtn', onclick: closePlot}, '‹ Farm'),
+    h('div', {class: 'ptitle'},
+      h('div', {class: 'pname'}, (area && area.sections.length > 1 ? area.name + ' — ' : '') + sec.name),
+      h('div', {class: 'psub'}, lines.length + (lines.length === 1 ? ' line · ' : ' lines · ') + stocked + '/' + total + ' stocked')
+    )
+  ));
+
+  /* quick hop between plots without going back to the overview */
+  var chips = h('div', {class: 'plotChips'});
+  farm.areas.forEach(function(a){
+    a.sections.forEach(function(sc){
+      var lbl = a.sections.length > 1 ? sc.name : a.name;
+      chips.appendChild(h('button', {class: 'chip' + (sc.id === sec.id ? ' on' : ''), onclick: function(){
+        if (sc.id === sec.id) return;
+        curPlot = sc.id; render(); window.scrollTo(0, 0);
+      }}, lbl));
+    });
+  });
+  wrap.appendChild(chips);
+
+  var map = h('div', {class: 'map'});
+  var ocean = h('div', {class: 'ocean'});
+  if (!lines.length){
+    ocean.appendChild(h('div', {class: 'qEmpty', style: 'padding:18px 8px;font-size:.9rem'}, 'No lines on this plot yet — tap + Add line.'));
+  } else if (sec.vert){
+    var rowEl = h('div', {class: 'linesRow'});
+    lines.forEach(function(line){ rowEl.appendChild(renderLine(farm, line, true, true)); });
+    ocean.appendChild(rowEl);
+  } else {
+    lines.forEach(function(line){ ocean.appendChild(renderLine(farm, line, false, true)); });
+  }
+  ocean.appendChild(renderLegend());
+  map.appendChild(ocean);
+  wrap.appendChild(map);
+
+  wrap.appendChild(h('button', {class: 'fab', onclick: function(){ openSheet(function(){ return buildAddLine(sec.id); }); }}, '+ Add line'));
+  return wrap;
+}
+function statCell(num, lbl){
+  return h('div', {class: 'stat'}, h('div', {class: 'num'}, String(num)), h('div', {class: 'lbl'}, lbl));
+}
+function renderLine(farm, line, vertical, big){
+  var stockedN = line.cages.filter(function(c){ return c.batch; }).length;
+  var shapePx = big ? 46 : 32;
+  var strip = h('div', {class: (vertical ? 'cageStrip vert' : 'cageStrip') + (big ? ' bigstrip' : '')});
+  strip.appendChild(h('span', {class: 'anch', 'aria-hidden': 'true', html: icon('anchor', 13)}));
+  line.cages.forEach(function(cage){
+    var type = getType(farm, cage.typeId);
+    var stt = cageStatus(cage, farm);
+    var btn = h('button', {
+      class: 'cage' + (big ? ' big' : ''),
+      'aria-label': 'Cage ' + cage.label,
+      onclick: function(){ openSheet(function(){ return buildCageSheet(line.id, cage.id); }); }
+    });
+    btn.appendChild(h('div', {class: 'shapeBox', html: shapeSVG(type.shape, stt.color, stt.ready, shapePx)}));
+    btn.appendChild(h('span', {class: 'clabel'}, cage.label));
+    strip.appendChild(btn);
+  });
+  strip.appendChild(h('span', {class: 'anch', 'aria-hidden': 'true', html: icon('anchor', 13)}));
+
+  var head = h('div', {class: 'lineTop'},
+    h('span', {class: 'lname'}, line.name),
+    vertical ? null : h('span', {class: 'lcount'}, stockedN + '/' + line.cages.length),
+    h('button', {class: 'menu', 'aria-label': 'Line options', onclick: function(){ openSheet(function(){ return buildLineMenu(line.id); }); }}, '⋯')
+  );
+  return h('div', {class: (vertical ? 'lineWrap vert' : 'lineWrap') + (big ? ' big' : '')},
+    head,
+    h('div', {class: vertical ? 'cageScroller vscroll' + (big ? ' tall' : '') : 'cageScroller'}, strip)
+  );
+}
+function renderLegend(){
+  function key(color, label, ringed){
+    return h('div', {class: 'key'},
+      h('span', {class: 'swatch' + (ringed ? ' ringed' : ''), style: ringed ? '' : 'background:' + color}),
+      label
+    );
+  }
+  return h('details', {class: 'legend'},
+    h('summary', null, 'Legend'),
+    h('div', {class: 'keys'},
+      key(STATUS_COLORS.empty, 'Empty'),
+      key(STATUS_COLORS.fresh, 'Stocked < 6 mo'),
+      key(STATUS_COLORS.mid, '6–12 mo'),
+      key(STATUS_COLORS.old, '> 12 mo'),
+      key(null, 'Market ready (blue ring)', true)
+    )
+  );
+}
+
+/* ================================================================
+   Add line
+================================================================ */
+function buildAddLine(preSecId){
+  var farm = getFarm();
+  var nameInput = h('input', {type: 'text', value: 'Line ' + (farm.lines.length + 1), maxlength: '40'});
+  var linesInput = h('input', {type: 'number', inputmode: 'numeric', min: '1', max: '30', value: '1'});
+  var typeSel = h('select');
+  farm.cageTypes.forEach(function(t){
+    var lbl = SHAPE_LABELS[t.shape];
+    typeSel.appendChild(h('option', {value: t.id},
+      t.name + (t.name.toLowerCase() === lbl.toLowerCase() ? '' : ' (' + lbl.toLowerCase() + ')')));
+  });
+  var secSel = h('select');
+  farm.areas.forEach(function(a){
+    a.sections.forEach(function(sc){
+      var lbl = (a.sections.length > 1 ? a.name + ' — ' + sc.name : a.name) + (sc.vert ? ' (vertical)' : '');
+      secSel.appendChild(h('option', {value: sc.id, selected: sc.id === preSecId}, lbl));
+    });
+  });
+  var countInput = h('input', {type: 'number', inputmode: 'numeric', min: '1', max: '200', value: '10'});
+  function submit(){
+    var name = nameInput.value.trim() || ('Line ' + (farm.lines.length + 1));
+    var n = parseInt(countInput.value, 10);
+    if (!(n >= 1 && n <= 200)){ toast('Cage count must be 1–200'); countInput.focus(); return; }
+    var nLines = parseInt(linesInput.value, 10);
+    if (!(nLines >= 1 && nLines <= 30)){ toast('Number of lines must be 1–30'); linesInput.focus(); return; }
+    /* bulk naming: "Line 12" + 3 lines -> Line 12, Line 13, Line 14 */
+    var m = name.match(/^(.*?)(\d+)\s*$/);
+    var prefix = m ? m[1] : name + ' ';
+    var start = m ? parseInt(m[2], 10) : 1;
+    for (var k = 0; k < nLines; k++){
+      var lineName = nLines === 1 ? name : prefix + (start + k);
+      var line = {id: uid(), name: lineName, section: secSel.value, cages: []};
+      for (var i = 0; i < n; i++) line.cages.push(makeCage(typeSel.value));
+      relabelLine(line);
+      farm.lines.push(line);
+    }
+    commit();
+    closeSheet();
+    toast(nLines === 1
+      ? 'Added ' + name + ' with ' + n + ' ' + (n === 1 ? 'cage' : 'cages')
+      : 'Added ' + nLines + ' lines (' + (nLines * n) + ' cages)');
+  }
+  return h('div', null,
+    sheetHead('Add lines'),
+    field('Plot', secSel, 'Where these anchor runs sit on the map'),
+    h('div', {class: 'row2'},
+      field('Number of lines', linesInput),
+      field('Cages per line', countInput)
+    ),
+    field('Line name', nameInput, 'Adding several? Names count up from here'),
+    field('Cage type', typeSel),
+    h('button', {class: 'btn', onclick: submit}, 'Create')
+  );
+}
+
+/* ================================================================
+   Line menu
+================================================================ */
+function buildLineMenu(lineId){
+  var farm = getFarm();
+  var line = findLine(farm, lineId);
+  if (!line) return sheetHead('Line not found');
+
+  var nameInput = h('input', {type: 'text', value: line.name, maxlength: '40'});
+  var addInput = h('input', {type: 'number', inputmode: 'numeric', min: '1', max: '200', value: '5'});
+  var secSel = h('select');
+  farm.areas.forEach(function(a){
+    a.sections.forEach(function(sc){
+      var lbl = (a.sections.length > 1 ? a.name + ' — ' + sc.name : a.name) + (sc.vert ? ' (vertical)' : '');
+      secSel.appendChild(h('option', {value: sc.id, selected: line.section === sc.id}, lbl));
+    });
+  });
+  secSel.addEventListener('change', function(){
+    line.section = secSel.value;
+    commit();
+    toast('Moved to ' + sectionLabel(farm, line.section));
+  });
+
+  function rename(){
+    var v = nameInput.value.trim();
+    if (!v){ toast('Name cannot be empty'); return; }
+    line.name = v;
+    relabelLine(line);
+    commit(); refreshSheet();
+    toast('Line renamed');
+  }
+  function addCages(){
+    var n = parseInt(addInput.value, 10);
+    if (!(n >= 1 && n <= 200)){ toast('Enter 1–200'); return; }
+    if (line.cages.length + n > 200){ toast('A line is limited to 200 cages'); return; }
+    var typeId = line.cages.length ? line.cages[line.cages.length-1].typeId : farm.cageTypes[0].id;
+    for (var i = 0; i < n; i++) line.cages.push(makeCage(typeId));
+    relabelLine(line);
+    commit(); refreshSheet();
+    toast('Added ' + n + ' ' + (n === 1 ? 'cage' : 'cages'));
+  }
+  function trimEmpty(){
+    var removed = 0;
+    while (line.cages.length && !line.cages[line.cages.length-1].batch){ line.cages.pop(); removed++; }
+    if (!removed){ toast('No empty cages at the end of this line'); return; }
+    commit(); refreshSheet();
+    toast('Removed ' + removed + ' empty ' + (removed === 1 ? 'cage' : 'cages'));
+  }
+  function deleteLine(){
+    var stocked = line.cages.filter(function(c){ return c.batch; }).length;
+    var msg = stocked
+      ? '⚠ ' + line.name + ' has ' + stocked + ' STOCKED ' + (stocked === 1 ? 'cage' : 'cages') + '. Deleting the line deletes their batch records too. Delete anyway?'
+      : 'Delete ' + line.name + ' and its ' + line.cages.length + ' empty cages?';
+    if (!confirm(msg)) return;
+    farm.lines = farm.lines.filter(function(l){ return l.id !== line.id; });
+    commit(); closeSheet();
+    toast('Line deleted');
+  }
+
+  /* change cage type — whole line, or just a run of positions */
+  var typeSel = h('select');
+  farm.cageTypes.forEach(function(t){
+    var lbl = SHAPE_LABELS[t.shape];
+    typeSel.appendChild(h('option', {value: t.id},
+      t.name + (t.name.toLowerCase() === lbl.toLowerCase() ? '' : ' (' + lbl.toLowerCase() + ')')));
+  });
+  var rangeCb = h('input', {type: 'checkbox'});
+  var fromIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', max: String(line.cages.length), value: '1'});
+  var toIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', max: String(line.cages.length), value: String(line.cages.length)});
+  var rangeRow = h('div', {style: 'display:none'},
+    h('div', {class: 'row2'}, fromIn, toIn),
+    h('div', {class: 'hint'}, 'Positions from – to (1–' + line.cages.length + ')')
+  );
+  rangeCb.addEventListener('change', function(){ rangeRow.style.display = rangeCb.checked ? '' : 'none'; });
+  function changeType(){
+    var a = 1, b = line.cages.length;
+    if (rangeCb.checked){
+      a = parseInt(fromIn.value, 10); b = parseInt(toIn.value, 10);
+      if (!(a >= 1) || !(b >= 1)){ toast('Enter a valid position range'); return; }
+      if (a > b){ var t = a; a = b; b = t; }
+      a = Math.max(1, a); b = Math.min(line.cages.length, b);
+    }
+    var targets = line.cages.slice(a - 1, b).filter(function(c){ return c.typeId !== typeSel.value; });
+    if (!targets.length){ toast('Those cages are already that type'); return; }
+    targets.forEach(function(c){ c.typeId = typeSel.value; });
+    commit(); refreshSheet();
+    toast(targets.length + ' ' + (targets.length === 1 ? 'cage' : 'cages') + ' changed to ' + getType(farm, typeSel.value).name);
+  }
+
+  return h('div', null,
+    sheetHead(line.name),
+    field('Plot', secSel),
+    h('div', {class: 'field'},
+      h('label', null, 'Rename line'),
+      h('div', {class: 'row2'}, nameInput, h('button', {class: 'btn secondary sm', style: 'width:100%', onclick: rename}, 'Save'))
+    ),
+    h('div', {class: 'field'},
+      h('label', null, 'Add cages to end'),
+      h('div', {class: 'row2'}, addInput, h('button', {class: 'btn secondary sm', style: 'width:100%', onclick: addCages}, 'Add'))
+    ),
+    h('div', {class: 'field'},
+      h('label', null, 'Change cage type'),
+      h('div', {class: 'row2'}, typeSel, h('button', {class: 'btn secondary sm', style: 'width:100%', onclick: changeType}, 'Apply')),
+      h('label', {class: 'toggleRow', style: 'min-height:42px'}, rangeCb, 'Only some positions'),
+      rangeRow
+    ),
+    h('button', {class: 'btn secondary', onclick: trimEmpty}, 'Remove empty cages from end'),
+    h('button', {class: 'btn danger', onclick: deleteLine}, 'Delete line')
+  );
+}
+
+/* ================================================================
+   Cage sheet
+================================================================ */
+function buildCageSheet(lineId, cageId){
+  var farm = getFarm();
+  var found = findCage(farm, lineId, cageId);
+  if (!found) return sheetHead('Cage not found');
+  var line = found.line, cage = found.cage, pos = found.index + 1;
+  var type = getType(farm, cage.typeId);
+  var wrap = h('div');
+
+  var titleRow = h('div', {class: 'sheetHead'},
+    h('div', {html: shapeSVG(type.shape, cageStatus(cage, farm).color, cageStatus(cage, farm).ready, 34), style: 'flex:none;display:flex;align-items:center'}),
+    h('h2', null, cage.label + ' · ' + type.name),
+    h('button', {class: 'close', 'aria-label': 'Close', onclick: closeSheet}, '✕')
+  );
+  wrap.appendChild(titleRow);
+
+  /* quick type switch for this one cage */
+  var tSel = h('select', {'aria-label': 'Cage type'});
+  farm.cageTypes.forEach(function(t){
+    var lbl = SHAPE_LABELS[t.shape];
+    tSel.appendChild(h('option', {value: t.id, selected: t.id === cage.typeId},
+      t.name + (t.name.toLowerCase() === lbl.toLowerCase() ? '' : ' (' + lbl.toLowerCase() + ')')));
+  });
+  tSel.addEventListener('change', function(){
+    cage.typeId = tSel.value;
+    commit();
+    openSheet(function(){ return buildCageSheet(lineId, cageId); });
+    toast(cage.label + ' is now a ' + getType(farm, tSel.value).name);
+  });
+  wrap.appendChild(field('Cage type', tSel, 'To change many at once, use the line’s ⋯ menu'));
+
+  if (!cage.batch){
+    wrap.appendChild(buildStockForm(farm, line, cage, pos));
+  } else {
+    wrap.appendChild(buildBatchSummary(farm, line, cage));
+  }
+
+  /* event history (all events, incl. archived batches) */
+  if (cage.events.length){
+    wrap.appendChild(h('div', {class: 'sectionTitle'}, 'History'));
+    var list = h('div');
+    var sorted = cage.events.slice().sort(function(a,b){
+      var d = isoToMs(b.date || '1970-01-01') - isoToMs(a.date || '1970-01-01');
+      return d !== 0 ? d : (cage.events.indexOf(b) - cage.events.indexOf(a));
+    });
+    sorted.forEach(function(ev){ list.appendChild(renderEventRow(lineId, cageId, ev)); });
+    wrap.appendChild(list);
+  }
+  return wrap;
+}
+
+var EVENT_META = {
+  growth:    {ico: 'ruler',  label: 'Growth check'},
+  mortality: {ico: 'skull',  label: 'Mortality'},
+  harvest:   {ico: 'basket', label: 'Harvest'},
+  note:      {ico: 'note',   label: 'Note'}
+};
+function renderEventRow(lineId, cageId, ev){
+  var meta = EVENT_META[ev.type] || EVENT_META.note;
+  var main = meta.label;
+  if (ev.type === 'growth' && typeof ev.sizeMm === 'number') main += ': ' + ev.sizeMm + ' mm';
+  if ((ev.type === 'mortality' || ev.type === 'harvest') && typeof ev.count === 'number') main += ': ' + ev.count;
+  return h('div', {class: 'evt'},
+    h('div', {class: 'eico', html: icon(meta.ico, 19)}),
+    h('div', {class: 'ebody'},
+      h('div', null, h('strong', null, main)),
+      ev.note ? h('div', {class: 'enote'}, ev.note) : null,
+      h('div', {class: 'edate'}, fmtDate(ev.date))
+    ),
+    h('div', {class: 'ebtns'},
+      h('button', {'aria-label': 'Edit entry', onclick: function(){
+        openSheet(function(){ return buildEventEdit(lineId, cageId, ev.id); });
+      }, html: icon('pencil', 18)}),
+      h('button', {'aria-label': 'Delete entry', onclick: function(){
+        if (!confirm('Delete this ' + meta.label.toLowerCase() + ' entry?')) return;
+        var farm = getFarm();
+        var f = findCage(farm, lineId, cageId);
+        if (!f) return;
+        f.cage.events = f.cage.events.filter(function(e){ return e.id !== ev.id; });
+        commit();
+        openSheet(function(){ return buildCageSheet(lineId, cageId); });
+        toast('Entry deleted');
+      }, html: icon('trash', 18)})
+    )
+  );
+}
+
+/* ---------------- stock form (empty cage) ---------------- */
+function prepChips(){
+  var boxes = [];
+  var wrap = h('div', {class: 'chips'});
+  PREP_OPTIONS.forEach(function(p){
+    var cb = h('input', {type: 'checkbox', value: p});
+    boxes.push(cb);
+    wrap.appendChild(h('label', {class: 'chip'}, cb, h('span', null, p)));
+  });
+  var other = h('input', {type: 'text', placeholder: 'Other prep (optional)', maxlength: '60', style: 'margin-top:8px'});
+  var outer = h('div', null, wrap, other);
+  return {
+    el: outer,
+    values: function(){
+      var v = boxes.filter(function(b){ return b.checked; }).map(function(b){ return b.value; });
+      var o = other.value.trim();
+      if (o) v.push(o);
+      return v;
+    }
+  };
+}
+function buildStockForm(farm, line, cage, pos){
+  var dateIn  = h('input', {type: 'date', value: todayISO()});
+  var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', placeholder: 'e.g. 500'});
+  var sizeIn  = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: 'e.g. 12'});
+  var ploidyIn = h('select');
+  PLOIDY_OPTIONS.forEach(function(o){ ploidyIn.appendChild(h('option', {value: o}, o || '—')); });
+  var srcIn   = h('input', {type: 'text', placeholder: 'Hatchery / origin', maxlength: '80'});
+  var prep    = prepChips();
+  var notesIn = h('textarea', {placeholder: 'Notes (optional)', maxlength: '500'});
+
+  var multiCb = h('input', {type: 'checkbox'});
+  var fromIn  = h('input', {type: 'number', inputmode: 'numeric', min: '1', max: String(line.cages.length), value: String(pos)});
+  var toIn    = h('input', {type: 'number', inputmode: 'numeric', min: '1', max: String(line.cages.length), value: String(line.cages.length)});
+  var rangeBox = h('div', {style: 'display:none'},
+    field('Positions on ' + line.name + ' (from – to)',
+      h('div', {class: 'row2'}, fromIn, toIn),
+      'Already-stocked cages in the range are skipped.')
+  );
+  multiCb.addEventListener('change', function(){ rangeBox.style.display = multiCb.checked ? '' : 'none'; });
+
+  function submit(){
+    var date = dateIn.value;
+    if (!isValidISO(date)){ toast('Pick a stock date'); return; }
+    var count = parseInt(countIn.value, 10);
+    if (!(count >= 1)){ toast('Enter the number of oysters'); countIn.focus(); return; }
+    var size = parseFloat(sizeIn.value);
+    if (!(size >= 0) || sizeIn.value === ''){ toast('Enter starting size in mm'); sizeIn.focus(); return; }
+    var base = {
+      stockDate: date,
+      ploidy: ploidyIn.value,
+      source: srcIn.value.trim(),
+      initialSizeMm: size,
+      count: count,
+      prep: prep.values(),
+      notes: notesIn.value.trim()
+    };
+    var targets = [cage];
+    var skipped = 0;
+    if (multiCb.checked){
+      var a = parseInt(fromIn.value, 10), b = parseInt(toIn.value, 10);
+      if (!(a >= 1) || !(b >= 1)){ toast('Enter a valid position range'); return; }
+      if (a > b){ var t = a; a = b; b = t; }
+      a = Math.max(1, a); b = Math.min(line.cages.length, b);
+      targets = [];
+      for (var i = a - 1; i <= b - 1; i++){
+        if (line.cages[i].batch) skipped++;
+        else targets.push(line.cages[i]);
+      }
+      if (targets.length === 0){ toast('All cages in that range are already stocked'); return; }
+    }
+    targets.forEach(function(c){
+      c.batch = {
+        id: uid(),
+        stockDate: base.stockDate,
+        ploidy: base.ploidy,
+        source: base.source,
+        initialSizeMm: base.initialSizeMm,
+        count: base.count,
+        prep: base.prep.slice(),
+        notes: base.notes
+      };
+    });
+    commit();
+    closeSheet();
+    var msg = 'Stocked ' + targets.length + ' ' + (targets.length === 1 ? 'cage' : 'cages');
+    if (skipped) msg += ' (' + skipped + ' already stocked, skipped)';
+    toast(msg);
+  }
+
+  return h('div', null,
+    h('div', {class: 'hint', style: 'margin-bottom:10px'}, 'This cage is empty. Fill in the batch details to stock it.'),
+    h('div', {class: 'row2'},
+      field('Stock date', dateIn),
+      field('Count', countIn)
+    ),
+    h('div', {class: 'row2'},
+      field('Size (mm)', sizeIn),
+      field('Ploidy', ploidyIn, 'Trips = triploid · Dips = diploid')
+    ),
+    field('Source', srcIn, 'Hatchery or where the seed came from'),
+    field('Prep before stocking', prep.el),
+    field('Notes', notesIn),
+    h('label', {class: 'toggleRow'}, multiCb, 'Stock more cages on this line with same batch'),
+    rangeBox,
+    h('button', {class: 'btn', onclick: submit}, h('span', {style: 'display:flex', html: icon('shell', 19)}), 'Stock cage' + (multiCb.checked ? 's' : ''))
+  );
+}
+
+/* ---------------- edit batch details (stocked cage) ---------------- */
+function buildBatchEdit(lineId, cageId){
+  var farm = getFarm();
+  var found = findCage(farm, lineId, cageId);
+  if (!found || !found.cage.batch) return sheetHead('Cage not found');
+  var cage = found.cage, b = cage.batch;
+  var backToCage = function(){ openSheet(function(){ return buildCageSheet(lineId, cageId); }); };
+
+  var dateIn  = h('input', {type: 'date', value: isValidISO(b.stockDate) ? b.stockDate : todayISO()});
+  var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', placeholder: 'not recorded', value: typeof b.count === 'number' ? String(b.count) : ''});
+  var sizeIn  = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: 'not recorded', value: typeof b.initialSizeMm === 'number' ? String(b.initialSizeMm) : ''});
+  var ploidyIn = h('select');
+  PLOIDY_OPTIONS.forEach(function(o){
+    ploidyIn.appendChild(h('option', {value: o, selected: o === (b.ploidy || '')}, o || '—'));
+  });
+  var srcIn = h('input', {type: 'text', placeholder: 'Hatchery / origin', maxlength: '80', value: b.source || ''});
+  var notesIn = h('textarea', {maxlength: '500'});
+  notesIn.value = b.notes || '';
+
+  function saveEdit(){
+    var date = dateIn.value;
+    if (!isValidISO(date)){ toast('Pick a stock date'); return; }
+    var count = parseInt(countIn.value, 10);
+    var size = parseFloat(sizeIn.value);
+    b.stockDate = date;
+    b.count = (count >= 1) ? count : null;
+    b.initialSizeMm = (sizeIn.value !== '' && size >= 0) ? size : null;
+    b.ploidy = ploidyIn.value;
+    b.source = srcIn.value.trim();
+    b.notes = notesIn.value.trim();
+    commit();
+    backToCage();
+    toast('Batch updated');
+  }
+
+  return h('div', null,
+    sheetHead('Edit batch — ' + cage.label, {onBack: backToCage}),
+    h('div', {class: 'row2'}, field('Stock date', dateIn), field('Count', countIn)),
+    h('div', {class: 'row2'}, field('Size (mm)', sizeIn), field('Ploidy', ploidyIn, 'Trips = triploid · Dips = diploid')),
+    field('Source', srcIn),
+    field('Notes', notesIn),
+    h('button', {class: 'btn', onclick: saveEdit}, 'Save changes')
+  );
+}
+
+/* ---------------- stocked cage summary ---------------- */
+function buildBatchSummary(farm, line, cage){
+  var b = cage.batch;
+  var size = latestSize(cage);
+  var remaining = estCount(cage);
+  var ready = typeof size === 'number' && size >= farm.marketSizeMm;
+  var wrap = h('div');
+
+  function kv(k, v){
+    return h('div', {class: 'kv'}, h('span', {class: 'k'}, k), h('span', {class: 'v'}, v));
+  }
+  wrap.appendChild(h('div', {class: 'batchCard'},
+    h('div', {style: 'display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px'},
+      h('span', {class: 'bigsize'}, (typeof size === 'number' ? size : '—') + ' mm'),
+      ready ? h('span', {class: 'ready'}, '● MARKET READY') : null
+    ),
+    kv('Stocked', fmtDate(b.stockDate) + ' · ' + inWaterLabel(b.stockDate)),
+    kv('Ploidy', b.ploidy || '—'),
+    kv('Source', b.source || '—'),
+    kv('Initial size', (typeof b.initialSizeMm === 'number' ? b.initialSizeMm + ' mm' : '—') + ' × ' + (typeof b.count === 'number' ? b.count : '—')),
+    kv('Est. count now', remaining === null ? '—' : String(remaining)),
+    (b.prep && b.prep.length) ? kv('Prep', b.prep.join(', ')) : null,
+    b.notes ? kv('Notes', b.notes) : null,
+    h('button', {class: 'linklike', style: 'padding:6px 0 0;min-height:36px;font-size:.88rem', onclick: function(){
+      openSheet(function(){ return buildBatchEdit(line.id, cage.id); });
+    }}, 'Edit batch details')
+  ));
+
+  wrap.appendChild(h('div', {class: 'chartBox', html: growthChartSVG(cage, farm.marketSizeMm)}));
+
+  function act(ico, label, evType){
+    return h('button', {class: 'btn secondary', onclick: function(){
+      openSheet(function(){ return buildEventForm(line.id, cage.id, evType); });
+    }},
+      h('span', {class: 'ico', html: icon(ico, 22)}), label
+    );
+  }
+  wrap.appendChild(h('div', {class: 'actGrid'},
+    act('ruler', 'Log growth', 'growth'),
+    act('skull', 'Mortality', 'mortality'),
+    act('basket', 'Harvest', 'harvest'),
+    act('note', 'Note', 'note')
+  ));
+
+  wrap.appendChild(h('button', {class: 'btn danger', onclick: function(){
+    if (!confirm('Empty cage ' + cage.label + '? The batch record is removed (its logged events stay in history).')) return;
+    cage.events.push({id: uid(), type: 'note', date: todayISO(), batchId: b.id,
+      note: 'Cage emptied (was: ' + (typeof b.count === 'number' ? b.count : '?') + ' @ ' + (typeof b.initialSizeMm === 'number' ? b.initialSizeMm : '?') + ' mm, stocked ' + fmtDate(b.stockDate) + ')'});
+    cage.batch = null;
+    commit();
+    openSheet(function(){ return buildCageSheet(line.id, cage.id); });
+    toast('Cage emptied');
+  }}, 'Empty this cage'));
+
+  return wrap;
+}
+
+/* ---------------- event forms ---------------- */
+function buildEventForm(lineId, cageId, evType){
+  var farm = getFarm();
+  var found = findCage(farm, lineId, cageId);
+  if (!found || !found.cage.batch) return sheetHead('Cage not found');
+  var line = found.line, cage = found.cage;
+  var meta = EVENT_META[evType];
+  var backToCage = function(){ openSheet(function(){ return buildCageSheet(lineId, cageId); }); };
+
+  var dateIn = h('input', {type: 'date', value: todayISO()});
+  var sizeIn = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: 'mm'});
+  var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', placeholder: 'count'});
+  var noteIn = h('textarea', {placeholder: 'Note (optional)', maxlength: '500'});
+  var lineCb = h('input', {type: 'checkbox'});
+  var remaining = estCount(cage);
+
+  function submit(){
+    var date = dateIn.value;
+    if (!isValidISO(date)){ toast('Pick a date'); return; }
+    var note = noteIn.value.trim();
+
+    if (evType === 'growth'){
+      var size = parseFloat(sizeIn.value);
+      if (!(size >= 0) || sizeIn.value === ''){ toast('Enter size in mm'); sizeIn.focus(); return; }
+      var targets = lineCb.checked
+        ? line.cages.filter(function(c){ return c.batch; })
+        : [cage];
+      targets.forEach(function(c){
+        c.events.push({id: uid(), type: 'growth', date: date, sizeMm: size, note: note, batchId: c.batch.id});
+      });
+      commit(); backToCage();
+      toast('Growth logged' + (targets.length > 1 ? ' for ' + targets.length + ' cages' : ''));
+      return;
+    }
+
+    if (evType === 'mortality' || evType === 'harvest'){
+      var n = parseInt(countIn.value, 10);
+      if (!(n >= 1)){ toast('Enter a count'); countIn.focus(); return; }
+      var capped = false;
+      if (remaining !== null && n > remaining){ n = remaining; capped = true; }
+      if (n < 1){ toast('No oysters left in this cage'); return; }
+      cage.events.push({id: uid(), type: evType, date: date, count: n, note: note, batchId: cage.batch.id});
+      var nowLeft = estCount(cage);
+      var emptied = false;
+      if (evType === 'harvest' && nowLeft !== null && nowLeft <= 0){
+        var b = cage.batch;
+        cage.events.push({id: uid(), type: 'note', date: date, batchId: b.id,
+          note: 'Batch fully harvested — archived. (Stocked ' + fmtDate(b.stockDate) + ', ' + b.count + ' @ ' + b.initialSizeMm + ' mm' + (b.source ? ', from ' + b.source : '') + ')'});
+        cage.batch = null;
+        emptied = true;
+      }
+      commit(); backToCage();
+      if (emptied) toast('Full harvest — cage is now empty 🎉');
+      else toast(meta.label + ' logged' + (capped ? ' (capped at ' + n + ' remaining)' : '') + (nowLeft === null ? '' : ' · ' + nowLeft + ' left'));
+      return;
+    }
+
+    /* note */
+    if (!note){ toast('Write a note first'); noteIn.focus(); return; }
+    cage.events.push({id: uid(), type: 'note', date: date, note: note, batchId: cage.batch.id});
+    commit(); backToCage();
+    toast('Note saved');
+  }
+
+  var kids = [
+    sheetHead(meta.label + ' — ' + cage.label, {onBack: backToCage}),
+    field('Date', dateIn)
+  ];
+  if (evType === 'growth'){
+    kids.push(field('Size (mm)', sizeIn));
+  }
+  if (evType === 'mortality'){
+    kids.push(field('Number dead', countIn, remaining === null ? 'Count in cage not recorded' : remaining + ' estimated in cage'));
+  }
+  if (evType === 'harvest'){
+    kids.push(field('Number harvested', countIn, remaining === null ? 'Count in cage not recorded — harvests are logged but the cage stays stocked until you empty it' : remaining + ' estimated in cage — harvesting all empties the cage'));
+  }
+  kids.push(field(evType === 'note' ? 'Note' : 'Note (optional)', noteIn));
+  if (evType === 'growth'){
+    kids.push(h('label', {class: 'toggleRow'}, lineCb, 'Apply to every stocked cage on ' + line.name));
+  }
+  kids.push(h('button', {class: 'btn', onclick: submit}, 'Save ' + meta.label.toLowerCase()));
+  return h('div', null, kids);
+}
+
+/* ---------------- edit existing event ---------------- */
+function buildEventEdit(lineId, cageId, eventId){
+  var farm = getFarm();
+  var found = findCage(farm, lineId, cageId);
+  var backToCage = function(){ openSheet(function(){ return buildCageSheet(lineId, cageId); }); };
+  if (!found) return sheetHead('Cage not found');
+  var cage = found.cage;
+  var ev = cage.events.find(function(e){ return e.id === eventId; });
+  if (!ev) return sheetHead('Entry not found');
+  var meta = EVENT_META[ev.type] || EVENT_META.note;
+
+  var dateIn = h('input', {type: 'date', value: isValidISO(ev.date) ? ev.date : todayISO()});
+  var sizeIn = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any', value: typeof ev.sizeMm === 'number' ? String(ev.sizeMm) : ''});
+  var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', value: typeof ev.count === 'number' ? String(ev.count) : ''});
+  var noteIn = h('textarea', {maxlength: '500'});
+  noteIn.value = ev.note || '';
+
+  function submit(){
+    if (!isValidISO(dateIn.value)){ toast('Pick a date'); return; }
+    ev.date = dateIn.value;
+    if (ev.type === 'growth'){
+      var s = parseFloat(sizeIn.value);
+      if (!(s >= 0) || sizeIn.value === ''){ toast('Enter size in mm'); return; }
+      ev.sizeMm = s;
+    }
+    if (ev.type === 'mortality' || ev.type === 'harvest'){
+      var n = parseInt(countIn.value, 10);
+      if (!(n >= 1)){ toast('Enter a count'); return; }
+      ev.count = n;
+    }
+    ev.note = noteIn.value.trim();
+    commit(); backToCage();
+    toast('Entry updated');
+  }
+  function del(){
+    if (!confirm('Delete this entry?')) return;
+    cage.events = cage.events.filter(function(e){ return e.id !== eventId; });
+    commit(); backToCage();
+    toast('Entry deleted');
+  }
+
+  return h('div', null,
+    sheetHead('Edit ' + meta.label.toLowerCase(), {onBack: backToCage}),
+    field('Date', dateIn),
+    ev.type === 'growth' ? field('Size (mm)', sizeIn) : null,
+    (ev.type === 'mortality' || ev.type === 'harvest') ? field('Count', countIn) : null,
+    field('Note', noteIn),
+    h('button', {class: 'btn', onclick: submit}, 'Save changes'),
+    h('button', {class: 'btn danger', onclick: del}, 'Delete entry')
+  );
+}
+
+/* ================================================================
+   Farm switcher
+================================================================ */
+var switcherRenaming = null;
+function buildFarmSwitcher(){
+  var wrap = h('div', null, sheetHead('Farms'));
+  var list = h('div', {class: 'menuList'});
+  state.farms.forEach(function(f){
+    if (switcherRenaming === f.id){
+      var inp = h('input', {type: 'text', value: f.name, maxlength: '60'});
+      list.appendChild(h('div', {class: 'menuItem'},
+        inp,
+        h('button', {class: 'btn secondary sm', onclick: function(){
+          var v = inp.value.trim();
+          if (!v){ toast('Name cannot be empty'); return; }
+          f.name = v; switcherRenaming = null;
+          commit(); refreshSheet();
+        }}, 'Save')
+      ));
+      return;
+    }
+    list.appendChild(h('div', {class: 'menuItem', style: 'padding-right:0'},
+      h('button', {class: 'grow', style: 'text-align:left;min-height:44px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', onclick: function(){
+        state.activeFarmId = f.id;
+        commit(); closeSheet();
+      }},
+        (f.id === state.activeFarmId ? '✓ ' : '') + f.name,
+        h('span', {class: 'sub'}, f.lines.length + ' lines · ' + farmStats(f).total + ' cages')
+      ),
+      h('button', {style: 'min-width:44px;min-height:44px', 'aria-label': 'Rename farm', onclick: function(){
+        switcherRenaming = f.id; refreshSheet();
+      }, html: icon('pencil', 18)}),
+      h('button', {style: 'min-width:44px;min-height:44px', 'aria-label': 'Delete farm', onclick: function(){
+        var st = farmStats(f);
+        if (!confirm('Delete farm "' + f.name + '" (' + st.total + ' cages, ' + st.stocked + ' stocked)? This cannot be undone.')) return;
+        state.farms = state.farms.filter(function(x){ return x.id !== f.id; });
+        if (state.activeFarmId === f.id) state.activeFarmId = state.farms.length ? state.farms[0].id : null;
+        commit();
+        if (!state.farms.length) closeSheet(); else refreshSheet();
+        toast('Farm deleted');
+      }, html: icon('trash', 18)})
+    ));
+  });
+  wrap.appendChild(list);
+
+  var newIn = h('input', {type: 'text', placeholder: 'New farm name', maxlength: '60'});
+  wrap.appendChild(h('div', {class: 'field', style: 'margin-top:14px'},
+    h('label', null, '+ New farm'),
+    h('div', {class: 'row2'}, newIn, h('button', {class: 'btn secondary sm', style: 'width:100%', onclick: function(){
+      var v = newIn.value.trim();
+      if (!v){ toast('Give the farm a name'); newIn.focus(); return; }
+      var f = newFarm(v);
+      state.farms.push(f);
+      state.activeFarmId = f.id;
+      commit(); closeSheet();
+      toast('Switched to ' + v);
+    }}, 'Create'))
+  ));
+  return wrap;
+}
+
+/* ================================================================
+   Settings
+================================================================ */
+function buildSettings(){
+  var farm = getFarm();
+  var mktIn = h('input', {type: 'number', inputmode: 'decimal', min: '1', step: 'any', value: String(farm.marketSizeMm)});
+  return h('div', null,
+    sheetHead('Settings'),
+    h('div', {class: 'field'},
+      h('label', null, 'Market size (mm) — ' + farm.name),
+      h('div', {class: 'row2'},
+        mktIn,
+        h('button', {class: 'btn secondary sm', style: 'width:100%', onclick: function(){
+          var v = parseFloat(mktIn.value);
+          if (!(v > 0)){ toast('Enter a size in mm'); return; }
+          farm.marketSizeMm = v;
+          commit(); toast('Market size set to ' + v + ' mm');
+        }}, 'Save')
+      ),
+      h('div', {class: 'hint'}, 'Cages at or above this size get the blue “market ready” ring.')
+    ),
+    h('div', {class: 'menuList'},
+      h('button', {class: 'menuItem', onclick: function(){ openSheet(buildLayout); }},
+        h('span', {class: 'mico', html: icon('grid', 20)}), h('span', {class: 'grow'}, 'Farm layout', h('span', {class: 'sub'}, 'Areas, plots, and which way lines run'))),
+      h('button', {class: 'menuItem', onclick: function(){ openSheet(buildCageTypes); }},
+        h('span', {class: 'mico', html: icon('shapes', 20)}), h('span', {class: 'grow'}, 'Manage cage types')),
+      h('button', {class: 'menuItem', onclick: exportData},
+        h('span', {class: 'mico', html: icon('download', 20)}), h('span', {class: 'grow'}, 'Export data', h('span', {class: 'sub'}, 'Download a JSON backup of all farms'))),
+      h('button', {class: 'menuItem', onclick: function(){ document.getElementById('importFile').click(); }},
+        h('span', {class: 'mico', html: icon('upload', 20)}), h('span', {class: 'grow'}, 'Import data', h('span', {class: 'sub'}, 'Restore from a backup file (replaces everything)')))
+    )
+  );
+}
+
+/* ================================================================
+   Farm layout editor — areas (acres) and their sections (quarters)
+================================================================ */
+var layoutRenaming = null; /* {kind:'area'|'sec', id} */
+var MAX_AREAS = 6, MAX_SECTIONS = 4;
+/* a section is removable when none of its lines hold a stocked cage —
+   empty lines get swept away with the plot */
+function sectionStockedCount(farm, secId){
+  return farm.lines.reduce(function(n, l){
+    if (l.section !== secId) return n;
+    return n + l.cages.filter(function(c){ return c.batch; }).length;
+  }, 0);
+}
+/* every new plot starts with one empty line — add more with + Lines */
+function seedStarterLine(farm, secId){
+  var line = {id: uid(), name: 'Line 1', section: secId, cages: []};
+  for (var i = 0; i < 6; i++) line.cages.push(makeCage(farm.cageTypes[0].id));
+  relabelLine(line);
+  farm.lines.push(line);
+}
+function buildLayout(){
+  var farm = getFarm();
+  var wrap = h('div', null, sheetHead('Farm layout', {onBack: function(){ openSheet(buildSettings); }}));
+  wrap.appendChild(h('div', {class: 'hint', style: 'margin:0 0 6px'},
+    'Areas are separate patches of water, like acres. Subdivide an area into up to ' + MAX_SECTIONS + ' plots — boat lanes are drawn between them — and set which way each plot\u2019s lines run. Use + Lines to fill a plot in bulk.'));
+
+  var totalSections = flatSections(farm).length;
+
+  farm.areas.forEach(function(area){
+    /* ---- area header ---- */
+    if (layoutRenaming && layoutRenaming.kind === 'area' && layoutRenaming.id === area.id){
+      var ain = h('input', {type: 'text', value: area.name, maxlength: '30'});
+      wrap.appendChild(h('div', {class: 'typeRow'},
+        ain,
+        h('button', {class: 'btn secondary sm', onclick: function(){
+          var v = ain.value.trim();
+          if (!v){ toast('Name cannot be empty'); return; }
+          area.name = v; layoutRenaming = null;
+          commit(); refreshSheet();
+        }}, 'Save')
+      ));
+    } else {
+      var areaLines = area.sections.reduce(function(n, sc){ return n + sectionLineCount(farm, sc.id); }, 0);
+      var areaStocked = area.sections.reduce(function(n, sc){ return n + sectionStockedCount(farm, sc.id); }, 0);
+      var canDelArea = farm.areas.length > 1 && areaStocked === 0;
+      wrap.appendChild(h('div', {class: 'sectionTitle', style: 'display:flex;align-items:center;gap:2px;margin:14px 0 2px'},
+        h('span', {style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'}, area.name),
+        h('button', {style: 'min-width:40px;min-height:40px', 'aria-label': 'Rename area', onclick: function(){
+          layoutRenaming = {kind: 'area', id: area.id}; refreshSheet();
+        }, html: icon('pencil', 16)}),
+        h('button', {style: 'min-width:40px;min-height:40px;opacity:' + (canDelArea ? '1' : '.3'), 'aria-label': 'Delete area', onclick: function(){
+          if (farm.areas.length <= 1){ toast('Keep at least one area'); return; }
+          if (areaStocked){ toast('Move or harvest the stocked cages in ' + area.name + ' first'); return; }
+          var aMsg = areaLines
+            ? 'Delete area \u201C' + area.name + '\u201D and its ' + areaLines + ' empty ' + (areaLines === 1 ? 'line' : 'lines') + '?'
+            : 'Delete area \u201C' + area.name + '\u201D?';
+          if (!confirm(aMsg)) return;
+          var secIds = area.sections.map(function(sc){ return sc.id; });
+          farm.lines = farm.lines.filter(function(l){ return secIds.indexOf(l.section) === -1; });
+          farm.areas = farm.areas.filter(function(a){ return a.id !== area.id; });
+          commit(); refreshSheet();
+          toast('Area deleted');
+        }, html: icon('trash', 16)})
+      ));
+    }
+
+    /* ---- its sections ---- */
+    area.sections.forEach(function(sec){
+      if (layoutRenaming && layoutRenaming.kind === 'sec' && layoutRenaming.id === sec.id){
+        var sin = h('input', {type: 'text', value: sec.name, maxlength: '30'});
+        wrap.appendChild(h('div', {class: 'typeRow'},
+          sin,
+          h('button', {class: 'btn secondary sm', onclick: function(){
+            var v = sin.value.trim();
+            if (!v){ toast('Name cannot be empty'); return; }
+            sec.name = v; layoutRenaming = null;
+            commit(); refreshSheet();
+          }}, 'Save')
+        ));
+        return;
+      }
+      var nLines = sectionLineCount(farm, sec.id);
+      var nStocked = sectionStockedCount(farm, sec.id);
+      var canDelSec = nStocked === 0 && totalSections > 1 && area.sections.length > 1;
+      wrap.appendChild(h('div', {class: 'typeRow'},
+        h('span', {class: 'tname'}, sec.name,
+          h('span', {style: 'display:block;font-size:.76rem;color:var(--muted);font-weight:400'}, nLines + (nLines === 1 ? ' line' : ' lines'))),
+        h('button', {class: 'btn secondary sm', style: 'min-width:72px', 'aria-label': 'Add lines to ' + sec.name, onclick: function(){
+          openSheet(function(){ return buildAddLine(sec.id); });
+        }}, '+ Lines'),
+        h('button', {class: 'btn secondary sm', style: 'min-width:90px', 'aria-label': 'Line direction', onclick: function(){
+          sec.vert = !sec.vert;
+          commit(); refreshSheet();
+          toast(sec.name + ': lines run ' + (sec.vert ? 'down' : 'across'));
+        }}, sec.vert ? '\u2193 down' : '\u2192 across'),
+        h('button', {style: 'min-width:40px;min-height:40px', 'aria-label': 'Rename plot', onclick: function(){
+          layoutRenaming = {kind: 'sec', id: sec.id}; refreshSheet();
+        }, html: icon('pencil', 16)}),
+        h('button', {style: 'min-width:40px;min-height:40px;opacity:' + (canDelSec ? '1' : '.3'), 'aria-label': 'Delete plot', onclick: function(){
+          if (nStocked){ toast('Move or harvest its stocked cages first'); return; }
+          if (area.sections.length <= 1){ toast('An area needs at least one plot — delete the whole area instead'); return; }
+          var sMsg = nLines
+            ? 'Delete plot \u201C' + sec.name + '\u201D and its ' + nLines + ' empty ' + (nLines === 1 ? 'line' : 'lines') + ' from ' + area.name + '?'
+            : 'Delete plot \u201C' + sec.name + '\u201D from ' + area.name + '?';
+          if (!confirm(sMsg)) return;
+          farm.lines = farm.lines.filter(function(l){ return l.section !== sec.id; });
+          area.sections = area.sections.filter(function(x){ return x.id !== sec.id; });
+          commit(); refreshSheet();
+          toast('Plot deleted');
+        }, html: icon('trash', 16)})
+      ));
+    });
+
+    if (area.sections.length < MAX_SECTIONS){
+      wrap.appendChild(h('button', {class: 'btn secondary sm', style: 'margin:6px 0 2px', onclick: function(){
+        var sec = {id: uid(), name: 'Plot ' + (area.sections.length + 1), vert: false};
+        area.sections.push(sec);
+        seedStarterLine(farm, sec.id);
+        commit(); refreshSheet();
+        toast('Plot added to ' + area.name + ' with one line — use + Lines for more');
+      }}, '+ Add plot'));
+    }
+  });
+
+  if (farm.areas.length < MAX_AREAS){
+    wrap.appendChild(h('button', {class: 'btn secondary', style: 'margin-top:16px', onclick: function(){
+      var sec = {id: uid(), name: 'Plot 1', vert: false};
+      farm.areas.push({id: uid(), name: 'Area ' + (farm.areas.length + 1), sections: [sec]});
+      seedStarterLine(farm, sec.id);
+      commit(); refreshSheet();
+      toast('Area added with one line — use + Lines for more');
+    }}, '+ Add area'));
+  }
+  return wrap;
+}
+
+/* ================================================================
+   Manage cage types
+================================================================ */
+var typeRenaming = null;
+function shapePicker(name){
+  var radios = [];
+  var wrap = h('div', {class: 'shapePick'});
+  SHAPES.forEach(function(s, i){
+    var r = h('input', {type: 'radio', name: name, value: s, checked: i === 0});
+    radios.push(r);
+    wrap.appendChild(h('label', {class: 'shapeOpt'},
+      r,
+      h('span', null, h('span', {html: shapeSVG(s, '#9fc4cf', false, 36)}), SHAPE_LABELS[s])
+    ));
+  });
+  return {el: wrap, value: function(){
+    var r = radios.find(function(x){ return x.checked; });
+    return r ? r.value : 'square';
+  }};
+}
+function typeInUse(farm, typeId){
+  return farm.lines.some(function(l){ return l.cages.some(function(c){ return c.typeId === typeId; }); });
+}
+function buildCageTypes(){
+  var farm = getFarm();
+  var wrap = h('div', null, sheetHead('Cage types', {onBack: function(){ openSheet(buildSettings); }}));
+
+  farm.cageTypes.forEach(function(t){
+    if (typeRenaming === t.id){
+      var inp = h('input', {type: 'text', value: t.name, maxlength: '30'});
+      wrap.appendChild(h('div', {class: 'typeRow'},
+        h('div', {html: shapeSVG(t.shape, '#9fc4cf', false, 34), style: 'flex:none'}),
+        inp,
+        h('button', {class: 'btn secondary sm', onclick: function(){
+          var v = inp.value.trim();
+          if (!v){ toast('Name cannot be empty'); return; }
+          t.name = v; typeRenaming = null;
+          commit(); refreshSheet();
+        }}, 'Save')
+      ));
+      return;
+    }
+    var inUse = typeInUse(farm, t.id);
+    wrap.appendChild(h('div', {class: 'typeRow'},
+      h('div', {html: shapeSVG(t.shape, '#9fc4cf', false, 34), style: 'flex:none'}),
+      h('span', {class: 'tname'}, t.name, h('span', {class: 'sub', style: 'display:block;font-size:.76rem;color:var(--muted);font-weight:400'}, SHAPE_LABELS[t.shape] + (inUse ? ' · in use' : ''))),
+      h('button', {style: 'min-width:44px;min-height:44px', 'aria-label': 'Rename type', onclick: function(){
+        typeRenaming = t.id; refreshSheet();
+      }, html: icon('pencil', 18)}),
+      h('button', {style: 'min-width:44px;min-height:44px;opacity:' + (inUse || farm.cageTypes.length <= 1 ? '.3' : '1'), 'aria-label': 'Delete type', onclick: function(){
+        if (farm.cageTypes.length <= 1){ toast('Keep at least one cage type'); return; }
+        if (typeInUse(farm, t.id)){ toast('“' + t.name + '” is used by cages and can’t be deleted'); return; }
+        if (!confirm('Delete cage type “' + t.name + '”?')) return;
+        farm.cageTypes = farm.cageTypes.filter(function(x){ return x.id !== t.id; });
+        commit(); refreshSheet();
+      }, html: icon('trash', 18)})
+    ));
+  });
+
+  if (farm.cageTypes.length < MAX_TYPES){
+    var nameIn = h('input', {type: 'text', placeholder: 'e.g. Floating bag', maxlength: '30'});
+    var picker = shapePicker('newTypeShape');
+    wrap.appendChild(h('div', {class: 'sectionTitle'}, 'Add a type'));
+    wrap.appendChild(field('Name', nameIn));
+    wrap.appendChild(field('Shape', picker.el));
+    wrap.appendChild(h('button', {class: 'btn', onclick: function(){
+      var v = nameIn.value.trim();
+      if (!v){ toast('Give the type a name'); nameIn.focus(); return; }
+      farm.cageTypes.push({id: uid(), name: v, shape: picker.value()});
+      commit(); refreshSheet();
+      toast('Type added');
+    }}, 'Add cage type'));
+  } else {
+    wrap.appendChild(h('div', {class: 'hint', style: 'margin-top:12px'}, 'Maximum of ' + MAX_TYPES + ' cage types reached.'));
+  }
+  return wrap;
+}
+
+/* ================================================================
+   Export / import
+================================================================ */
+function exportData(){
+  try{
+    var blob = new Blob([JSON.stringify(state, null, 2)], {type: 'application/json'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'spatmap-backup-' + todayISO() + '.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    toast('Backup downloaded');
+  }catch(e){
+    toast('Export failed');
+  }
+}
+document.getElementById('importFile').addEventListener('change', function(){
+  var file = this.files && this.files[0];
+  this.value = '';
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    var data;
+    try{ data = JSON.parse(reader.result); }
+    catch(e){ toast('That file is not valid JSON'); return; }
+    if (!data || typeof data !== 'object' || typeof data.v !== 'number' || !Array.isArray(data.farms)){
+      toast('Not a SpatMap backup ({v, farms} missing)');
+      return;
+    }
+    if (!confirm('Import "' + file.name + '"? This REPLACES all current data (' + state.farms.length + ' farm' + (state.farms.length === 1 ? '' : 's') + '). Export a backup first if unsure.')) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    state = loadState(); /* defensive re-validation */
+    save();
+    closeSheet();
+    render();
+    toast('Data imported — ' + state.farms.length + ' farm' + (state.farms.length === 1 ? '' : 's') + ' loaded');
+  };
+  reader.onerror = function(){ toast('Could not read that file'); };
+  reader.readAsText(file);
+});
+
+/* ================================================================
+   Sample data
+================================================================ */
+function isoDaysAgo(n){
+  var d = new Date(Date.now() - n * 86400000);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function loadSampleFarm(){
+  var existing = state.farms.find(function(f){ return f.sample; });
+  if (existing){ state.activeFarmId = existing.id; commit(); return; }
+  var farm = newFarm('Brightside Bay (Sample)');
+  farm.sample = true;
+  var tBag = farm.cageTypes[0].id, tFlip = farm.cageTypes[1].id, tOy = farm.cageTypes[2].id;
+  var secs = flatSections(farm);
+
+  function mkLine(name, typeId, n, section){
+    var line = {id: uid(), name: name, section: secs[(section || 1) - 1].id, cages: []};
+    for (var i = 0; i < n; i++) line.cages.push(makeCage(typeId));
+    relabelLine(line);
+    farm.lines.push(line);
+    return line;
+  }
+  function stock(cage, daysAgo, count, sizeMm, source, prep, notes){
+    cage.batch = {id: uid(), stockDate: isoDaysAgo(daysAgo), source: source, initialSizeMm: sizeMm, count: count, prep: prep, notes: notes || ''};
+    return cage.batch;
+  }
+  function ev(cage, batch, type, daysAgo, extra){
+    var e = {id: uid(), type: type, date: isoDaysAgo(daysAgo), batchId: batch.id, note: (extra && extra.note) || ''};
+    if (extra && typeof extra.sizeMm === 'number') e.sizeMm = extra.sizeMm;
+    if (extra && typeof extra.count === 'number') e.count = extra.count;
+    cage.events.push(e);
+  }
+
+  /* Line A — young seed in bags (Acre 1, Quarter 1) */
+  var A = mkLine('Line A', tBag, 8, 1);
+  A.cages.forEach(function(c, i){
+    if (i >= 6) return; /* last two left empty */
+    var b = stock(c, 95, 600, 14, 'Mook Sea Farm', ['Graded','Cleaned'], i === 0 ? 'First seed of the season' : '');
+    ev(c, b, 'growth', 60, {sizeMm: 24 + i});
+    ev(c, b, 'growth', 25, {sizeMm: 38 + i, note: 'Growing well'});
+    if (i === 2) ev(c, b, 'mortality', 40, {count: 25, note: 'Crab got in'});
+  });
+
+  /* Line B — mid-cycle flips (Acre 1, Quarter 2) */
+  var B = mkLine('Line B', tFlip, 10, 2);
+  B.cages.forEach(function(c, i){
+    var b = stock(c, 250, 450, 30, 'Muscongus Bay Hatchery', ['Tumbled','Desiccated'], '');
+    ev(c, b, 'growth', 180, {sizeMm: 45});
+    ev(c, b, 'growth', 90, {sizeMm: 60 + (i % 3) * 3});
+    ev(c, b, 'growth', 14, {sizeMm: 70 + (i % 4) * 3, note: i % 4 === 3 ? 'Nice deep cups' : ''});
+    if (i === 5) ev(c, b, 'mortality', 100, {count: 30, note: 'Heat stress after low tide'});
+  });
+
+  /* Line D — fresh seed in flips (Acre 1, Quarter 3) */
+  var D = mkLine('Line D', tFlip, 7, 3);
+  D.cages.forEach(function(c, i){
+    if (i >= 5) return;
+    var b = stock(c, 30, 500, 16, 'Mook Sea Farm', ['Graded','Shaken'], '');
+    ev(c, b, 'growth', 7, {sizeMm: 22 + i});
+  });
+
+  /* Line E — empty bags waiting for seed (Acre 1, Quarter 4) */
+  mkLine('Line E', tBag, 6, 4);
+
+  /* Line C — older OyGrows, some at market size (Acre 2, vertical) */
+  var C = mkLine('Line C', tOy, 6, 5);
+  C.cages.forEach(function(c, i){
+    if (i >= 4) return;
+    var b = stock(c, 430, 300, 35, 'Split from Line B', ['Split','Graded'], 'Overwintered');
+    ev(c, b, 'growth', 300, {sizeMm: 55});
+    ev(c, b, 'growth', 150, {sizeMm: 70});
+    ev(c, b, 'growth', 20, {sizeMm: 80 + i * 2});
+    if (i === 0) ev(c, b, 'harvest', 7, {count: 100, note: 'Farmers market order'});
+  });
+
+  state.farms.push(farm);
+  state.activeFarmId = farm.id;
+  commit();
+  toast('Sample farm loaded — tap any cage to explore');
+}
+/* ================================================================
+   Brightside farm — seeded from the working spreadsheet (June 12, 2026).
+   The whole spreadsheet is Acre 1. Spreadsheet rows 1–9 are the top
+   half (Quarter 1 left, Quarter 2 right): rows 1–2 are OyGrow circle
+   lines, rows 3–9 are bag lines. Each row spans both quarters, so it
+   seeds as Line N in Q1 and Line N in Q2 — numbering restarts at 1 in
+   every quarter, top row first. The blank spreadsheet rows 10–13 are
+   the boat-lane break between the top (Q1/Q2) and bottom (Q3/Q4).
+   Spreadsheet rows 14–21 are the bottom half: four vertical FlipFarm
+   lines, columns A & B = Quarter 3, columns C & D = Quarter 4
+   (Line 1 / Line 2 in each), positions reading top to bottom.
+   Acre 2 is not on the spreadsheet and seeds empty.
+   Counts and seed sizes were not in the spreadsheet — edit each batch
+   to fill them in. Dates marked "placeholder" need the real stock date.
+================================================================ */
+var BRIGHTSIDE_SEED_V = 6;
+function loadBrightsideFarm(){
+  var existing = state.farms.find(function(f){ return f.brightside; });
+  if (existing && existing.brightsideV === BRIGHTSIDE_SEED_V) return;
+  /* layout corrected — rebuild the seeded farm from scratch */
+  if (existing) state.farms = state.farms.filter(function(f){ return f.id !== existing.id; });
+  var farm = newFarm('Brightside');
+  farm.brightside = true;
+  farm.brightsideV = BRIGHTSIDE_SEED_V;
+  var tBag = farm.cageTypes[0].id, tFlip = farm.cageTypes[1].id, tOy = farm.cageTypes[2].id;
+  var secs = flatSections(farm);
+  /* Quarters 3–4 run as vertical columns, like the spreadsheet */
+  secs[2].vert = true;
+  secs[3].vert = true;
+  var TBD = ' · stock date unknown — placeholder, edit me';
+
+  function mkLine(name, section, typeId, cells){
+    var line = {id: uid(), name: name, section: secs[section - 1].id, cages: []};
+    cells.forEach(function(cell){
+      var c = makeCage(typeId);
+      if (cell && cell.date){
+        c.batch = {id: uid(), stockDate: cell.date, ploidy: cell.ploidy || '', source: '',
+                   initialSizeMm: null, count: null,
+                   prep: cell.prep ? cell.prep.slice() : [], notes: cell.notes || ''};
+      }
+      line.cages.push(c);
+    });
+    relabelLine(line);
+    farm.lines.push(line);
+  }
+  function fill(n, cell){ var a = []; for (var i = 0; i < n; i++) a.push(cell); return a; }
+
+  /* ---- Quarters 1–2 · spreadsheet rows 1–9, top to bottom.
+     Each spreadsheet row spans both quarters: left half = Q1, right half = Q2.
+     Rows 1–2 are OyGrows; rows 3–9 are bags. ---- */
+  var r1 = {date: '2026-01-28', ploidy: 'Trips', prep: ['Graded'], notes: 'Smaller trips — sorted end of Jan (sort date used as stock date)'};
+  var r2 = {date: '2026-01-25', ploidy: 'Dips', prep: ['Graded'], notes: 'Sorted mid/end Jan — sort date used as stock date'};
+  var r4 = {date: '2025-12-05', ploidy: 'Dips', prep: ['Graded'], notes: 'Sorted early December — sort date used as stock date'};
+  var jumbos  = {date: '2026-01-01', notes: 'Jumbos' + TBD};
+  var brights = {date: '2026-01-01', notes: 'Brightsides' + TBD};
+  var smalls  = {date: '2026-01-01', notes: 'Smalls — out of 3s into 4mm gros, then flats' + TBD};
+  var doubles = {date: '2026-01-01', notes: 'Doubles' + TBD};
+
+  /* row 1 — OyGrows */ mkLine('Line 1', 1, tOy,  fill(6, r1));     mkLine('Line 1', 2, tOy,  fill(6, r1));
+  /* row 2 — OyGrows */ mkLine('Line 2', 1, tOy,  fill(6, r2));     mkLine('Line 2', 2, tOy,  fill(6, r2));
+  /* row 3 — bags    */ mkLine('Line 3', 1, tBag, fill(6, r2));     mkLine('Line 3', 2, tBag, fill(6, r2));
+  /* row 4 — bags    */ mkLine('Line 4', 1, tBag, fill(6, r4));     mkLine('Line 4', 2, tBag, fill(6, r4));
+  /* row 5 — bags    */ mkLine('Line 5', 1, tBag, fill(6, null));   mkLine('Line 5', 2, tBag, fill(6, null));
+  /* row 6 — bags    */ mkLine('Line 6', 1, tBag, fill(6, jumbos)); mkLine('Line 6', 2, tBag, fill(6, brights));
+  /* row 7 — bags    */ mkLine('Line 7', 1, tBag, fill(6, smalls)); mkLine('Line 7', 2, tBag, fill(6, doubles));
+  /* row 8 — bags    */ mkLine('Line 8', 1, tBag, fill(6, jumbos)); mkLine('Line 8', 2, tBag, fill(6, null));
+  /* row 9 — bags    */ mkLine('Line 9', 1, tBag, fill(6, jumbos)); mkLine('Line 9', 2, tBag, fill(6, jumbos));
+
+  /* ---- Quarters 3–4 · spreadsheet rows 14–21, all FlipFarms, as four
+     vertical lines. Columns A & B = Q3 (Lines 1–2), columns C & D = Q4
+     (Lines 1–2), positions top to bottom. Acre 2 stays open. ---- */
+  var stHeron = {date: '2026-06-08', ploidy: 'Trips', notes: 'Small trips — fell through blue heron 6/8'};
+  var stFlips = {date: '2026-06-04', ploidy: 'Trips', notes: 'Small trips — straight from 6s into flips, 2 scoops per cage (6/4)'};
+  mkLine('Line 1', 3, tFlip, [stHeron, null, stHeron, null, stFlips, stFlips, stFlips, null]);
+
+  var b430  = {date: '2026-04-30', notes: 'Brightsides — stocked 4/30ish'};
+  var j513  = {date: '2026-05-13', notes: 'Jumbos, 5/13'};
+  var b513  = {date: '2026-05-13', notes: 'Brightsides, 5/13'};
+  var b513s = {date: '2026-05-13', notes: 'Brightsides — started 5/13'};
+  mkLine('Line 2', 3, tFlip, [b430, j513, b513, null, b513s, null, null, null]);
+
+  var trip429 = {date: '2026-04-29', ploidy: 'Trips', notes: 'Triploid seed 4/29'};
+  var b527    = {date: '2026-05-27', notes: 'Brightsides — smallish, 5/27'};
+  /* position 5 was marked "Empty or jumbo?" on the spreadsheet — left empty, verify on the water.
+     The spreadsheet marks "No line" at the 8th position, so this line is 7 long. */
+  mkLine('Line 1', 4, tFlip, [trip429, trip429, null, null, null, b527, b527]);
+
+  mkLine('Line 2', 4, tFlip, fill(8, null));
+
+  state.farms.push(farm);
+  state.activeFarmId = farm.id;
+}
+
+function clearSampleFarm(){
+  var farm = getFarm();
+  if (!farm || !farm.sample) return;
+  if (!confirm('Remove the sample farm and all its sample data?')) return;
+  state.farms = state.farms.filter(function(f){ return f.id !== farm.id; });
+  state.activeFarmId = state.farms.length ? state.farms[0].id : null;
+  commit();
+  toast('Sample data cleared');
+}
+
+/* ================================================================
+   Boot
+================================================================ */
+state = loadState();
+loadBrightsideFarm();
+save();
+render();
+
+})();
+</script>
+</body>
+</html>
