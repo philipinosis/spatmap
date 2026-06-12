@@ -30,6 +30,8 @@ New farms start with the same two-acre, four-quarter template and reshape it fro
 - **Edit batch details** — tap a stocked cage → "Edit batch details" to fix the stock date, count, size, source, or notes.
 - **Ploidy** (Trips / Dips / Mixed — the chromosome count: trips are triploid, dips diploid) is its own field above Source; **Source** is free text for the hatchery or origin.
 - **Change cage type** — tap a stocked or empty cage → Cage type dropdown changes that one cage. To convert many at once, open the line's ⋯ menu → "Change cage type": apply to the whole line, or tick "Only some positions" and give a from–to range (e.g. cages 4–9).
+- **Lines never move.** Every line spans the full width (or height) of its plot, and positions are fixed. Pulling the cages off a line (⋯ menu → "Pull cages") leaves the empty line on the map holding its place; re-string it later from the same menu, or remove it entirely (only then do later lines shift up).
+- **Spots without a cage.** A position on a line can exist with no cage attached — it shows as a dashed outline holding the spot open. Tap an empty cage → "Take cage off line" to create one, or tap a dashed spot → "Attach cage" to hang a cage there again.
 
 ## How to use it
 1. Double-click `index.html` to open it in any browser (or open it on your phone — see hosting below).
@@ -39,7 +41,7 @@ New farms start with the same two-acre, four-quarter template and reshape it fro
 5. **The map mirrors the real farm**: an ocean-blue chart split into two acres. Acre 1 has four quarters with a dashed boat lane running between them; Acre 2 is a separate area where lines run vertically. Each line is drawn as an anchor run — rope between two ⚓ anchors with the cages strung along it. Move a line between sections any time from its ⋯ menu.
 6. Tap any cage to stock it: date, count, seed size (mm), source, and prep work (graded, tumbled, desiccated, shaken, etc.). You can stock a whole line at once.
 7. Tap a stocked cage to log **growth checks**, **mortality**, or **harvest**. Growth checks can apply to the whole line. Each cage shows a growth chart and time in water.
-8. **Worked a batch of cages? Select first, fill in once.** Inside a plot, tap **Select**, then tap each cage you worked (or a line's **All** button), then **Log work**. One form covers the whole selection: stock the empty cages, or log a growth check / mortality / harvest / note across every stocked one. Counts apply per cage and are capped at what each cage has left; "Full harvest" empties every selected cage in one go.
+8. **Worked a batch of cages? Select first, fill in once.** Inside a plot, tap **Select**, then tap each cage you worked (or a line's **All** button). The bottom bar gives three quick actions: **Empty** (dump the batches — cages stay on the line, ready to restock), **Remove** (take the cages off the line — each spot stays put as a dashed marker), and **Log** (one form for the whole selection: stock the empties, or growth check / mortality / harvest / note across the stocked ones — counts apply per cage, capped at what each cage has left, and "Full harvest" empties every selected cage in one go).
 9. Colors on the map: gray = empty, green = under 6 months, amber = 6–12 months, orange = over 12 months, blue ring = at market size (default 76 mm, changeable in ⚙ settings).
 10. **Back up regularly**: ⚙ menu → Export data. Keep the JSON file somewhere safe; Import restores it on any device.
 

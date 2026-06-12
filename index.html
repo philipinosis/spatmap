@@ -32,6 +32,7 @@
     --c-mid:#e3b34e;
     --c-old:#e2853f;
     --c-ring:#1f6fd6;
+    --c-work:#d6492f;
     --radius:14px;
     --shadow:0 2px 10px rgba(11,79,108,.10);
     --tap:48px;
@@ -94,6 +95,20 @@
   }
   .stat .num{font-size:1.25rem;font-weight:800;color:var(--deep);font-variant-numeric:tabular-nums}
   .stat .lbl{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+
+  /* ---------- Live water conditions chip ---------- */
+  .waterChip{
+    max-width:900px;margin:0 auto;padding:0 12px 4px;
+  }
+  .waterChip .inner{
+    background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);
+    padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    font-size:.82rem;color:var(--deep);
+  }
+  .waterChip .src{font-weight:800;color:#0e7c86;white-space:nowrap}
+  .waterChip .val{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .waterChip .when{color:var(--muted);font-size:.72rem;margin-left:auto;white-space:nowrap}
+  .waterChip .offline{color:#a05c12;font-size:.72rem;font-weight:700}
 
   /* ---------- Map / lines ---------- */
   .map{max-width:900px;margin:0 auto;padding:0 12px 110px}
@@ -164,7 +179,8 @@
   .cageScroller::-webkit-scrollbar-track{background:transparent}
   .cageScroller::-webkit-scrollbar-thumb{background:rgba(255,255,255,.25);border-radius:2px}
   .cageStrip{
-    display:inline-flex;align-items:flex-start;gap:2px;
+    display:flex;align-items:flex-start;gap:2px;
+    justify-content:space-between;min-width:100%;width:max-content;
     position:relative;padding:3px 2px 1px;
   }
   .cageStrip::before{
@@ -187,18 +203,19 @@
   .cage .shapeBox{height:36px;display:flex;align-items:center}
   .cage .clabel{font-size:.58rem;color:#cfe3ea;font-weight:600;max-width:48px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-  /* vertical lines (Acre 2) */
-  .linesRow{display:flex;gap:12px;overflow-x:auto;padding:2px;-webkit-overflow-scrolling:touch}
+  /* vertical lines (Acre 2) — all lines span the plot's full height */
+  .linesRow{display:flex;gap:12px;overflow-x:auto;padding:2px;-webkit-overflow-scrolling:touch;align-items:stretch}
   .lineWrap.vert{flex:none;display:flex;flex-direction:column;align-items:center;margin:0}
   .lineWrap.vert .lineTop{max-width:90px}
   .cageScroller.vscroll{
     overflow-x:hidden;overflow-y:auto;max-height:430px;
     scrollbar-width:none;
+    flex:1;display:flex;flex-direction:column;
   }
   .cageScroller.vscroll::-webkit-scrollbar{display:none}
   .cageStrip.vert{
-    flex-direction:column;align-items:center;
-    min-width:0;padding:1px 3px;
+    flex-direction:column;align-items:center;justify-content:space-between;
+    min-width:0;width:auto;min-height:100%;flex:1;padding:1px 3px;
   }
   .cageStrip.vert::before{
     left:50%;right:auto;top:7px;bottom:7px;height:auto;width:2px;
@@ -223,13 +240,34 @@
     color:#bfe0ea;font-size:.6rem;font-weight:700;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis;flex:none;width:38px;
   }
-  .miniDots{display:flex;gap:3px;flex-wrap:wrap;min-width:0}
+  .miniDots{display:flex;gap:3px;flex-wrap:wrap;min-width:0;flex:1;justify-content:space-between}
   .dot{width:9px;height:9px;border-radius:3px;flex:none}
   .dot.rnd{border-radius:50%}
   .dot.rdy{box-shadow:0 0 0 2px var(--c-ring)}
-  .miniCols{display:flex;gap:10px;overflow:hidden}
-  .miniCol{display:flex;flex-direction:column;align-items:center;gap:3px}
-  .miniCol .mlbl{width:auto;max-width:44px}
+  .dot.work{box-shadow:0 0 0 2px var(--c-work)}
+  .dot.rdy.work{box-shadow:0 0 0 2px var(--c-ring),0 0 0 4px var(--c-work)}
+  .dot.gap{background:transparent;border:1.5px dashed rgba(255,255,255,.45);width:8px;height:8px}
+  .miniCols{display:flex;gap:10px;overflow:hidden;align-items:stretch}
+  .miniCol{display:flex;flex-direction:column;align-items:center;gap:3px;justify-content:space-between}
+  .miniCol .mlbl{width:auto;max-width:44px;flex:none}
+  /* pulled (empty) line on the overview: a bare dash spans its place */
+  .miniDots .minirope{
+    flex:1;height:2px;border-radius:1px;align-self:center;opacity:.8;
+    background:repeating-linear-gradient(115deg,#e6cc92 0 5px,#bd9a62 5px 10px);
+  }
+  .miniCol .minirope{
+    width:2px;flex:1;min-height:40px;border-radius:1px;opacity:.8;
+    background:repeating-linear-gradient(25deg,#e6cc92 0 5px,#bd9a62 5px 10px);
+  }
+  /* pulled (empty) line in the plot: dimmed, still spans the plot */
+  .cageStrip.pulled{opacity:.6}
+  .cageStrip.vert.pulled{min-height:160px;min-width:36px}
+  /* a spot on the line with no cage attached */
+  .gapMark{
+    width:26px;height:26px;border-radius:9px;margin:5px 0;
+    border:2px dashed rgba(255,255,255,.5);
+  }
+  .cage.big .gapMark{width:34px;height:34px;margin:8px 0;border-radius:11px}
 
   /* ---------- Plot view: one plot full-screen, big stylus targets ---------- */
   .plotbar{display:flex;align-items:center;gap:8px;max-width:900px;margin:0 auto 10px;padding:12px 12px 0}
@@ -291,13 +329,17 @@
     bottom:calc(16px + env(safe-area-inset-bottom));z-index:15;
     display:flex;align-items:center;gap:4px;white-space:nowrap;
     background:var(--deep);color:#fff;border-radius:999px;
-    padding:6px 6px 6px 18px;box-shadow:0 4px 16px rgba(0,0,0,.35);
+    max-width:calc(100vw - 12px);
+    padding:6px 6px 6px 14px;box-shadow:0 4px 16px rgba(0,0,0,.35);
   }
-  .selbar .scount{font-weight:800;font-size:.95rem;margin-right:8px}
-  .selbar .go{background:var(--teal);color:#fff;font-weight:800;border-radius:999px;padding:11px 20px;min-height:46px}
+  .selbar .scount{font-weight:800;font-size:.9rem;margin-right:4px;flex:none}
+  .selbar .go{background:var(--teal);color:#fff;font-weight:800;font-size:.9rem;border-radius:999px;padding:0 14px;min-height:46px}
   .selbar .go:disabled{opacity:.4}
   .selbar .go:active{background:var(--teal-dark)}
-  .selbar .x{min-width:46px;min-height:46px;border-radius:50%;font-size:1.05rem;color:#cfe3ea}
+  .selbar .sb{background:rgba(255,255,255,.16);color:#fff;font-weight:800;font-size:.9rem;border-radius:999px;padding:0 12px;min-height:46px}
+  .selbar .sb:disabled{opacity:.4}
+  .selbar .sb:active{background:rgba(255,255,255,.3)}
+  .selbar .x{min-width:44px;min-height:46px;border-radius:50%;font-size:1.05rem;color:#cfe3ea;flex:none}
   .selbar .x:active{background:rgba(255,255,255,.14)}
 
   /* ---------- Legend (on water) ---------- */
@@ -313,6 +355,7 @@
   .legend .key{display:flex;align-items:center;gap:6px}
   .swatch{width:16px;height:16px;border-radius:5px;flex:none;border:1px solid rgba(16,48,61,.2)}
   .swatch.ringed{background:#fff;border:3px solid var(--c-ring);border-radius:50%}
+  .swatch.workring{background:#fff;border:3px dashed var(--c-work);border-radius:50%}
 
   /* ---------- Empty states ---------- */
   .empty{
@@ -531,6 +574,24 @@ var STATUS_COLORS = {empty:'#c8d4db', fresh:'#43a86f', mid:'#e3b34e', old:'#e285
 var RING_COLOR = '#1f6fd6';
 var MAX_TYPES = 6;
 
+/* growth model + projection */
+var DEFAULT_GROWTH_MM_DAY = 0.18; /* Gulf triploid prior: ~15mm seed → 76mm in ~1yr */
+var MIN_GROWTH_MM_DAY = 0.02;     /* projection floor — below this the date is "unknown", not 50 years out */
+var STALE_DAYS = 30;
+var MAX_PROJECTION_DAYS = 730;
+/* Louisiana Gulf seasonal growth multipliers, Jan..Dec (winter slow, spring/fall peak), mean ≈ 1.0 */
+var SEASON_MULT = [0.35, 0.45, 0.8, 1.2, 1.35, 1.35, 1.05, 1.0, 1.2, 1.3, 0.8, 0.45];
+
+/* needs-work ring: events that involve handling the oysters reset the clock; notes don't */
+var WORK_RESET_DAYS = 56; /* 8 weeks */
+var WORK_EVENT_TYPES = {growth: 1, mortality: 1, harvest: 1};
+var NEEDS_WORK_COLOR = '#d6492f';
+
+/* live water conditions — USGS 07380249 Caminada Pass NW of Grand Isle, LA */
+var USGS_SITE = '07380249';
+var WATER_CACHE_KEY = 'spatmap_water_v1';
+var WATER_MAX_AGE_MS = 3 * 3600 * 1000;
+
 function uid(){
   try{
     if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -599,6 +660,75 @@ function toast(msg){
   t.classList.add('show');
   clearTimeout(toast._t);
   toast._t = setTimeout(function(){ t.classList.remove('show'); }, 2400);
+}
+
+/* ================================================================
+   Live water conditions — USGS Caminada Pass (salinity, temp)
+   Fetched in-browser, cached in localStorage; the app never blocks
+   on the network and falls back to the cached reading offline.
+================================================================ */
+function readWaterCache(){
+  try{
+    var raw = localStorage.getItem(WATER_CACHE_KEY);
+    if (!raw) return null;
+    var w = JSON.parse(raw);
+    return (w && typeof w === 'object' && typeof w.fetchedAt === 'number') ? w : null;
+  }catch(e){ return null; }
+}
+var waterFetchInFlight = false;
+function fetchWater(){
+  var cached = readWaterCache();
+  if (cached && Date.now() - cached.fetchedAt < WATER_MAX_AGE_MS) return;
+  if (waterFetchInFlight || typeof fetch !== 'function') return;
+  waterFetchInFlight = true;
+  var url = 'https://waterservices.usgs.gov/nwis/iv/?sites=' + USGS_SITE +
+            '&parameterCd=00010,00480,00065&siteStatus=active&format=json';
+  fetch(url).then(function(r){ return r.json(); }).then(function(data){
+    var out = {fetchedAt: Date.now(), salinity: null, tempC: null, gageFt: null, readingAt: null};
+    ((data && data.value && data.value.timeSeries) || []).forEach(function(ts){
+      var code = ts.variable && ts.variable.variableCode && ts.variable.variableCode[0] && ts.variable.variableCode[0].value;
+      var vals = ts.values && ts.values[0] && ts.values[0].value;
+      if (!code || !vals || !vals.length) return;
+      var v = vals[vals.length - 1];
+      var num = parseFloat(v.value);
+      if (!isFinite(num) || num <= -999) return; /* USGS missing-data sentinel */
+      if (code === '00480') out.salinity = num;
+      else if (code === '00010') out.tempC = num;
+      else if (code === '00065') out.gageFt = num;
+      if (v.dateTime && (!out.readingAt || v.dateTime > out.readingAt)) out.readingAt = v.dateTime;
+    });
+    waterFetchInFlight = false;
+    if (out.salinity !== null || out.tempC !== null){
+      try{ localStorage.setItem(WATER_CACHE_KEY, JSON.stringify(out)); }catch(e){}
+    }
+    updateWaterChip();
+  }).catch(function(){
+    waterFetchInFlight = false;
+    updateWaterChip();
+  });
+}
+function waterChipInner(){
+  var w = readWaterCache();
+  var inner = h('div', {class: 'inner'});
+  inner.appendChild(h('span', {class: 'src'}, '≈ Caminada Pass'));
+  if (!w){
+    inner.appendChild(h('span', {class: 'offline'}, 'no water reading yet'));
+    return inner;
+  }
+  if (typeof w.salinity === 'number') inner.appendChild(h('span', {class: 'val'}, w.salinity + ' ppt'));
+  if (typeof w.tempC === 'number') inner.appendChild(h('span', {class: 'val'}, w.tempC.toFixed(1) + '°C · ' + Math.round(w.tempC * 9/5 + 32) + '°F'));
+  var when = new Date(w.readingAt || w.fetchedAt);
+  var label = '';
+  try{ label = when.toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}); }catch(e){}
+  inner.appendChild(h('span', {class: 'when'}, label));
+  if (Date.now() - w.fetchedAt > WATER_MAX_AGE_MS) inner.appendChild(h('span', {class: 'offline'}, 'cached'));
+  return inner;
+}
+function updateWaterChip(){
+  var el = document.getElementById('waterChip');
+  if (!el) return;
+  el.textContent = '';
+  el.appendChild(waterChipInner());
 }
 
 /* ================================================================
@@ -770,17 +900,33 @@ function estCount(cage){
   return Math.max(0, cage.batch.count - removed);
 }
 function cageStatus(cage, farm){
-  if (!cage.batch) return {key: 'empty', color: STATUS_COLORS.empty, ready: false};
+  if (!cage.batch) return {key: 'empty', color: STATUS_COLORS.empty, ready: false, needsWork: false};
   var m = monthsSince(cage.batch.stockDate);
   var key = m < 6 ? 'fresh' : (m <= 12 ? 'mid' : 'old');
   var size = latestSize(cage);
   var ready = typeof size === 'number' && size >= farm.marketSizeMm;
-  return {key: key, color: STATUS_COLORS[key], ready: ready};
+  return {key: key, color: STATUS_COLORS[key], ready: ready, needsWork: needsWork(cage)};
+}
+/* last date the oysters actually came out of the cage (growth check / mortality cull /
+   harvest); a plain note doesn't count. Stocking itself counts as a handling moment. */
+function lastWorked(cage){
+  if (!cage.batch) return null;
+  var last = isValidISO(cage.batch.stockDate) ? cage.batch.stockDate : null;
+  batchEvents(cage).forEach(function(e){
+    if (!WORK_EVENT_TYPES[e.type] || !isValidISO(e.date)) return;
+    if (!last || isoToMs(e.date) > isoToMs(last)) last = e.date;
+  });
+  return last;
+}
+function needsWork(cage){
+  var d = lastWorked(cage);
+  return !!d && daysSince(d) > WORK_RESET_DAYS;
 }
 function farmStats(farm){
   var total = 0, stocked = 0, ready = 0, sizeSum = 0, sizeN = 0;
   farm.lines.forEach(function(l){
     l.cages.forEach(function(c){
+      if (c.detached) return;
       total++;
       if (c.batch){
         stocked++;
@@ -793,46 +939,158 @@ function farmStats(farm){
 }
 
 /* ================================================================
+   Growth model + harvest projection (pure, numeric in/out)
+================================================================ */
+/* size series for the current batch: stock point + growth checks, ascending */
+function growthPoints(cage){
+  var pts = [];
+  if (!cage.batch) return pts;
+  if (typeof cage.batch.initialSizeMm === 'number' && isValidISO(cage.batch.stockDate)){
+    pts.push({d: cage.batch.stockDate, s: cage.batch.initialSizeMm});
+  }
+  batchEvents(cage).forEach(function(e){
+    if (e.type === 'growth' && typeof e.sizeMm === 'number' && isValidISO(e.date)) pts.push({d: e.date, s: e.sizeMm});
+  });
+  pts.sort(function(a,b){ return isoToMs(a.d) - isoToMs(b.d); });
+  return pts;
+}
+function msToISO(ms){
+  var d = new Date(ms);
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+}
+/* walk forward one day at a time, scaling the base rate by the month's seasonal
+   multiplier, so growth projected across a Gulf winter slows down like real oysters do */
+function integrateGrowth(fromMs, size, ratePerDay, targetSize, maxDays){
+  var ms = fromMs, days = 0;
+  while (size < targetSize && days < maxDays){
+    ms += 86400000;
+    days++;
+    size += ratePerDay * SEASON_MULT[new Date(ms).getUTCMonth()];
+  }
+  return {ms: ms, size: size, days: days, reached: size >= targetSize};
+}
+function growthModel(cage, farm){
+  var pts = growthPoints(cage);
+  if (!cage.batch || !pts.length) return {ok: false};
+  var first = pts[0], last = pts[pts.length-1];
+  var spanDays = (isoToMs(last.d) - isoToMs(first.d)) / 86400000;
+
+  var rate = null, rateSource = 'observed', noisy = false;
+  if (pts.length === 1){
+    rate = DEFAULT_GROWTH_MM_DAY;
+    rateSource = 'single';
+  } else if (pts.length === 2){
+    if (spanDays > 0) rate = (last.s - first.s) / spanDays;
+  } else {
+    /* least-squares slope over all points (x in days from first point) */
+    var n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0, t0 = isoToMs(first.d);
+    pts.forEach(function(p){
+      var xd = (isoToMs(p.d) - t0) / 86400000;
+      sx += xd; sy += p.s; sxx += xd * xd; sxy += xd * p.s;
+    });
+    var den = n * sxx - sx * sx;
+    if (den > 0) rate = (n * sxy - sx * sy) / den;
+  }
+  if (rate === null || !(rate > 0)){
+    /* oysters don't shrink — a flat/negative slope is measurement noise */
+    noisy = rate !== null;
+    rate = DEFAULT_GROWTH_MM_DAY;
+    rateSource = rateSource === 'single' ? 'single' : 'prior';
+  }
+
+  var sinceCheck = daysSince(last.d);
+  var todayMs = isoToMs(todayISO());
+
+  /* current-size estimate, anchored at the last measurement so it equals the
+     measured value the moment a check is logged */
+  var est = integrateGrowth(isoToMs(last.d), last.s, rate, Infinity, Math.max(0, Math.round((todayMs - isoToMs(last.d)) / 86400000)));
+  var estToday = est.size;
+
+  var readyNow = estToday >= farm.marketSizeMm;
+  var daysToMarket = null, projectedDate = null, projectionCapped = false;
+  if (readyNow){
+    daysToMarket = 0;
+  } else if (rate >= MIN_GROWTH_MM_DAY){
+    var proj = integrateGrowth(todayMs, estToday, rate, farm.marketSizeMm, MAX_PROJECTION_DAYS);
+    if (proj.reached){
+      daysToMarket = proj.days;
+      projectedDate = msToISO(proj.ms);
+    } else {
+      projectionCapped = true;
+    }
+  }
+
+  var confidence;
+  if (rateSource !== 'observed' || noisy || sinceCheck > 90) confidence = 'low';
+  else if (pts.length >= 3 && spanDays >= 45 && sinceCheck <= STALE_DAYS) confidence = 'high';
+  else confidence = 'medium';
+
+  return {
+    ok: true,
+    points: pts.length,
+    rateMmPerDay: rate,
+    rateMmPerMonth: rate * 30.44,
+    rateSource: rateSource,
+    noisy: noisy,
+    lastMeasuredSizeMm: last.s,
+    lastMeasuredDate: last.d,
+    estTodayMm: estToday,
+    isEstimate: sinceCheck > 0,
+    isStale: sinceCheck > STALE_DAYS,
+    confidence: confidence,
+    readyNow: readyNow,
+    daysToMarket: daysToMarket,
+    projectedDate: projectedDate,
+    projectionCapped: projectionCapped
+  };
+}
+
+/* ================================================================
    SVG shape rendering (all inputs numeric / palette constants)
 ================================================================ */
-function shapeSVG(shape, fill, ring, size){
+function shapeSVG(shape, fill, ring, size, work){
   size = size || 48;
   var stroke = ring ? RING_COLOR : 'rgba(16,48,61,0.25)';
   var sw = ring ? 4 : 1.5;
-  var vb, inner, w = size, ht = size;
+  var vb, inner, outer, w = size, ht = size;
   if (shape === 'rect'){
     vb = '0 0 76 52';
     inner = '<rect x="4" y="9" width="68" height="34" rx="10"/>';
+    outer = '<rect x="1.5" y="6" width="73" height="40" rx="12"/>';
     w = Math.round(size * 1.3); ht = Math.round(size * 0.9);
   } else if (shape === 'circle'){
     vb = '0 0 56 56';
     inner = '<circle cx="28" cy="28" r="23"/>';
+    outer = '<circle cx="28" cy="28" r="26"/>';
   } else {
     vb = '0 0 56 56';
     inner = '<rect x="5" y="5" width="46" height="46" rx="12"/>';
+    outer = '<rect x="1.5" y="1.5" width="53" height="53" rx="14"/>';
   }
-  return '<svg viewBox="' + vb + '" width="' + w + '" height="' + ht + '" aria-hidden="true">' +
-         '<g fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + sw + '">' + inner + '</g></svg>';
+  var svg = '<svg viewBox="' + vb + '" width="' + w + '" height="' + ht + '" aria-hidden="true">' +
+            '<g fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + sw + '">' + inner + '</g>';
+  if (work){
+    svg += '<g fill="none" stroke="' + NEEDS_WORK_COLOR + '" stroke-width="2.5" stroke-dasharray="6 4">' + outer + '</g>';
+  }
+  return svg + '</svg>';
 }
 
 /* ================================================================
    Growth chart (inline SVG, numeric data only)
 ================================================================ */
-function growthChartSVG(cage, marketMm){
-  var pts = [];
-  if (typeof cage.batch.initialSizeMm === 'number') pts.push({d: cage.batch.stockDate, s: cage.batch.initialSizeMm});
-  batchEvents(cage).forEach(function(e){
-    if (e.type === 'growth' && typeof e.sizeMm === 'number' && isValidISO(e.date)) pts.push({d: e.date, s: e.sizeMm});
-  });
+function growthChartSVG(cage, marketMm, model){
+  var pts = growthPoints(cage);
   if (!pts.length) return '<div class="hint" style="padding:18px 8px;text-align:center">No sizes recorded yet — log a growth check to start the chart.</div>';
-  pts.sort(function(a,b){ return isoToMs(a.d) - isoToMs(b.d); });
+
+  var projDate = (model && model.ok && model.projectedDate && !model.projectionCapped) ? model.projectedDate : null;
 
   var W = 320, H = 150, padL = 36, padR = 14, padT = 16, padB = 26;
   var t0 = isoToMs(pts[0].d), t1 = isoToMs(pts[pts.length-1].d);
+  if (projDate && isoToMs(projDate) > t1) t1 = isoToMs(projDate);
   if (t1 <= t0) t1 = t0 + 86400000;
   var lo = Infinity, hi = -Infinity;
   pts.forEach(function(p){ if (p.s < lo) lo = p.s; if (p.s > hi) hi = p.s; });
-  var showMarket = (marketMm >= lo - 15 && marketMm <= hi + 30);
+  var showMarket = projDate ? true : (marketMm >= lo - 15 && marketMm <= hi + 30);
   if (showMarket && marketMm > hi) hi = marketMm;
   if (showMarket && marketMm < lo) lo = marketMm;
   var pad = Math.max(3, (hi - lo) * 0.15);
@@ -853,6 +1111,15 @@ function growthChartSVG(cage, marketMm){
   if (pts.length > 1){
     svg += '<polyline points="' + poly + '" fill="none" stroke="#0e7c86" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>';
   }
+  if (projDate){
+    /* dashed projection from the last real point to the market line — the
+       intersection is the projected harvest date */
+    var plast = pts[pts.length-1];
+    var px2 = x(projDate), py2 = y(marketMm);
+    svg += '<line x1="' + x(plast.d).toFixed(1) + '" y1="' + y(plast.s).toFixed(1) + '" x2="' + px2.toFixed(1) + '" y2="' + py2.toFixed(1) + '" stroke="#0e7c86" stroke-width="2" stroke-dasharray="5 4" opacity="0.65"/>';
+    svg += '<circle cx="' + px2.toFixed(1) + '" cy="' + py2.toFixed(1) + '" r="3.2" fill="none" stroke="#0e7c86" stroke-width="1.6"/>';
+    svg += '<text x="' + Math.min(px2, W - padR - 2).toFixed(1) + '" y="' + (py2 + 12).toFixed(1) + '" text-anchor="end" font-size="9" fill="#0e7c86" opacity="0.85">proj.</text>';
+  }
   pts.forEach(function(p){
     svg += '<circle cx="' + x(p.d).toFixed(1) + '" cy="' + y(p.s).toFixed(1) + '" r="3.6" fill="#0e7c86"/>';
   });
@@ -860,7 +1127,9 @@ function growthChartSVG(cage, marketMm){
   var lx = Math.min(x(last.d), W - padR - 4);
   svg += '<text x="' + lx.toFixed(1) + '" y="' + (y(last.s) - 8).toFixed(1) + '" text-anchor="end" font-size="11" font-weight="700" fill="#10303d">' + last.s + ' mm</text>';
   svg += '<text x="' + padL + '" y="' + (H - 8) + '" font-size="9" fill="#5b7a87">' + esc(fmtDate(pts[0].d)) + '</text>';
-  if (pts.length > 1){
+  if (projDate){
+    svg += '<text x="' + (W-padR) + '" y="' + (H - 8) + '" text-anchor="end" font-size="9" fill="#5b7a87">~' + esc(fmtDate(projDate)) + '</text>';
+  } else if (pts.length > 1){
     svg += '<text x="' + (W-padR) + '" y="' + (H - 8) + '" text-anchor="end" font-size="9" fill="#5b7a87">' + esc(fmtDate(last.d)) + '</text>';
   }
   svg += '<text x="6" y="' + (y(hi - pad) + 3).toFixed(1) + '" font-size="9" fill="#5b7a87">mm</text>';
@@ -927,8 +1196,10 @@ function clearSel(){ selMode = false; selCages = {}; }
 function updateSelbar(){
   var c = document.getElementById('selcount');
   if (c) c.textContent = selCount() + ' selected';
-  var go = document.getElementById('selgo');
-  if (go) go.disabled = selCount() === 0;
+  ['selgo', 'selrm', 'selem'].forEach(function(id){
+    var b = document.getElementById(id);
+    if (b) b.disabled = selCount() === 0;
+  });
 }
 /* re-render without losing the user's place on a long plot */
 function rerenderKeepScroll(){
@@ -1018,6 +1289,12 @@ function viewMap(farm){
     statCell(st.ready, 'Market ready')
   ));
 
+  /* live water conditions (renders from cache instantly; refreshes in place) */
+  var waterEl = h('div', {class: 'waterChip', id: 'waterChip'});
+  waterEl.appendChild(waterChipInner());
+  wrap.appendChild(waterEl);
+  fetchWater();
+
   var map = h('div', {class: 'map'});
 
   if (farm.sample){
@@ -1047,11 +1324,16 @@ function viewMap(farm){
       var holder = h('div', {class: sec.vert ? 'miniCols' : null});
       lines.forEach(function(line){
         var dots = h('div', {class: 'miniDots'});
+        if (!line.cages.length) dots.appendChild(h('span', {class: 'minirope', 'aria-hidden': 'true'}));
         line.cages.forEach(function(cage){
+          if (cage.detached){
+            dots.appendChild(h('span', {class: 'dot gap'}));
+            return;
+          }
           var type = getType(farm, cage.typeId);
           var stt = cageStatus(cage, farm);
           dots.appendChild(h('span', {
-            class: 'dot' + (type.shape === 'circle' ? ' rnd' : '') + (stt.ready ? ' rdy' : ''),
+            class: 'dot' + (type.shape === 'circle' ? ' rnd' : '') + (stt.ready ? ' rdy' : '') + (stt.needsWork ? ' work' : ''),
             style: 'background:' + stt.color
           }));
         });
@@ -1070,7 +1352,7 @@ function viewMap(farm){
     function plotCard(sec){
       var lines = farm.lines.filter(function(l){ return l.section === sec.id; });
       var total = 0, stocked = 0;
-      lines.forEach(function(l){ l.cages.forEach(function(c){ total++; if (c.batch) stocked++; }); });
+      lines.forEach(function(l){ l.cages.forEach(function(c){ if (c.detached) return; total++; if (c.batch) stocked++; }); });
       var card = h('button', {class: 'quarter qtap', 'aria-label': 'Open ' + sec.name, onclick: function(){ openPlot(sec.id); }},
         h('div', {class: 'qhead'}, h('div', {class: 'qname'}, sec.name), h('span', {class: 'qgo', 'aria-hidden': 'true'}, '›')),
         h('div', {class: 'qsub'}, lines.length + (lines.length === 1 ? ' line · ' : ' lines · ') + stocked + '/' + total + ' stocked')
@@ -1118,7 +1400,7 @@ function viewPlot(farm, sec){
   var area = farm.areas.find(function(a){ return a.sections.indexOf(sec) !== -1; });
   var lines = farm.lines.filter(function(l){ return l.section === sec.id; });
   var total = 0, stocked = 0;
-  lines.forEach(function(l){ l.cages.forEach(function(c){ total++; if (c.batch) stocked++; }); });
+  lines.forEach(function(l){ l.cages.forEach(function(c){ if (c.detached) return; total++; if (c.batch) stocked++; }); });
 
   wrap.appendChild(h('div', {class: 'plotbar'},
     h('button', {class: 'backbtn', onclick: closePlot}, '‹ Farm'),
@@ -1127,7 +1409,7 @@ function viewPlot(farm, sec){
       h('div', {class: 'psub'}, lines.length + (lines.length === 1 ? ' line · ' : ' lines · ') + stocked + '/' + total + ' stocked')
     ),
     lines.length ? h('button', {class: 'selbtn' + (selMode ? ' on' : ''), onclick: function(){
-      if (selMode){ clearSel(); } else { selMode = true; toast('Tap the cages you worked, then Log work'); }
+      if (selMode){ clearSel(); } else { selMode = true; toast('Tap the cages you worked, then Empty, Remove, or Log'); }
       rerenderKeepScroll();
     }}, selMode ? 'Cancel' : 'Select') : null
   ));
@@ -1161,12 +1443,20 @@ function viewPlot(farm, sec){
   wrap.appendChild(map);
 
   if (selMode){
+    var em = h('button', {class: 'sb', id: 'selem', onclick: function(){
+      if (selCount()) bulkEmptyCages();
+    }}, 'Empty');
+    var rm = h('button', {class: 'sb', id: 'selrm', onclick: function(){
+      if (selCount()) bulkRemoveCages();
+    }}, 'Remove');
     var go = h('button', {class: 'go', id: 'selgo', onclick: function(){
       if (selCount()) openSheet(buildBulkSheet);
-    }}, 'Log work');
-    go.disabled = selCount() === 0;
+    }}, 'Log');
+    em.disabled = rm.disabled = go.disabled = selCount() === 0;
     wrap.appendChild(h('div', {class: 'selbar'},
       h('span', {class: 'scount', id: 'selcount'}, selCount() + ' selected'),
+      em,
+      rm,
       go,
       h('button', {class: 'x', 'aria-label': 'Cancel selection', onclick: function(){ clearSel(); rerenderKeepScroll(); }}, '✕')
     ));
@@ -1180,17 +1470,19 @@ function statCell(num, lbl){
 }
 function renderLine(farm, line, vertical, big){
   var stockedN = line.cages.filter(function(c){ return c.batch; }).length;
+  var bare = !line.cages.length; /* pulled line — rope holds the place */
   var shapePx = big ? 46 : 32;
-  var strip = h('div', {class: (vertical ? 'cageStrip vert' : 'cageStrip') + (big ? ' bigstrip' : '')});
+  var strip = h('div', {class: (vertical ? 'cageStrip vert' : 'cageStrip') + (big ? ' bigstrip' : '') + (bare ? ' pulled' : '')});
   strip.appendChild(h('span', {class: 'anch', 'aria-hidden': 'true', html: icon('anchor', 13)}));
   line.cages.forEach(function(cage){
     var type = getType(farm, cage.typeId);
     var stt = cageStatus(cage, farm);
     var btn = h('button', {
       class: 'cage' + (big ? ' big' : '') + (selMode && selCages[cage.id] ? ' selpick' : ''),
-      'aria-label': 'Cage ' + cage.label,
+      'aria-label': (cage.detached ? 'Empty spot ' : 'Cage ') + cage.label,
       onclick: function(){
         if (selMode){
+          if (cage.detached){ toast('No cage on that spot'); return; }
           if (selCages[cage.id]) delete selCages[cage.id];
           else selCages[cage.id] = line.id;
           btn.classList.toggle('selpick', !!selCages[cage.id]);
@@ -1200,25 +1492,28 @@ function renderLine(farm, line, vertical, big){
         openSheet(function(){ return buildCageSheet(line.id, cage.id); });
       }
     });
-    if (selMode) btn.appendChild(h('span', {class: 'selmark', 'aria-hidden': 'true'}, '✓'));
-    btn.appendChild(h('div', {class: 'shapeBox', html: shapeSVG(type.shape, stt.color, stt.ready, shapePx)}));
+    if (selMode && !cage.detached) btn.appendChild(h('span', {class: 'selmark', 'aria-hidden': 'true'}, '✓'));
+    btn.appendChild(cage.detached
+      ? h('div', {class: 'shapeBox'}, h('div', {class: 'gapMark'}))
+      : h('div', {class: 'shapeBox', html: shapeSVG(type.shape, stt.color, stt.ready, shapePx, stt.needsWork)}));
     btn.appendChild(h('span', {class: 'clabel'}, cage.label));
     strip.appendChild(btn);
   });
   strip.appendChild(h('span', {class: 'anch', 'aria-hidden': 'true', html: icon('anchor', 13)}));
 
-  var allPicked = line.cages.every(function(c){ return selCages[c.id]; });
+  var pickable = line.cages.filter(function(c){ return !c.detached; });
+  var allPicked = pickable.length > 0 && pickable.every(function(c){ return selCages[c.id]; });
   var head = h('div', {class: 'lineTop'},
     h('span', {class: 'lname'}, line.name),
-    vertical ? null : h('span', {class: 'lcount'}, stockedN + '/' + line.cages.length),
+    vertical ? null : h('span', {class: 'lcount'}, bare ? 'empty line' : stockedN + '/' + line.cages.filter(function(c){ return !c.detached; }).length),
     selMode
-      ? h('button', {class: 'lsel', 'aria-label': (allPicked ? 'Deselect' : 'Select') + ' all of ' + line.name, onclick: function(){
-          line.cages.forEach(function(c){
+      ? (!pickable.length ? null : h('button', {class: 'lsel', 'aria-label': (allPicked ? 'Deselect' : 'Select') + ' all of ' + line.name, onclick: function(){
+          pickable.forEach(function(c){
             if (allPicked) delete selCages[c.id];
             else selCages[c.id] = line.id;
           });
           rerenderKeepScroll();
-        }}, allPicked ? 'None' : 'All')
+        }}, allPicked ? 'None' : 'All'))
       : h('button', {class: 'menu', 'aria-label': 'Line options', onclick: function(){ openSheet(function(){ return buildLineMenu(line.id); }); }}, '⋯')
   );
   return h('div', {class: (vertical ? 'lineWrap vert' : 'lineWrap') + (big ? ' big' : '')},
@@ -1227,9 +1522,9 @@ function renderLine(farm, line, vertical, big){
   );
 }
 function renderLegend(){
-  function key(color, label, ringed){
+  function key(color, label, ringClass){
     return h('div', {class: 'key'},
-      h('span', {class: 'swatch' + (ringed ? ' ringed' : ''), style: ringed ? '' : 'background:' + color}),
+      h('span', {class: 'swatch' + (ringClass ? ' ' + ringClass : ''), style: ringClass ? '' : 'background:' + color}),
       label
     );
   }
@@ -1240,7 +1535,8 @@ function renderLegend(){
       key(STATUS_COLORS.fresh, 'Stocked < 6 mo'),
       key(STATUS_COLORS.mid, '6–12 mo'),
       key(STATUS_COLORS.old, '> 12 mo'),
-      key(null, 'Market ready (blue ring)', true)
+      key(null, 'Market ready (blue ring)', 'ringed'),
+      key(null, 'Needs work — 8+ wks untouched (red ring)', 'workring')
     )
   );
 }
@@ -1339,26 +1635,30 @@ function buildLineMenu(lineId){
     if (line.cages.length + n > 200){ toast('A line is limited to 200 cages'); return; }
     var typeId = line.cages.length ? line.cages[line.cages.length-1].typeId : farm.cageTypes[0].id;
     for (var i = 0; i < n; i++) line.cages.push(makeCage(typeId));
+    var restrung = line.pulled;
+    line.pulled = false;
     relabelLine(line);
     commit(); refreshSheet();
-    toast('Added ' + n + ' ' + (n === 1 ? 'cage' : 'cages'));
+    toast(restrung ? line.name + ' re-strung with ' + n + ' ' + (n === 1 ? 'cage' : 'cages') : 'Added ' + n + ' ' + (n === 1 ? 'cage' : 'cages'));
   }
-  function trimEmpty(){
-    var removed = 0;
-    while (line.cages.length && !line.cages[line.cages.length-1].batch){ line.cages.pop(); removed++; }
-    if (!removed){ toast('No empty cages at the end of this line'); return; }
-    commit(); refreshSheet();
-    toast('Removed ' + removed + ' empty ' + (removed === 1 ? 'cage' : 'cages'));
-  }
-  function deleteLine(){
+  /* lines never shift position: pulling the cages leaves the empty
+     line on the map holding its place */
+  function pullLine(){
     var stocked = line.cages.filter(function(c){ return c.batch; }).length;
     var msg = stocked
-      ? '⚠ ' + line.name + ' has ' + stocked + ' STOCKED ' + (stocked === 1 ? 'cage' : 'cages') + '. Deleting the line deletes their batch records too. Delete anyway?'
-      : 'Delete ' + line.name + ' and its ' + line.cages.length + ' empty cages?';
+      ? '⚠ ' + line.name + ' has ' + stocked + ' STOCKED ' + (stocked === 1 ? 'cage' : 'cages') + '. Pulling the cages deletes their batch records too. Pull them anyway?'
+      : 'Pull the cages off ' + line.name + '? The empty line stays on the map holding its place.';
     if (!confirm(msg)) return;
+    line.cages = [];
+    line.pulled = true;
+    commit(); closeSheet();
+    toast(line.name + ' cleared — the empty line keeps its place');
+  }
+  function deleteLine(){
+    if (!confirm('Remove the empty line “' + line.name + '” from the map entirely? Lines after it will move up one position.')) return;
     farm.lines = farm.lines.filter(function(l){ return l.id !== line.id; });
     commit(); closeSheet();
-    toast('Line deleted');
+    toast('Line removed');
   }
 
   /* change cage type — whole line, or just a run of positions */
@@ -1391,25 +1691,27 @@ function buildLineMenu(lineId){
     toast(targets.length + ' ' + (targets.length === 1 ? 'cage' : 'cages') + ' changed to ' + getType(farm, typeSel.value).name);
   }
 
+  var bare = !line.cages.length;
   return h('div', null,
-    sheetHead(line.name),
+    sheetHead(line.name + (bare ? ' — empty line' : '')),
     field('Plot', secSel),
     h('div', {class: 'field'},
       h('label', null, 'Rename line'),
       h('div', {class: 'row2'}, nameInput, h('button', {class: 'btn secondary sm', style: 'width:100%', onclick: rename}, 'Save'))
     ),
     h('div', {class: 'field'},
-      h('label', null, 'Add cages to end'),
+      h('label', null, bare ? 'Re-string cages' : 'Add cages to end'),
       h('div', {class: 'row2'}, addInput, h('button', {class: 'btn secondary sm', style: 'width:100%', onclick: addCages}, 'Add'))
     ),
-    h('div', {class: 'field'},
+    bare ? null : h('div', {class: 'field'},
       h('label', null, 'Change cage type'),
       h('div', {class: 'row2'}, typeSel, h('button', {class: 'btn secondary sm', style: 'width:100%', onclick: changeType}, 'Apply')),
       h('label', {class: 'toggleRow', style: 'min-height:42px'}, rangeCb, 'Only some positions'),
       rangeRow
     ),
-    h('button', {class: 'btn secondary', onclick: trimEmpty}, 'Remove empty cages from end'),
-    h('button', {class: 'btn danger', onclick: deleteLine}, 'Delete line')
+    bare
+      ? h('button', {class: 'btn danger', onclick: deleteLine}, 'Remove line from map')
+      : h('button', {class: 'btn danger', onclick: pullLine}, 'Pull cages (line keeps its place)')
   );
 }
 
@@ -1425,31 +1727,58 @@ function buildCageSheet(lineId, cageId){
   var wrap = h('div');
 
   var titleRow = h('div', {class: 'sheetHead'},
-    h('div', {html: shapeSVG(type.shape, cageStatus(cage, farm).color, cageStatus(cage, farm).ready, 34), style: 'flex:none;display:flex;align-items:center'}),
-    h('h2', null, cage.label + ' · ' + type.name),
+    cage.detached
+      ? h('div', {style: 'flex:none;display:flex;align-items:center'}, h('div', {class: 'gapMark', style: 'border-color:var(--muted);margin:0'}))
+      : h('div', {html: shapeSVG(type.shape, cageStatus(cage, farm).color, cageStatus(cage, farm).ready, 34, cageStatus(cage, farm).needsWork), style: 'flex:none;display:flex;align-items:center'}),
+    h('h2', null, cage.label + ' · ' + (cage.detached ? 'no cage' : type.name)),
     h('button', {class: 'close', 'aria-label': 'Close', onclick: closeSheet}, '✕')
   );
   wrap.appendChild(titleRow);
 
-  /* quick type switch for this one cage */
-  var tSel = h('select', {'aria-label': 'Cage type'});
-  farm.cageTypes.forEach(function(t){
-    var lbl = SHAPE_LABELS[t.shape];
-    tSel.appendChild(h('option', {value: t.id, selected: t.id === cage.typeId},
-      t.name + (t.name.toLowerCase() === lbl.toLowerCase() ? '' : ' (' + lbl.toLowerCase() + ')')));
-  });
-  tSel.addEventListener('change', function(){
-    cage.typeId = tSel.value;
-    commit();
-    openSheet(function(){ return buildCageSheet(lineId, cageId); });
-    toast(cage.label + ' is now a ' + getType(farm, tSel.value).name);
-  });
-  wrap.appendChild(field('Cage type', tSel, 'To change many at once, use the line’s ⋯ menu'));
-
-  if (!cage.batch){
-    wrap.appendChild(buildStockForm(farm, line, cage, pos));
+  if (cage.detached){
+    /* a spot on the line with no cage hanging — attach one to use it */
+    var aSel = h('select', {'aria-label': 'Cage type'});
+    farm.cageTypes.forEach(function(t){
+      var lbl = SHAPE_LABELS[t.shape];
+      aSel.appendChild(h('option', {value: t.id, selected: t.id === cage.typeId},
+        t.name + (t.name.toLowerCase() === lbl.toLowerCase() ? '' : ' (' + lbl.toLowerCase() + ')')));
+    });
+    wrap.appendChild(h('div', {class: 'hint', style: 'margin-bottom:10px'},
+      'No cage on this spot — the line holds position ' + pos + ' open.'));
+    wrap.appendChild(field('Cage type', aSel));
+    wrap.appendChild(h('button', {class: 'btn', onclick: function(){
+      cage.detached = false;
+      cage.typeId = aSel.value;
+      commit();
+      openSheet(function(){ return buildCageSheet(lineId, cageId); });
+      toast('Cage attached at ' + cage.label);
+    }}, 'Attach cage'));
   } else {
-    wrap.appendChild(buildBatchSummary(farm, line, cage));
+    /* quick type switch for this one cage */
+    var tSel = h('select', {'aria-label': 'Cage type'});
+    farm.cageTypes.forEach(function(t){
+      var lbl = SHAPE_LABELS[t.shape];
+      tSel.appendChild(h('option', {value: t.id, selected: t.id === cage.typeId},
+        t.name + (t.name.toLowerCase() === lbl.toLowerCase() ? '' : ' (' + lbl.toLowerCase() + ')')));
+    });
+    tSel.addEventListener('change', function(){
+      cage.typeId = tSel.value;
+      commit();
+      openSheet(function(){ return buildCageSheet(lineId, cageId); });
+      toast(cage.label + ' is now a ' + getType(farm, tSel.value).name);
+    });
+    wrap.appendChild(field('Cage type', tSel, 'To change many at once, use the line’s ⋯ menu'));
+
+    if (!cage.batch){
+      wrap.appendChild(buildStockForm(farm, line, cage, pos));
+      wrap.appendChild(h('button', {class: 'btn secondary', style: 'margin-top:10px', onclick: function(){
+        cage.detached = true;
+        commit(); closeSheet();
+        toast('Cage taken off — the spot stays on ' + line.name);
+      }}, 'Take cage off line (keep the spot)'));
+    } else {
+      wrap.appendChild(buildBatchSummary(farm, line, cage));
+    }
   }
 
   /* event history (all events, incl. archived batches) */
@@ -1568,7 +1897,7 @@ function buildStockForm(farm, line, cage, pos){
       a = Math.max(1, a); b = Math.min(line.cages.length, b);
       targets = [];
       for (var i = a - 1; i <= b - 1; i++){
-        if (line.cages[i].batch) skipped++;
+        if (line.cages[i].batch || line.cages[i].detached) skipped++;
         else targets.push(line.cages[i]);
       }
       if (targets.length === 0){ toast('All cages in that range are already stocked'); return; }
@@ -1662,16 +1991,51 @@ function buildBatchSummary(farm, line, cage){
   var size = latestSize(cage);
   var remaining = estCount(cage);
   var ready = typeof size === 'number' && size >= farm.marketSizeMm;
+  var model = growthModel(cage, farm);
+  var overdue = needsWork(cage);
   var wrap = h('div');
 
   function kv(k, v){
     return h('div', {class: 'kv'}, h('span', {class: 'k'}, k), h('span', {class: 'v'}, v));
   }
+  function monthYear(iso){
+    var p = iso.split('-');
+    return MONTHS[+p[1]-1] + ' ' + p[0];
+  }
+  function projectionLabel(){
+    if (model.readyNow) return 'Market-ready now';
+    if (model.projectionCapped) return '1+ years out';
+    if (model.projectedDate) return '~' + monthYear(model.projectedDate) + ' (' + farm.marketSizeMm + ' mm)';
+    return '—';
+  }
+  function confidenceHint(){
+    if (model.confidence === 'high') return null;
+    var why;
+    if (model.rateSource !== 'observed') why = 'based on a typical Gulf growth rate — log growth checks to use this cage’s own pace';
+    else if (model.noisy) why = 'recent checks disagree — re-measure to sharpen it';
+    else if (model.isStale) why = 'last check was ' + daysSince(model.lastMeasuredDate) + ' days ago — log a fresh growth check to sharpen it';
+    else why = 'log another growth check to sharpen it';
+    return h('div', {class: 'hint', style: 'padding:2px 0 0'},
+      (model.confidence === 'low' ? 'Low' : 'Medium') + ' confidence projection: ' + why + '.');
+  }
   wrap.appendChild(h('div', {class: 'batchCard'},
     h('div', {style: 'display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px'},
       h('span', {class: 'bigsize'}, (typeof size === 'number' ? size : '—') + ' mm'),
-      ready ? h('span', {class: 'ready'}, '● MARKET READY') : null
+      ready ? h('span', {class: 'ready'}, '● MARKET READY') : null,
+      overdue ? h('span', {class: 'ready', style: 'color:var(--c-work)'}, '● NEEDS WORK') : null
     ),
+    (model.ok && typeof size === 'number')
+      ? h('div', {class: 'hint', style: 'margin:-4px 0 8px'}, 'measured ' + fmtDate(model.lastMeasuredDate)) : null,
+    (model.ok && model.isEstimate)
+      ? kv('Est. today', '~' + model.estTodayMm.toFixed(0) + ' mm (est.)') : null,
+    model.ok
+      ? kv('Growth', '~' + model.rateMmPerDay.toFixed(2) + ' mm/day · ~' + model.rateMmPerMonth.toFixed(1) + ' mm/mo'
+          + (model.rateSource !== 'observed' ? ' (typical rate — no usable checks yet)' : '')) : null,
+    model.ok ? kv('Proj. market', projectionLabel()) : null,
+    model.ok ? confidenceHint() : null,
+    !model.ok ? h('div', {class: 'hint', style: 'padding:2px 0 6px'}, 'Log a growth check (or record an initial size) to estimate growth and a harvest date.') : null,
+    overdue ? h('div', {class: 'hint', style: 'padding:2px 0 6px;color:var(--c-work)'},
+      'Last worked ' + fmtDate(lastWorked(cage)) + ' (' + daysSince(lastWorked(cage)) + ' days ago). Logging a growth check, mortality, or harvest resets this.') : null,
     kv('Stocked', fmtDate(b.stockDate) + ' · ' + inWaterLabel(b.stockDate)),
     kv('Ploidy', b.ploidy || '—'),
     kv('Source', b.source || '—'),
@@ -1684,7 +2048,7 @@ function buildBatchSummary(farm, line, cage){
     }}, 'Edit batch details')
   ));
 
-  wrap.appendChild(h('div', {class: 'chartBox', html: growthChartSVG(cage, farm.marketSizeMm)}));
+  wrap.appendChild(h('div', {class: 'chartBox', html: growthChartSVG(cage, farm.marketSizeMm, model)}));
 
   function act(ico, label, evType){
     return h('button', {class: 'btn secondary', onclick: function(){
@@ -1866,11 +2230,44 @@ function bulkSelection(){
   });
   return sel;
 }
+/* quick action: dump the selected cages — batches cleared, the cages
+   stay hanging on the line ready to restock */
+function bulkEmptyCages(){
+  var sel = bulkSelection().filter(function(f){ return f.cage.batch; });
+  if (!sel.length){ toast('No stocked cages selected'); return; }
+  if (!confirm('Empty ' + sel.length + ' stocked ' + (sel.length === 1 ? 'cage' : 'cages') + '? The cages stay on the line, ready to restock.')) return;
+  var today = todayISO();
+  sel.forEach(function(f){
+    var b = f.cage.batch;
+    f.cage.events.push({id: uid(), type: 'note', date: today, batchId: b.id,
+      note: 'Emptied — batch cleared. (Stocked ' + fmtDate(b.stockDate)
+        + (b.count != null ? ', ' + b.count : '') + (b.initialSizeMm != null ? ' @ ' + b.initialSizeMm + ' mm' : '')
+        + (b.source ? ', from ' + b.source : '') + ')'});
+    f.cage.batch = null;
+  });
+  var n = sel.length;
+  clearSel(); commit(); closeSheet();
+  toast(n + ' ' + (n === 1 ? 'cage' : 'cages') + ' emptied');
+}
+/* quick action: take the selected cages off the line — every spot
+   stays on the map holding its place (lines never shift) */
+function bulkRemoveCages(){
+  var sel = bulkSelection().filter(function(f){ return !f.cage.detached; });
+  if (!sel.length){ toast('Nothing selected'); return; }
+  var stocked = sel.filter(function(f){ return f.cage.batch; }).length;
+  var msg = 'Take ' + sel.length + ' ' + (sel.length === 1 ? 'cage' : 'cages') + ' off the line? Each spot stays on the map holding its place.';
+  if (stocked) msg = '⚠ ' + stocked + ' of them ' + (stocked === 1 ? 'is' : 'are') + ' STOCKED — removing deletes their batch records. ' + msg;
+  if (!confirm(msg)) return;
+  sel.forEach(function(f){ f.cage.batch = null; f.cage.detached = true; });
+  var n = sel.length;
+  clearSel(); commit(); closeSheet();
+  toast(n + ' ' + (n === 1 ? 'cage' : 'cages') + ' removed — spots kept on the line');
+}
 function buildBulkSheet(){
   var sel = bulkSelection();
   if (!sel.length) return sheetHead('Nothing selected');
   var stocked = sel.filter(function(f){ return f.cage.batch; });
-  var empty = sel.filter(function(f){ return !f.cage.batch; });
+  var empty = sel.filter(function(f){ return !f.cage.batch && !f.cage.detached; });
   var wrap = h('div', null,
     sheetHead(sel.length + (sel.length === 1 ? ' cage' : ' cages') + ' selected'),
     h('div', {class: 'hint', style: 'margin-bottom:10px'},
@@ -1899,7 +2296,7 @@ function buildBulkSheet(){
   return wrap;
 }
 function buildBulkStock(){
-  var empty = bulkSelection().filter(function(f){ return !f.cage.batch; });
+  var empty = bulkSelection().filter(function(f){ return !f.cage.batch && !f.cage.detached; });
   if (!empty.length) return sheetHead('No empty cages selected');
   var backToPick = function(){ openSheet(buildBulkSheet); };
   var dateIn  = h('input', {type: 'date', value: todayISO()});
@@ -2563,6 +2960,12 @@ state = loadState();
 loadBrightsideFarm();
 save();
 render();
+
+/* console/debug handle for the pure calculators (reads only, no state mutation) */
+window.SpatMapDebug = {
+  growthModel: growthModel, growthPoints: growthPoints, integrateGrowth: integrateGrowth,
+  needsWork: needsWork, lastWorked: lastWorked, cageStatus: cageStatus, fetchWater: fetchWater
+};
 
 })();
 </script>
