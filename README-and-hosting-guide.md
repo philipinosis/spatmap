@@ -35,12 +35,13 @@ New farms start with the same two-acre, four-quarter template and reshape it fro
 1. Double-click `index.html` to open it in any browser (or open it on your phone — see hosting below).
 2. The Brightside farm loads automatically the first time.
 3. **The app opens on the whole-farm overview**: every plot is a card showing its lines as rows of colored dots. Tap a plot to open it full-screen with big cages sized for a stylus on the water. **‹ Farm** (or the phone's back button) returns to the overview, and the chips across the top hop straight between plots without going back.
-3. Tap **+ Add line** → name it, pick a cage type (square = Bag, rectangle = Flip, circle = OyGrow — you can add your own types), pick which farm section it belongs to, and enter how many cages. The line appears on the map.
-4. **The map mirrors the real farm**: an ocean-blue chart split into two acres. Acre 1 has four quarters with a dashed boat lane running between them; Acre 2 is a separate area where lines run vertically. Each line is drawn as an anchor run — rope between two ⚓ anchors with the cages strung along it. Move a line between sections any time from its ⋯ menu.
-5. Tap any cage to stock it: date, count, seed size (mm), source, and prep work (graded, tumbled, desiccated, shaken, etc.). You can stock a whole line at once.
-6. Tap a stocked cage to log **growth checks**, **mortality**, or **harvest**. Growth checks can apply to the whole line. Each cage shows a growth chart and time in water.
-7. Colors on the map: gray = empty, green = under 6 months, amber = 6–12 months, orange = over 12 months, blue ring = at market size (default 76 mm, changeable in ⚙ settings).
-8. **Back up regularly**: ⚙ menu → Export data. Keep the JSON file somewhere safe; Import restores it on any device.
+4. Tap **+ Add line** → name it, pick a cage type (square = Bag, rectangle = Flip, circle = OyGrow — you can add your own types), pick which farm section it belongs to, and enter how many cages. The line appears on the map.
+5. **The map mirrors the real farm**: an ocean-blue chart split into two acres. Acre 1 has four quarters with a dashed boat lane running between them; Acre 2 is a separate area where lines run vertically. Each line is drawn as an anchor run — rope between two ⚓ anchors with the cages strung along it. Move a line between sections any time from its ⋯ menu.
+6. Tap any cage to stock it: date, count, seed size (mm), source, and prep work (graded, tumbled, desiccated, shaken, etc.). You can stock a whole line at once.
+7. Tap a stocked cage to log **growth checks**, **mortality**, or **harvest**. Growth checks can apply to the whole line. Each cage shows a growth chart and time in water.
+8. **Worked a batch of cages? Select first, fill in once.** Inside a plot, tap **Select**, then tap each cage you worked (or a line's **All** button), then **Log work**. One form covers the whole selection: stock the empty cages, or log a growth check / mortality / harvest / note across every stocked one. Counts apply per cage and are capped at what each cage has left; "Full harvest" empties every selected cage in one go.
+9. Colors on the map: gray = empty, green = under 6 months, amber = 6–12 months, orange = over 12 months, blue ring = at market size (default 76 mm, changeable in ⚙ settings).
+10. **Back up regularly**: ⚙ menu → Export data. Keep the JSON file somewhere safe; Import restores it on any device.
 
 ## Hosting — how to get it on your phone and share it
 

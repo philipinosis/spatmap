@@ -264,6 +264,42 @@
   .cageScroller.vscroll.tall{max-height:none;overflow-y:visible}
   .lineWrap.big.vert .lineTop{max-width:116px}
 
+  /* ---------- Select-then-fill: pick the cages you worked, log once ---------- */
+  .plotbar .selbtn{
+    flex:none;min-height:44px;padding:0 16px;border-radius:12px;
+    background:var(--card);box-shadow:var(--shadow);
+    font-weight:800;font-size:.9rem;color:var(--ink);
+  }
+  .plotbar .selbtn.on{background:#0b4f6c;color:#fff}
+  .plotbar .selbtn:active{transform:scale(.96)}
+  .cage .selmark{
+    position:absolute;top:-2px;right:0;width:22px;height:22px;border-radius:50%;
+    background:rgba(255,255,255,.28);border:2px solid #fff;z-index:2;
+    display:flex;align-items:center;justify-content:center;
+    font-size:.78rem;font-weight:900;color:transparent;
+    box-shadow:0 1px 3px rgba(0,0,0,.3);
+  }
+  .cage.selpick{background:rgba(255,255,255,.12)}
+  .cage.selpick .selmark{background:var(--teal);color:#fff}
+  .lineTop .lsel{
+    flex:none;min-width:48px;min-height:38px;border-radius:10px;padding:0 10px;
+    color:#fff;font-size:.74rem;font-weight:800;background:rgba(255,255,255,.16);
+  }
+  .lineTop .lsel:active{background:rgba(255,255,255,.3)}
+  .selbar{
+    position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(16px + env(safe-area-inset-bottom));z-index:15;
+    display:flex;align-items:center;gap:4px;white-space:nowrap;
+    background:var(--deep);color:#fff;border-radius:999px;
+    padding:6px 6px 6px 18px;box-shadow:0 4px 16px rgba(0,0,0,.35);
+  }
+  .selbar .scount{font-weight:800;font-size:.95rem;margin-right:8px}
+  .selbar .go{background:var(--teal);color:#fff;font-weight:800;border-radius:999px;padding:11px 20px;min-height:46px}
+  .selbar .go:disabled{opacity:.4}
+  .selbar .go:active{background:var(--teal-dark)}
+  .selbar .x{min-width:46px;min-height:46px;border-radius:50%;font-size:1.05rem;color:#cfe3ea}
+  .selbar .x:active{background:rgba(255,255,255,.14)}
+
   /* ---------- Legend (on water) ---------- */
   .legend{margin:6px 0 0}
   .legend summary{
@@ -883,19 +919,38 @@ function commit(){ save(); render(); }
    curPlot is transient (not persisted) so the app always opens on the
    full view. The phone's back button closes an open plot. */
 var curPlot = null, plotPushed = false;
+/* select-then-fill: in a plot, tap Select, mark the cages you worked,
+   then Log work applies one form to all of them. Transient state. */
+var selMode = false, selCages = {}; /* cage id -> line id */
+function selCount(){ return Object.keys(selCages).length; }
+function clearSel(){ selMode = false; selCages = {}; }
+function updateSelbar(){
+  var c = document.getElementById('selcount');
+  if (c) c.textContent = selCount() + ' selected';
+  var go = document.getElementById('selgo');
+  if (go) go.disabled = selCount() === 0;
+}
+/* re-render without losing the user's place on a long plot */
+function rerenderKeepScroll(){
+  var y = window.scrollY;
+  render();
+  window.scrollTo(0, y);
+}
 function openPlot(secId){
   curPlot = secId;
+  clearSel();
   try { history.pushState({spatmapPlot: true}, ''); plotPushed = true; } catch(e){}
   render();
   window.scrollTo(0, 0);
 }
 function closePlot(){
+  clearSel();
   if (plotPushed){ history.back(); return; } /* popstate does the render */
   curPlot = null;
   render();
 }
 window.addEventListener('popstate', function(){
-  if (curPlot){ curPlot = null; plotPushed = false; render(); }
+  if (curPlot){ curPlot = null; plotPushed = false; clearSel(); render(); }
 });
 function render(){
   var app = document.getElementById('app');
@@ -1070,7 +1125,11 @@ function viewPlot(farm, sec){
     h('div', {class: 'ptitle'},
       h('div', {class: 'pname'}, (area && area.sections.length > 1 ? area.name + ' — ' : '') + sec.name),
       h('div', {class: 'psub'}, lines.length + (lines.length === 1 ? ' line · ' : ' lines · ') + stocked + '/' + total + ' stocked')
-    )
+    ),
+    lines.length ? h('button', {class: 'selbtn' + (selMode ? ' on' : ''), onclick: function(){
+      if (selMode){ clearSel(); } else { selMode = true; toast('Tap the cages you worked, then Log work'); }
+      rerenderKeepScroll();
+    }}, selMode ? 'Cancel' : 'Select') : null
   ));
 
   /* quick hop between plots without going back to the overview */
@@ -1080,7 +1139,7 @@ function viewPlot(farm, sec){
       var lbl = a.sections.length > 1 ? sc.name : a.name;
       chips.appendChild(h('button', {class: 'chip' + (sc.id === sec.id ? ' on' : ''), onclick: function(){
         if (sc.id === sec.id) return;
-        curPlot = sc.id; render(); window.scrollTo(0, 0);
+        curPlot = sc.id; clearSel(); render(); window.scrollTo(0, 0);
       }}, lbl));
     });
   });
@@ -1101,7 +1160,19 @@ function viewPlot(farm, sec){
   map.appendChild(ocean);
   wrap.appendChild(map);
 
-  wrap.appendChild(h('button', {class: 'fab', onclick: function(){ openSheet(function(){ return buildAddLine(sec.id); }); }}, '+ Add line'));
+  if (selMode){
+    var go = h('button', {class: 'go', id: 'selgo', onclick: function(){
+      if (selCount()) openSheet(buildBulkSheet);
+    }}, 'Log work');
+    go.disabled = selCount() === 0;
+    wrap.appendChild(h('div', {class: 'selbar'},
+      h('span', {class: 'scount', id: 'selcount'}, selCount() + ' selected'),
+      go,
+      h('button', {class: 'x', 'aria-label': 'Cancel selection', onclick: function(){ clearSel(); rerenderKeepScroll(); }}, '✕')
+    ));
+  } else {
+    wrap.appendChild(h('button', {class: 'fab', onclick: function(){ openSheet(function(){ return buildAddLine(sec.id); }); }}, '+ Add line'));
+  }
   return wrap;
 }
 function statCell(num, lbl){
@@ -1116,20 +1187,39 @@ function renderLine(farm, line, vertical, big){
     var type = getType(farm, cage.typeId);
     var stt = cageStatus(cage, farm);
     var btn = h('button', {
-      class: 'cage' + (big ? ' big' : ''),
+      class: 'cage' + (big ? ' big' : '') + (selMode && selCages[cage.id] ? ' selpick' : ''),
       'aria-label': 'Cage ' + cage.label,
-      onclick: function(){ openSheet(function(){ return buildCageSheet(line.id, cage.id); }); }
+      onclick: function(){
+        if (selMode){
+          if (selCages[cage.id]) delete selCages[cage.id];
+          else selCages[cage.id] = line.id;
+          btn.classList.toggle('selpick', !!selCages[cage.id]);
+          updateSelbar();
+          return;
+        }
+        openSheet(function(){ return buildCageSheet(line.id, cage.id); });
+      }
     });
+    if (selMode) btn.appendChild(h('span', {class: 'selmark', 'aria-hidden': 'true'}, '✓'));
     btn.appendChild(h('div', {class: 'shapeBox', html: shapeSVG(type.shape, stt.color, stt.ready, shapePx)}));
     btn.appendChild(h('span', {class: 'clabel'}, cage.label));
     strip.appendChild(btn);
   });
   strip.appendChild(h('span', {class: 'anch', 'aria-hidden': 'true', html: icon('anchor', 13)}));
 
+  var allPicked = line.cages.every(function(c){ return selCages[c.id]; });
   var head = h('div', {class: 'lineTop'},
     h('span', {class: 'lname'}, line.name),
     vertical ? null : h('span', {class: 'lcount'}, stockedN + '/' + line.cages.length),
-    h('button', {class: 'menu', 'aria-label': 'Line options', onclick: function(){ openSheet(function(){ return buildLineMenu(line.id); }); }}, '⋯')
+    selMode
+      ? h('button', {class: 'lsel', 'aria-label': (allPicked ? 'Deselect' : 'Select') + ' all of ' + line.name, onclick: function(){
+          line.cages.forEach(function(c){
+            if (allPicked) delete selCages[c.id];
+            else selCages[c.id] = line.id;
+          });
+          rerenderKeepScroll();
+        }}, allPicked ? 'None' : 'All')
+      : h('button', {class: 'menu', 'aria-label': 'Line options', onclick: function(){ openSheet(function(){ return buildLineMenu(line.id); }); }}, '⋯')
   );
   return h('div', {class: (vertical ? 'lineWrap vert' : 'lineWrap') + (big ? ' big' : '')},
     head,
@@ -1764,6 +1854,178 @@ function buildEventEdit(lineId, cageId, eventId){
    Farm switcher
 ================================================================ */
 var switcherRenaming = null;
+/* ================================================================
+   Bulk log — select the cages you worked, then fill it in once
+================================================================ */
+function bulkSelection(){
+  var farm = getFarm();
+  var sel = [];
+  Object.keys(selCages).forEach(function(cid){
+    var f = findCage(farm, selCages[cid], cid);
+    if (f) sel.push(f);
+  });
+  return sel;
+}
+function buildBulkSheet(){
+  var sel = bulkSelection();
+  if (!sel.length) return sheetHead('Nothing selected');
+  var stocked = sel.filter(function(f){ return f.cage.batch; });
+  var empty = sel.filter(function(f){ return !f.cage.batch; });
+  var wrap = h('div', null,
+    sheetHead(sel.length + (sel.length === 1 ? ' cage' : ' cages') + ' selected'),
+    h('div', {class: 'hint', style: 'margin-bottom:10px'},
+      stocked.length + ' stocked · ' + empty.length + ' empty. What did you do?')
+  );
+  var list = h('div', {class: 'menuList'});
+  function item(ico, label, sub, fn){
+    list.appendChild(h('button', {class: 'menuItem', onclick: fn},
+      h('span', {class: 'mico', html: icon(ico, 20)}),
+      h('span', {class: 'grow'}, label, sub ? h('span', {class: 'sub'}, sub) : null)));
+  }
+  if (empty.length)
+    item('shell', 'Stock', 'New batch in the ' + empty.length + ' empty ' + (empty.length === 1 ? 'cage' : 'cages'),
+      function(){ openSheet(buildBulkStock); });
+  if (stocked.length){
+    item('ruler', 'Growth check', 'One size for the ' + stocked.length + ' stocked',
+      function(){ openSheet(function(){ return buildBulkEvent('growth'); }); });
+    item('skull', 'Mortality', 'Dead count, applied per cage',
+      function(){ openSheet(function(){ return buildBulkEvent('mortality'); }); });
+    item('basket', 'Harvest', 'Count per cage, or empty them all out',
+      function(){ openSheet(function(){ return buildBulkEvent('harvest'); }); });
+    item('note', 'Note', 'Same note on each stocked cage',
+      function(){ openSheet(function(){ return buildBulkEvent('note'); }); });
+  }
+  wrap.appendChild(list);
+  return wrap;
+}
+function buildBulkStock(){
+  var empty = bulkSelection().filter(function(f){ return !f.cage.batch; });
+  if (!empty.length) return sheetHead('No empty cages selected');
+  var backToPick = function(){ openSheet(buildBulkSheet); };
+  var dateIn  = h('input', {type: 'date', value: todayISO()});
+  var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', placeholder: 'e.g. 500'});
+  var sizeIn  = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: 'e.g. 12'});
+  var ploidyIn = h('select');
+  PLOIDY_OPTIONS.forEach(function(o){ ploidyIn.appendChild(h('option', {value: o}, o || '—')); });
+  var srcIn   = h('input', {type: 'text', placeholder: 'Hatchery / origin', maxlength: '80'});
+  var prep    = prepChips();
+  var notesIn = h('textarea', {placeholder: 'Notes (optional)', maxlength: '500'});
+  function submit(){
+    var date = dateIn.value;
+    if (!isValidISO(date)){ toast('Pick a stock date'); return; }
+    var count = parseInt(countIn.value, 10);
+    if (!(count >= 1)){ toast('Enter the number of oysters per cage'); countIn.focus(); return; }
+    var size = parseFloat(sizeIn.value);
+    if (!(size >= 0) || sizeIn.value === ''){ toast('Enter starting size in mm'); sizeIn.focus(); return; }
+    var pv = prep.values(), notes = notesIn.value.trim(), src = srcIn.value.trim();
+    empty.forEach(function(f){
+      f.cage.batch = {id: uid(), stockDate: date, ploidy: ploidyIn.value, source: src,
+                      initialSizeMm: size, count: count, prep: pv.slice(), notes: notes};
+    });
+    clearSel(); commit(); closeSheet();
+    toast('Stocked ' + empty.length + ' ' + (empty.length === 1 ? 'cage' : 'cages'));
+  }
+  return h('div', null,
+    sheetHead('Stock ' + empty.length + ' ' + (empty.length === 1 ? 'cage' : 'cages'), {onBack: backToPick}),
+    h('div', {class: 'hint', style: 'margin-bottom:10px'}, 'Same batch details go on every selected empty cage.'),
+    h('div', {class: 'row2'},
+      field('Stock date', dateIn),
+      field('Count per cage', countIn)
+    ),
+    h('div', {class: 'row2'},
+      field('Size (mm)', sizeIn),
+      field('Ploidy', ploidyIn, 'Trips = triploid · Dips = diploid')
+    ),
+    field('Source', srcIn, 'Hatchery or where the seed came from'),
+    field('Prep before stocking', prep.el),
+    field('Notes', notesIn),
+    h('button', {class: 'btn', onclick: submit}, h('span', {style: 'display:flex', html: icon('shell', 19)}), 'Stock cages')
+  );
+}
+function buildBulkEvent(evType){
+  var stocked = bulkSelection().filter(function(f){ return f.cage.batch; });
+  if (!stocked.length) return sheetHead('No stocked cages selected');
+  var meta = EVENT_META[evType];
+  var backToPick = function(){ openSheet(buildBulkSheet); };
+  var dateIn = h('input', {type: 'date', value: todayISO()});
+  var sizeIn = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: 'mm'});
+  var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', placeholder: 'count'});
+  var noteIn = h('textarea', {placeholder: evType === 'note' ? 'What happened?' : 'Note (optional)', maxlength: '500'});
+  var fullCb = h('input', {type: 'checkbox'});
+  var countField = field(evType === 'mortality' ? 'Number dead per cage' : 'Number harvested per cage', countIn,
+    'Capped at what each cage has left');
+  fullCb.addEventListener('change', function(){ countField.style.display = fullCb.checked ? 'none' : ''; });
+
+  function submit(){
+    var date = dateIn.value;
+    if (!isValidISO(date)){ toast('Pick a date'); return; }
+    var note = noteIn.value.trim();
+
+    if (evType === 'growth'){
+      var size = parseFloat(sizeIn.value);
+      if (!(size >= 0) || sizeIn.value === ''){ toast('Enter size in mm'); sizeIn.focus(); return; }
+      stocked.forEach(function(f){
+        f.cage.events.push({id: uid(), type: 'growth', date: date, sizeMm: size, note: note, batchId: f.cage.batch.id});
+      });
+      clearSel(); commit(); closeSheet();
+      toast('Growth logged for ' + stocked.length + (stocked.length === 1 ? ' cage' : ' cages'));
+      return;
+    }
+
+    if (evType === 'note'){
+      if (!note){ toast('Write a note first'); noteIn.focus(); return; }
+      stocked.forEach(function(f){
+        f.cage.events.push({id: uid(), type: 'note', date: date, note: note, batchId: f.cage.batch.id});
+      });
+      clearSel(); commit(); closeSheet();
+      toast('Note saved on ' + stocked.length + (stocked.length === 1 ? ' cage' : ' cages'));
+      return;
+    }
+
+    /* mortality / harvest — count applies per cage, capped at remaining */
+    var full = evType === 'harvest' && fullCb.checked;
+    var n = parseInt(countIn.value, 10);
+    if (!full && !(n >= 1)){ toast('Enter a count per cage'); countIn.focus(); return; }
+    var logged = 0, emptied = 0;
+    stocked.forEach(function(f){
+      var cage = f.cage;
+      var remaining = estCount(cage);
+      var take = full ? remaining : n;
+      if (!full && remaining !== null && take > remaining) take = remaining;
+      if (!full && remaining !== null && take < 1) return; /* nothing left in this cage */
+      var ev = {id: uid(), type: evType, date: date, note: note, batchId: cage.batch.id};
+      if (typeof take === 'number' && take >= 1) ev.count = take;
+      cage.events.push(ev);
+      logged++;
+      var nowLeft = estCount(cage);
+      if (evType === 'harvest' && (full || (nowLeft !== null && nowLeft <= 0))){
+        var b = cage.batch;
+        cage.events.push({id: uid(), type: 'note', date: date, batchId: b.id,
+          note: 'Batch fully harvested — archived. (Stocked ' + fmtDate(b.stockDate)
+            + (b.count != null ? ', ' + b.count : '') + (b.initialSizeMm != null ? ' @ ' + b.initialSizeMm + ' mm' : '')
+            + (b.source ? ', from ' + b.source : '') + ')'});
+        cage.batch = null;
+        emptied++;
+      }
+    });
+    clearSel(); commit(); closeSheet();
+    var cw = logged === 1 ? ' cage' : ' cages';
+    if (evType === 'harvest') toast('Harvest logged on ' + logged + cw + (emptied ? ' · ' + emptied + ' emptied' : ''));
+    else toast('Mortality logged on ' + logged + cw);
+  }
+
+  var kids = [
+    sheetHead(meta.label + ' — ' + stocked.length + (stocked.length === 1 ? ' cage' : ' cages'), {onBack: backToPick}),
+    field('Date', dateIn)
+  ];
+  if (evType === 'growth') kids.push(field('Size (mm)', sizeIn, 'Applied to every selected cage'));
+  if (evType === 'harvest') kids.push(h('label', {class: 'toggleRow'}, fullCb, 'Full harvest — empty every selected cage'));
+  if (evType === 'mortality' || evType === 'harvest') kids.push(countField);
+  kids.push(field(evType === 'note' ? 'Note' : 'Note (optional)', noteIn));
+  kids.push(h('button', {class: 'btn', onclick: submit}, 'Save ' + meta.label.toLowerCase()));
+  return h('div', null, kids);
+}
+
 function buildFarmSwitcher(){
   var wrap = h('div', null, sheetHead('Farms'));
   var list = h('div', {class: 'menuList'});
