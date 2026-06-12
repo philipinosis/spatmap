@@ -96,14 +96,25 @@
   .stat .num{font-size:1.25rem;font-weight:800;color:var(--deep);font-variant-numeric:tabular-nums}
   .stat .lbl{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 
-  /* ---------- Live water conditions chip ---------- */
+  /* ---------- Live conditions panel (water / tides / weather) ---------- */
   .waterChip{
     max-width:900px;margin:0 auto;padding:0 12px 4px;
   }
   .waterChip .inner{
     background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);
-    padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-    font-size:.82rem;color:var(--deep);
+    padding:8px 12px;display:flex;flex-direction:column;gap:3px;
+    font-size:.8rem;color:var(--deep);cursor:pointer;
+  }
+  .waterChip .inner:active{background:var(--bg)}
+  .waterChip .crow{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* tide chunks shrink (with ellipsis) before the salinity reading clips */
+  .waterChip .crow .val.tide{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .waterChip .crow.wx{font-size:.74rem;color:var(--muted)}
+  .waterChip .sep{color:var(--muted);flex:none}
+  .waterChip .short{overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .waterChip .stn{
+    margin-left:auto;padding-left:8px;color:var(--muted);font-size:.72rem;
+    overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;
   }
   .waterChip .src{font-weight:800;color:#0e7c86;white-space:nowrap}
   .waterChip .val{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -327,6 +338,10 @@
   }
   .cage.selpick{background:rgba(255,255,255,.12)}
   .cage.selpick .selmark{background:var(--teal);color:#fff}
+  /* sort-wizard pick mode */
+  .cage.sortlock{opacity:.55}
+  .cage.dimcage{opacity:.35}
+  .cage.sortsrc .shapeBox{outline:2px dashed rgba(255,255,255,.7);outline-offset:2px;border-radius:10px}
   .lineTop .lsel{
     flex:none;min-width:48px;min-height:38px;border-radius:10px;padding:0 10px;
     color:#fff;font-size:.74rem;font-weight:800;background:rgba(255,255,255,.16);
@@ -635,6 +650,14 @@ var STORAGE_KEY = 'cageTrackerData';
 var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 var PREP_OPTIONS = ['Graded','Tumbled','Desiccated','Cleaned','Split','Shaken'];
 var PLOIDY_OPTIONS = ['', 'Trips', 'Dips', 'Mixed']; /* ploidy = chromosome sets: trips are triploid, dips diploid */
+/* sort-grade vocabulary is per-farm (farm.grades); custom names typed in the
+   sort wizard are added to the farm's list at commit. Brightside uses its own
+   house grade names. */
+var DEFAULT_GRADES = ['Smalls', 'Doubles', 'Jumbos'];
+var BRIGHTSIDE_GRADES = ['Jumbos', 'Brightsides', 'Smalls', 'Doubles', 'Bon Temps'];
+function farmGrades(farm){
+  return (Array.isArray(farm.grades) && farm.grades.length) ? farm.grades : DEFAULT_GRADES;
+}
 var PREP_RENAMES = {'Air-dried':'Desiccated','Split from another cage':'Split'};
 /* product vocabulary: the physical longline is always called "line" in the UI.
    The only identifier still carrying the legacy "rope" name is the
@@ -681,13 +704,26 @@ var SEASON_MULT = [0.35, 0.45, 0.8, 1.2, 1.35, 1.35, 1.05, 1.0, 1.2, 1.3, 0.8, 0
 
 /* needs-work ring: events that involve handling the oysters reset the clock; notes don't */
 var WORK_RESET_DAYS = 56; /* 8 weeks */
-var WORK_EVENT_TYPES = {growth: 1, mortality: 1, harvest: 1};
+/* 'sort' is listed for completeness but is currently a no-op for the work
+   clock: sort events are stamped with the OLD batch's id, and the source
+   cage ends empty or holding a new batch, so batchEvents never surfaces
+   them.  The new batch's stockDate is what resets the clock. */
+var WORK_EVENT_TYPES = {growth: 1, mortality: 1, harvest: 1, sort: 1};
 var NEEDS_WORK_COLOR = '#d6492f';
 
-/* live water conditions — USGS 07380249 Caminada Pass NW of Grand Isle, LA */
+/* live conditions — salinity/temp from a user-chosen USGS gauge (default
+   07380249 Caminada Pass NW of Grand Isle, LA), tides from the nearest NOAA
+   CO-OPS station, weather from the NWS gridpoint forecast */
 var USGS_SITE = '07380249';
+var DEFAULT_STATION = {site: USGS_SITE, name: 'Caminada Pass NW of Grand Isle', lat: 29.2313611, lon: -90.0485278};
+var STATION_KEY = 'spatmap_station_v1';
 var WATER_CACHE_KEY = 'spatmap_water_v1';
 var WATER_MAX_AGE_MS = 3 * 3600 * 1000;
+var TIDE_CACHE_KEY = 'spatmap_tides_v1';
+var WX_CACHE_KEY = 'spatmap_wx_v1';
+var WX_MAX_AGE_MS = 3600 * 1000;
+var SITES_CACHE_KEY = 'spatmap_sites_v1';
+var SITES_MAX_AGE_MS = 7 * 86400 * 1000;
 
 function uid(){
   try{
@@ -760,34 +796,54 @@ function toast(msg){
 }
 
 /* ================================================================
-   Live water conditions — USGS Caminada Pass (salinity, temp)
-   Fetched in-browser, cached in localStorage; the app never blocks
-   on the network and falls back to the cached reading offline.
+   Live conditions — USGS salinity/temp, NOAA tides, NWS weather
+   All fetched in-browser around the user's chosen gauge, cached in
+   localStorage; the app never blocks on the network and falls back
+   to cached readings offline. Display-only — nothing in the app
+   logic gates on conditions.
 ================================================================ */
+/* the chosen gauge is a device preference, NOT part of the farm data */
+function curStation(){
+  try{
+    var raw = localStorage.getItem(STATION_KEY);
+    if (raw){
+      var s = JSON.parse(raw);
+      if (s && typeof s === 'object' && s.site && s.name &&
+          typeof s.lat === 'number' && typeof s.lon === 'number') return s;
+    }
+  }catch(e){}
+  return DEFAULT_STATION;
+}
+function setStation(s){
+  try{ localStorage.setItem(STATION_KEY, JSON.stringify(s)); }catch(e){}
+}
+
 function readWaterCache(){
   try{
     var raw = localStorage.getItem(WATER_CACHE_KEY);
     if (!raw) return null;
     var w = JSON.parse(raw);
-    return (w && typeof w === 'object' && typeof w.fetchedAt === 'number') ? w : null;
+    if (!(w && typeof w === 'object' && typeof w.fetchedAt === 'number')) return null;
+    /* a reading from a different gauge counts as missing */
+    return w.site === curStation().site ? w : null;
   }catch(e){ return null; }
 }
 var waterFetchInFlight = false;
 /* fetch the latest readings from USGS instantaneous-values service.
    parameterCd: 00010=water temp °C, 00480=salinity ppt,
                 00065=gage height ft.
-   results are cached in localStorage for WATER_MAX_AGE_MS (3 h); the chip
-   shows "cached" when the cache is stale but still present.
-   this is display-only — nothing in the app logic gates on water conditions. */
+   results are cached in localStorage for WATER_MAX_AGE_MS (3 h); the panel
+   shows "cached" when the cache is stale but still present. */
 function fetchWater(){
   var cached = readWaterCache();
   if (cached && Date.now() - cached.fetchedAt < WATER_MAX_AGE_MS) return;
   if (waterFetchInFlight || typeof fetch !== 'function') return;
   waterFetchInFlight = true;
-  var url = 'https://waterservices.usgs.gov/nwis/iv/?sites=' + USGS_SITE +
+  var st = curStation();
+  var url = 'https://waterservices.usgs.gov/nwis/iv/?sites=' + st.site +
             '&parameterCd=00010,00480,00065&siteStatus=active&format=json';
   fetch(url).then(function(r){ return r.json(); }).then(function(data){
-    var out = {fetchedAt: Date.now(), salinity: null, tempC: null, gageFt: null, readingAt: null};
+    var out = {site: st.site, fetchedAt: Date.now(), salinity: null, tempC: null, gageFt: null, readingAt: null};
     ((data && data.value && data.value.timeSeries) || []).forEach(function(ts){
       var code = ts.variable && ts.variable.variableCode && ts.variable.variableCode[0] && ts.variable.variableCode[0].value;
       var vals = ts.values && ts.values[0] && ts.values[0].value;
@@ -810,28 +866,363 @@ function fetchWater(){
     updateWaterChip();
   });
 }
-function waterChipInner(){
-  var w = readWaterCache();
-  var inner = h('div', {class: 'inner'});
-  inner.appendChild(h('span', {class: 'src'}, '≈ Caminada Pass'));
-  if (!w){
-    inner.appendChild(h('span', {class: 'offline'}, 'no water reading yet'));
-    return inner;
+
+/* ---------- tides (NOAA CO-OPS hi/lo predictions) ---------- */
+function haversineMi(lat1, lon1, lat2, lon2){
+  var d2r = Math.PI / 180;
+  var dLat = (lat2 - lat1) * d2r, dLon = (lon2 - lon1) * d2r;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * d2r) * Math.cos(lat2 * d2r) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * 3958.8 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+/* LA/MS coast tide-prediction stations; ids + coords verified against the
+   CO-OPS mdapi 2026-06-12.  West Bank 1, Bayou Gauche (8762482) deliberately
+   absent — it has no MLLW predictions. */
+var NOAA_TIDE_STATIONS = [
+  {id: '8760922', name: 'Pilots Station East, SW Pass', lat: 28.9322, lon: -89.4075},
+  {id: '8760721', name: 'Pilottown', lat: 29.179306, lon: -89.258835},
+  {id: '8761305', name: 'Shell Beach', lat: 29.86811, lon: -89.67325},
+  {id: '8761724', name: 'Grand Isle', lat: 29.263334, lon: -89.956665},
+  {id: '8761927', name: 'New Canal Station', lat: 30.027222, lon: -90.113335},
+  {id: '8762075', name: 'Port Fourchon, Belle Pass', lat: 29.1142, lon: -90.1993},
+  {id: '8764044', name: 'Berwick, Atchafalaya River', lat: 29.6675, lon: -91.23761},
+  {id: '8764227', name: 'LAWMA, Amerada Pass', lat: 29.4496, lon: -91.3381},
+  {id: '8766072', name: 'Freshwater Canal Locks', lat: 29.551695, lon: -92.30519},
+  {id: '8768094', name: 'Calcasieu Pass', lat: 29.768167, lon: -93.34289},
+  {id: '8767961', name: 'Bulk Terminal', lat: 30.1903, lon: -93.3007},
+  {id: '8767816', name: 'Lake Charles', lat: 30.223612, lon: -93.221664},
+  {id: '8747437', name: 'Bay Waveland Yacht Club', lat: 30.326342, lon: -89.3258},
+  {id: '8741533', name: 'Pascagoula NOAA Lab', lat: 30.367777, lon: -88.56306}
+];
+function nearestTideStation(lat, lon){
+  var best = null, bestD = Infinity;
+  NOAA_TIDE_STATIONS.forEach(function(ts){
+    var d = haversineMi(lat, lon, ts.lat, ts.lon);
+    if (d < bestD){ bestD = d; best = ts; }
+  });
+  return best;
+}
+/* CO-OPS prediction times come back as "2026-06-12 07:44" in station local
+   time; Date.parse on that form is implementation-dependent, so split it
+   ourselves into a local-time Date */
+function tideTimeMs(t){
+  var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(t || '');
+  if (!m) return NaN;
+  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
+}
+/* first high and first low strictly after nowMs */
+function nextHiLo(preds, nowMs){
+  var out = {hi: null, lo: null};
+  (preds || []).forEach(function(p){
+    var ms = tideTimeMs(p.t);
+    if (!(ms > nowMs)) return;
+    if (p.type === 'H' && (!out.hi || ms < tideTimeMs(out.hi.t))) out.hi = p;
+    else if (p.type === 'L' && (!out.lo || ms < tideTimeMs(out.lo.t))) out.lo = p;
+  });
+  return out;
+}
+function readTideCache(){
+  try{
+    var w = JSON.parse(localStorage.getItem(TIDE_CACHE_KEY) || 'null');
+    return (w && typeof w === 'object' && Array.isArray(w.preds)) ? w : null;
+  }catch(e){ return null; }
+}
+var tideFetchInFlight = false;
+/* 48 h of hi/lo predictions from today 00:00 local — the next tide can be
+   tomorrow, so date=today (one calendar day) is not enough */
+function fetchTides(){
+  var st = curStation();
+  var ts = nearestTideStation(st.lat, st.lon);
+  var day = todayISO();
+  var c = readTideCache();
+  if (c && c.station === ts.id && c.day === day) return;
+  if (tideFetchInFlight || typeof fetch !== 'function') return;
+  tideFetchInFlight = true;
+  var url = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=spatmap' +
+            '&station=' + ts.id + '&begin_date=' + day.replace(/-/g, '') + '&range=48' +
+            '&datum=MLLW&time_zone=lst_ldt&interval=hilo&units=english&format=json';
+  fetch(url).then(function(r){ return r.json(); }).then(function(data){
+    tideFetchInFlight = false;
+    var preds = (data && data.predictions) || [];
+    if (preds.length){
+      try{ localStorage.setItem(TIDE_CACHE_KEY, JSON.stringify({station: ts.id, day: day, fetchedAt: Date.now(), preds: preds})); }catch(e){}
+    }
+    updateWaterChip();
+  }).catch(function(){
+    tideFetchInFlight = false;
+    updateWaterChip();
+  });
+}
+
+/* ---------- weather (NWS hourly gridpoint forecast) ---------- */
+function wxKey(lat, lon){ return lat.toFixed(4) + ',' + lon.toFixed(4); }
+function readWxCache(){
+  try{
+    var w = JSON.parse(localStorage.getItem(WX_CACHE_KEY) || 'null');
+    if (w && typeof w === 'object'){
+      if (!w.grids || typeof w.grids !== 'object') w.grids = {};
+      return w;
+    }
+  }catch(e){}
+  return {grids: {}, last: null};
+}
+function saveWxCache(c){
+  try{ localStorage.setItem(WX_CACHE_KEY, JSON.stringify(c)); }catch(e){}
+}
+var wxFetchInFlight = false;
+/* two-step NWS lookup: points/<lat>,<lon> resolves a gridpoint forecast URL
+   (cached forever per rounded coords), then the first hourly period becomes
+   the reading (cached 1 h).  NWS 503s now and then — every failure path
+   falls silently back to whatever is cached. */
+function fetchWeather(){
+  var st = curStation();
+  var key = wxKey(st.lat, st.lon);
+  var c = readWxCache();
+  if (c.last && c.last.key === key && Date.now() - c.last.fetchedAt < WX_MAX_AGE_MS) return;
+  if (wxFetchInFlight || typeof fetch !== 'function') return;
+  wxFetchInFlight = true;
+  function grabForecast(url){
+    return fetch(url).then(function(r){
+      if (!r.ok) throw {gone: r.status}; /* 404 = marine point or drifted grid */
+      return r.json();
+    }).then(function(data){
+      var p = data && data.properties && data.properties.periods && data.properties.periods[0];
+      if (!p) throw {gone: 0};
+      var cc = readWxCache();
+      cc.grids[key] = url;
+      cc.last = {
+        key: key, fetchedAt: Date.now(),
+        tempF: typeof p.temperature === 'number' ? p.temperature : null,
+        windDir: p.windDirection || '',
+        /* "5 to 10 mph" → "5-10" */
+        windMph: String(p.windSpeed || '').replace(/\s*to\s*/g, '-').replace(/\s*mph\s*$/, ''),
+        short: p.shortForecast || '',
+        pop: (p.probabilityOfPrecipitation && typeof p.probabilityOfPrecipitation.value === 'number')
+          ? p.probabilityOfPrecipitation.value : null
+      };
+      saveWxCache(cc);
+    });
   }
-  if (typeof w.salinity === 'number') inner.appendChild(h('span', {class: 'val'}, w.salinity + ' ppt'));
-  if (typeof w.tempC === 'number') inner.appendChild(h('span', {class: 'val'}, w.tempC.toFixed(1) + '°C · ' + Math.round(w.tempC * 9/5 + 32) + '°F'));
-  var when = new Date(w.readingAt || w.fetchedAt);
-  var label = '';
-  try{ label = when.toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}); }catch(e){}
-  inner.appendChild(h('span', {class: 'when'}, label));
-  if (Date.now() - w.fetchedAt > WATER_MAX_AGE_MS) inner.appendChild(h('span', {class: 'offline'}, 'cached'));
+  function resolvePoints(lat, lon){
+    return fetch('https://api.weather.gov/points/' + lat.toFixed(4) + ',' + lon.toFixed(4))
+      .then(function(r){
+        if (!r.ok) throw {gone: r.status};
+        return r.json();
+      }).then(function(data){
+        var u = data && data.properties && data.properties.forecastHourly;
+        if (!u) throw {gone: 0};
+        return grabForecast(u);
+      });
+  }
+  var job;
+  if (c.grids[key]){
+    job = grabForecast(c.grids[key]).catch(function(err){
+      /* NWS grids drift; drop a dead cached URL so the next try re-resolves */
+      if (err && err.gone){
+        var cc = readWxCache();
+        delete cc.grids[key];
+        saveWxCache(cc);
+      }
+      throw err;
+    });
+  } else {
+    job = resolvePoints(st.lat, st.lon).catch(function(){
+      /* open-water gauges sit in marine grid cells with no land forecast —
+         retry from the nearest tide station, which sits onshore */
+      var ts = nearestTideStation(st.lat, st.lon);
+      return resolvePoints(ts.lat, ts.lon);
+    });
+  }
+  function done(){ wxFetchInFlight = false; updateWaterChip(); }
+  job.then(done, done);
+}
+
+/* ---------- the panel ---------- */
+function clock12(ms){
+  if (!isFinite(ms)) return '';
+  var d = new Date(ms);
+  var hr = d.getHours() % 12 || 12;
+  return hr + ':' + String(d.getMinutes()).padStart(2, '0') + (d.getHours() < 12 ? 'a' : 'p');
+}
+function signedFt(v){
+  var n = parseFloat(v);
+  if (!isFinite(n)) return '';
+  return (n < 0 ? '−' : '+') + Math.abs(n).toFixed(1);
+}
+function waterChipInner(){
+  var st = curStation();
+  var inner = h('div', {
+    class: 'inner', role: 'button', tabindex: '0', 'aria-label': 'Choose water station',
+    onclick: function(){ guardedSheet(buildStationPicker)(); },
+    onkeydown: function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); guardedSheet(buildStationPicker)(); } }
+  });
+
+  /* row 1 — water reading + next tides */
+  var parts = [];
+  var w = readWaterCache();
+  if (!w){
+    parts.push(h('span', {class: 'offline'}, 'no water reading yet'));
+  } else {
+    if (typeof w.salinity === 'number') parts.push(h('span', {class: 'src'}, '≈ ' + w.salinity + ' ppt'));
+    if (typeof w.tempC === 'number') parts.push(h('span', {class: 'val'}, w.tempC.toFixed(1) + '°C'));
+    if (!parts.length) parts.push(h('span', {class: 'val'}, '—'));
+    if (Date.now() - w.fetchedAt > WATER_MAX_AGE_MS) parts.push(h('span', {class: 'offline'}, 'cached'));
+  }
+  var tc = readTideCache();
+  if (tc && tc.station === nearestTideStation(st.lat, st.lon).id){
+    /* yesterday's 48 h window still covers today; nextHiLo filters by now.
+       no cache / wrong station → omit the tide chunks entirely */
+    var nx = nextHiLo(tc.preds, Date.now());
+    if (nx.hi) parts.push(h('span', {class: 'val tide'}, '↑' + clock12(tideTimeMs(nx.hi.t)) + ' ' + signedFt(nx.hi.v)));
+    if (nx.lo) parts.push(h('span', {class: 'val tide'}, '↓' + clock12(tideTimeMs(nx.lo.t)) + ' ' + signedFt(nx.lo.v)));
+  }
+  var row1 = h('div', {class: 'crow'});
+  parts.forEach(function(p, i){
+    if (i) row1.appendChild(h('span', {class: 'sep'}, '·'));
+    row1.appendChild(p);
+  });
+  inner.appendChild(row1);
+
+  /* row 2 — weather + which gauge feeds the panel */
+  var row2 = h('div', {class: 'crow wx'});
+  var wx = readWxCache().last;
+  if (wx && wx.key === wxKey(st.lat, st.lon)){
+    if (typeof wx.tempF === 'number') row2.appendChild(h('span', {class: 'val'}, wx.tempF + '°'));
+    if (wx.windDir || wx.windMph) row2.appendChild(h('span', {class: 'val'}, (wx.windDir + ' ' + wx.windMph).replace(/^\s+|\s+$/g, '')));
+    if (wx.short) row2.appendChild(h('span', {class: 'short'}, wx.short));
+    if (typeof wx.pop === 'number' && wx.pop >= 20) row2.appendChild(h('span', {class: 'val'}, wx.pop + '%'));
+  }
+  row2.appendChild(h('span', {class: 'stn'}, st.name + ' ›'));
+  inner.appendChild(row2);
   return inner;
 }
+/* in-place refresh as each fetch lands; no-op while a plot is open */
 function updateWaterChip(){
   var el = document.getElementById('waterChip');
   if (!el) return;
   el.textContent = '';
   el.appendChild(waterChipInner());
+}
+
+/* ================================================================
+   Water station picker sheet
+================================================================ */
+/* USGS rdb site list is tab-delimited: '#' comment lines, then a header
+   row naming the columns, then a column-width row ("5s\t15s\t..."), then
+   data rows.  pure function so it stays testable outside the DOM. */
+function parseUsgsSiteList(text){
+  var out = [];
+  var lines = String(text || '').split(/\r?\n/);
+  var cols = null;
+  for (var i = 0; i < lines.length; i++){
+    var line = lines[i];
+    if (!line || line.charAt(0) === '#') continue;
+    var f = line.split('\t');
+    if (!cols){
+      cols = {};
+      for (var j = 0; j < f.length; j++) cols[f[j].trim()] = j;
+      continue;
+    }
+    if (/^\d+s$/.test((f[0] || '').trim())) continue; /* the "5s 15s ..." format row */
+    var site = (f[cols.site_no] || '').trim();
+    var name = (f[cols.station_nm] || '').trim();
+    var lat = parseFloat(f[cols.dec_lat_va]);
+    var lon = parseFloat(f[cols.dec_long_va]);
+    if (!site || !name || !isFinite(lat) || !isFinite(lon)) continue;
+    out.push({site: site, name: name, lat: lat, lon: lon});
+  }
+  return out;
+}
+function readSitesCache(){
+  try{
+    var w = JSON.parse(localStorage.getItem(SITES_CACHE_KEY) || 'null');
+    return (w && typeof w === 'object' && Array.isArray(w.sites) && w.sites.length) ? w : null;
+  }catch(e){ return null; }
+}
+function buildStationPicker(){
+  var st = curStation();
+  var wrap = h('div', null, sheetHead('Water station'));
+  wrap.appendChild(h('div', {class: 'hint', style: 'margin:0 0 8px'},
+    'Salinity, water temp, tides, and weather all come from this gauge — tides from the nearest NOAA station, weather from the nearest forecast point.'));
+  var locBtn = h('button', {class: 'btn secondary sm', style: 'width:100%', onclick: useMyLocation}, 'Use my location');
+  wrap.appendChild(locBtn);
+  var listEl = h('div', {class: 'menuList'});
+  wrap.appendChild(listEl);
+
+  var sites = null;
+  function pick(s){
+    setStation({site: s.site, name: s.name, lat: s.lat, lon: s.lon});
+    closeSheet();
+    toast('Gauge: ' + s.name);
+    /* water/tide/weather caches are keyed by station or coords, so they
+       self-invalidate; the overview re-render kicks fresh fetches too */
+    render();
+    fetchWater(); fetchTides(); fetchWeather();
+  }
+  /* sort origin: the current gauge until "Use my location" succeeds —
+     remembered here so a directory fetch resolving later keeps using it */
+  var originLat = st.lat, originLon = st.lon;
+  function renderList(fromLat, fromLon){
+    listEl.textContent = '';
+    (sites || []).map(function(s){
+      return {s: s, d: haversineMi(fromLat, fromLon, s.lat, s.lon)};
+    }).sort(function(a, b){ return a.d - b.d; }).forEach(function(row){
+      var s = row.s;
+      listEl.appendChild(h('button', {class: 'menuItem', onclick: function(){ pick(s); }},
+        h('span', {class: 'grow'},
+          (s.site === st.site ? '✓ ' : '') + s.name,
+          h('span', {class: 'sub'}, Math.round(row.d) + ' mi')
+        )
+      ));
+    });
+  }
+  function useMyLocation(){
+    if (!navigator.geolocation){ toast('Location unavailable'); return; }
+    locBtn.disabled = true;
+    navigator.geolocation.getCurrentPosition(function(pos){
+      locBtn.disabled = false;
+      originLat = pos.coords.latitude; originLon = pos.coords.longitude;
+      /* directory may still be loading — the origin is saved, so the
+         pending fetch sorts from here when it lands */
+      if (sites) renderList(originLat, originLon);
+      else toast('Got your location — loading gauges…');
+    }, function(){
+      locBtn.disabled = false;
+      toast('Location unavailable');
+    }, {timeout: 10000});
+  }
+  function offlineFallback(){
+    sites = [{site: st.site, name: st.name, lat: st.lat, lon: st.lon}];
+    renderList(originLat, originLon);
+    listEl.appendChild(h('div', {class: 'hint'}, 'Couldn’t load the gauge list — try again online.'));
+  }
+
+  /* gauge directory: active LA salinity gauges with live (iv) data,
+     cached for 7 days */
+  var c = readSitesCache();
+  if (c && Date.now() - c.fetchedAt < SITES_MAX_AGE_MS){
+    sites = c.sites;
+    renderList(originLat, originLon);
+  } else if (typeof fetch !== 'function'){
+    if (c){ sites = c.sites; renderList(originLat, originLon); } else offlineFallback();
+  } else {
+    listEl.appendChild(h('div', {class: 'hint'}, 'Loading gauges…'));
+    fetch('https://waterservices.usgs.gov/nwis/site/?format=rdb&stateCd=LA&parameterCd=00480&siteStatus=active&hasDataTypeCd=iv')
+      .then(function(r){ return r.text(); })
+      .then(function(text){
+        var parsed = parseUsgsSiteList(text);
+        if (parsed.length){
+          sites = parsed;
+          try{ localStorage.setItem(SITES_CACHE_KEY, JSON.stringify({fetchedAt: Date.now(), sites: parsed})); }catch(e){}
+          renderList(originLat, originLon);
+        } else if (c){ sites = c.sites; renderList(originLat, originLon); }
+        else offlineFallback();
+      }).catch(function(){
+        if (c){ sites = c.sites; renderList(originLat, originLon); } /* stale beats nothing */
+        else offlineFallback();
+      });
+  }
+  return wrap;
 }
 
 /* ================================================================
@@ -880,7 +1271,7 @@ function sectionLineCount(farm, secId){
   return farm.lines.filter(function(l){ return l.section === secId; }).length;
 }
 function newFarm(name){
-  return {id: uid(), name: name, marketSizeMm: 76, cageTypes: defaultCageTypes(), areas: defaultAreas(), lines: []};
+  return {id: uid(), name: name, marketSizeMm: 76, grades: DEFAULT_GRADES.slice(), cageTypes: defaultCageTypes(), areas: defaultAreas(), lines: []};
 }
 function freshState(){ return {v: 1, farms: [], activeFarmId: null}; }
 
@@ -901,6 +1292,10 @@ function loadState(){
       if (!Array.isArray(f.lines)) f.lines = [];
       /* marketSizeMm introduced after first release; default 76 mm */
       if (typeof f.marketSizeMm !== 'number' || !(f.marketSizeMm > 0)) f.marketSizeMm = 76;
+      /* per-farm sort-grade vocabulary introduced with the sort wizard */
+      if (!Array.isArray(f.grades) || !f.grades.length){
+        f.grades = (f.brightside ? BRIGHTSIDE_GRADES : DEFAULT_GRADES).slice();
+      }
       /* migrate pre-rename default type names */
       f.cageTypes.forEach(function(t){
         if (t.shape === 'square' && t.name === 'Cage') t.name = 'Bag';
@@ -1356,6 +1751,89 @@ function rerenderKeepScroll(){
   render();
   window.scrollTo(0, y);
 }
+
+/* ---------------- sort & transfer wizard ----------------
+   A group of stocked cages comes out of the water, the oysters are
+   graded into sets, and each set is restocked into other cages.
+   sortWiz is TRANSIENT (never persisted): a reload abandons the wizard,
+   which is safe because nothing touches farm state until commitSort()
+   runs once, atomically.  Pick-mode selections live in each set's dests
+   map — NOT in selCages — so plot navigation (which clears selCages on
+   every hop) can't lose wizard state. */
+var sortWiz = null;
+/* shape: { step: 'sets'|'pick'|'review', date: ISO,
+            sources: {cageId: lineId},      // stocked cages being emptied
+            skippedEmpty: n,                // empties dropped from the initial selection
+            sets: [{id, grade, sizeMm, count, dests: {cageId: lineId}}],
+            activeSet: i }                  // which set is picking */
+function sortPicking(){ return !!(sortWiz && sortWiz.step === 'pick'); }
+function isSortSource(cageId){ return !!(sortWiz && sortWiz.sources[cageId]); }
+/* which set already claimed this cage as a destination, or -1 */
+function sortPickOwner(cageId){
+  if (!sortWiz) return -1;
+  for (var i = 0; i < sortWiz.sets.length; i++){
+    if (sortWiz.sets[i].dests[cageId]) return i;
+  }
+  return -1;
+}
+function sortDestCount(set){ return Object.keys(set.dests).length; }
+function newSortSet(){ return {id: uid(), grade: '', sizeMm: null, count: null, dests: {}}; }
+function cancelSortWizard(){
+  if (!confirm('Abandon this sort? Nothing has been saved.')) return;
+  sortWiz = null;
+  closeSheet();
+  render();
+}
+function updateSortBar(){
+  var c = document.getElementById('sortcount');
+  if (c && sortPicking()){
+    var set = sortWiz.sets[sortWiz.activeSet];
+    c.textContent = set.grade + ' · ' + sortDestCount(set) + ' picked';
+  }
+}
+/* Done/Next from pick mode: advance to the next set or go to review */
+function sortDone(){
+  var set = sortWiz.sets[sortWiz.activeSet];
+  if (!sortDestCount(set) && !confirm('No cages picked for ' + set.grade + ' — skip this set?')) return;
+  if (sortWiz.activeSet + 1 < sortWiz.sets.length){
+    sortWiz.activeSet++;
+    rerenderKeepScroll();
+    toast('Now tap cages for ' + sortWiz.sets[sortWiz.activeSet].grade);
+  } else {
+    sortWiz.step = 'review';
+    openSheet(buildSortReview);
+    render();
+  }
+}
+/* the wizard's bottom bar — reuses the selbar look.  In pick mode it
+   drives the flow; in sets/review it only appears when the sheet was
+   dismissed (backdrop/Escape), pausing the wizard until Resume. */
+function renderSortBar(){
+  if (sortPicking()){
+    var set = sortWiz.sets[sortWiz.activeSet];
+    return h('div', {class: 'selbar'},
+      h('span', {class: 'scount', id: 'sortcount'}, set.grade + ' · ' + sortDestCount(set) + ' picked'),
+      h('button', {class: 'sb', onclick: function(){ sortWiz.step = 'sets'; openSheet(buildSortSets); render(); }}, 'Sets'),
+      h('button', {class: 'go', onclick: sortDone}, sortWiz.activeSet + 1 < sortWiz.sets.length ? 'Next set' : 'Review'),
+      h('button', {class: 'x', 'aria-label': 'Cancel sort', onclick: cancelSortWizard}, '✕')
+    );
+  }
+  return h('div', {class: 'selbar'},
+    h('span', {class: 'scount'}, 'Sort in progress'),
+    h('button', {class: 'go', onclick: function(){
+      openSheet(sortWiz.step === 'review' ? buildSortReview : buildSortSets);
+    }}, 'Resume'),
+    h('button', {class: 'x', 'aria-label': 'Cancel sort', onclick: cancelSortWizard}, '✕')
+  );
+}
+/* topbar actions (farm switcher, settings) are blocked while the wizard
+   is active — switching farms or editing layout would invalidate picks */
+function guardedSheet(build){
+  return function(){
+    if (sortWiz){ toast('Finish or cancel the sort first'); return; }
+    openSheet(build);
+  };
+}
 function openPlot(secId){
   curPlot = secId;
   clearSel();
@@ -1432,11 +1910,11 @@ function viewMap(farm){
 
   /* header */
   wrap.appendChild(h('div', {class: 'topbar'},
-    h('button', {class: 'farm-btn', onclick: function(){ openSheet(buildFarmSwitcher); }},
+    h('button', {class: 'farm-btn', onclick: guardedSheet(buildFarmSwitcher)},
       h('span', {class: 'name'}, farm.name),
       h('span', {class: 'chev'}, '▾')
     ),
-    h('button', {class: 'iconbtn', 'aria-label': 'Settings', onclick: function(){ openSheet(buildSettings); }, html: icon('tune', 22)})
+    h('button', {class: 'iconbtn', 'aria-label': 'Settings', onclick: guardedSheet(buildSettings), html: icon('tune', 22)})
   ));
 
   /* stats strip */
@@ -1448,11 +1926,13 @@ function viewMap(farm){
     statCell(st.ready, 'Market ready')
   ));
 
-  /* live water conditions (renders from cache instantly; refreshes in place) */
+  /* live conditions (renders from cache instantly; refreshes in place) */
   var waterEl = h('div', {class: 'waterChip', id: 'waterChip'});
   waterEl.appendChild(waterChipInner());
   wrap.appendChild(waterEl);
   fetchWater();
+  fetchTides();
+  fetchWeather();
 
   var map = h('div', {class: 'map'});
 
@@ -1540,7 +2020,13 @@ function viewMap(farm){
   }
 
   wrap.appendChild(map);
-  wrap.appendChild(h('button', {class: 'fab', onclick: function(){ openSheet(buildAddLine); }}, '+ Add line'));
+  if (sortWiz){
+    /* wizard bar follows onto the overview so destinations can be picked
+       in any plot — plot cards stay tappable */
+    wrap.appendChild(renderSortBar());
+  } else {
+    wrap.appendChild(h('button', {class: 'fab', onclick: function(){ openSheet(buildAddLine); }}, '+ Add line'));
+  }
   return wrap;
 }
 
@@ -1552,11 +2038,11 @@ function viewPlot(farm, sec){
   var wrap = h('div');
 
   wrap.appendChild(h('div', {class: 'topbar'},
-    h('button', {class: 'farm-btn', onclick: function(){ openSheet(buildFarmSwitcher); }},
+    h('button', {class: 'farm-btn', onclick: guardedSheet(buildFarmSwitcher)},
       h('span', {class: 'name'}, farm.name),
       h('span', {class: 'chev'}, '▾')
     ),
-    h('button', {class: 'iconbtn', 'aria-label': 'Settings', onclick: function(){ openSheet(buildSettings); }, html: icon('tune', 22)})
+    h('button', {class: 'iconbtn', 'aria-label': 'Settings', onclick: guardedSheet(buildSettings), html: icon('tune', 22)})
   ));
 
   var area = farm.areas.find(function(a){ return a.sections.indexOf(sec) !== -1; });
@@ -1570,7 +2056,7 @@ function viewPlot(farm, sec){
       h('div', {class: 'pname'}, (area && area.sections.length > 1 ? area.name + ' — ' : '') + sec.name),
       h('div', {class: 'psub'}, lines.length + (lines.length === 1 ? ' line · ' : ' lines · ') + stocked + '/' + total + ' stocked')
     ),
-    lines.length ? h('button', {class: 'selbtn' + (selMode ? ' on' : ''), onclick: function(){
+    (lines.length && !sortWiz) ? h('button', {class: 'selbtn' + (selMode ? ' on' : ''), onclick: function(){
       if (selMode){ clearSel(); } else { selMode = true; toast('Tap the cages you worked, then Empty, Remove, or Log'); }
       rerenderKeepScroll();
     }}, selMode ? 'Cancel' : 'Select') : null
@@ -1605,7 +2091,9 @@ function viewPlot(farm, sec){
   map.appendChild(ocean);
   wrap.appendChild(map);
 
-  if (selMode){
+  if (sortWiz){
+    wrap.appendChild(renderSortBar());
+  } else if (selMode){
     var em = h('button', {class: 'sb', id: 'selem', onclick: function(){
       if (selCount()) bulkEmptyCages();
     }}, 'Empty');
@@ -1645,10 +2133,39 @@ function renderLine(farm, line, vertical, big){
   line.cages.forEach(function(cage){
     var type = getType(farm, cage.typeId);
     var stt = cageStatus(cage, farm);
+    /* sort-wizard pick-mode styling: active-set picks reuse the selpick
+       look; other sets' picks lock; sources get a dashed marker;
+       stocked non-source cages dim (ineligible as destinations) */
+    var sortCls = '';
+    if (sortWiz && !cage.detached){
+      if (sortPicking() && sortWiz.sets[sortWiz.activeSet].dests[cage.id]) sortCls = ' selpick';
+      else if (sortPickOwner(cage.id) !== -1) sortCls = ' sortlock';
+      else if (isSortSource(cage.id)) sortCls = ' sortsrc';
+      else if (sortPicking() && cage.batch) sortCls = ' dimcage';
+    }
     var btn = h('button', {
-      class: 'cage' + (big ? ' big' : '') + (selMode && selCages[cage.id] ? ' selpick' : ''),
+      class: 'cage' + (big ? ' big' : '') + (selMode && selCages[cage.id] ? ' selpick' : '') + sortCls,
       'aria-label': (cage.detached ? 'Empty spot ' : 'Cage ') + cage.label,
       onclick: function(){
+        if (sortWiz){
+          if (!sortPicking()){ toast('Sort in progress — resume or cancel it below'); return; }
+          if (cage.detached){ toast('No cage on that spot'); return; }
+          var owner = sortPickOwner(cage.id);
+          var act = sortWiz.sets[sortWiz.activeSet];
+          if (owner === sortWiz.activeSet){
+            delete act.dests[cage.id];                 /* toggle off */
+          } else if (owner !== -1){
+            toast('Already going to ' + sortWiz.sets[owner].grade); return;
+          } else if (cage.batch && !isSortSource(cage.id)){
+            toast('That cage is stocked — pick an empty cage, or one being sorted'); return;
+          } else {
+            act.dests[cage.id] = line.id;
+          }
+          btn.classList.toggle('selpick', !!act.dests[cage.id]);
+          btn.classList.toggle('sortsrc', !act.dests[cage.id] && isSortSource(cage.id));
+          updateSortBar();
+          return;
+        }
         if (selMode){
           if (cage.detached){ toast('No cage on that spot'); return; }
           if (selCages[cage.id]) delete selCages[cage.id];
@@ -1660,7 +2177,7 @@ function renderLine(farm, line, vertical, big){
         openSheet(function(){ return buildCageSheet(line.id, cage.id); });
       }
     });
-    if (selMode && !cage.detached) btn.appendChild(h('span', {class: 'selmark', 'aria-hidden': 'true'}, '✓'));
+    if ((selMode || sortPicking()) && !cage.detached) btn.appendChild(h('span', {class: 'selmark', 'aria-hidden': 'true'}, '✓'));
     btn.appendChild(cage.detached
       ? h('div', {class: 'shapeBox'}, h('div', {class: 'gapMark'}))
       : h('div', {class: 'shapeBox', html: shapeSVG(type.shape, stt.color, stt.ready, shapePx, stt.needsWork)}));
@@ -1674,7 +2191,9 @@ function renderLine(farm, line, vertical, big){
   var head = h('div', {class: 'lineTop'},
     h('span', {class: 'lname'}, line.name),
     vertical ? null : h('span', {class: 'lcount'}, bare ? 'empty line' : stockedN + '/' + line.cages.filter(function(c){ return !c.detached; }).length),
-    selMode
+    sortWiz
+      ? null /* line menu + All/None are mutating UI — unreachable mid-wizard */
+      : selMode
       ? (!pickable.length ? null : h('button', {class: 'lsel', 'aria-label': (allPicked ? 'Deselect' : 'Select') + ' all of ' + line.name, onclick: function(){
           pickable.forEach(function(c){
             if (allPicked) delete selCages[c.id];
@@ -1976,6 +2495,7 @@ var EVENT_META = {
   growth:    {ico: 'ruler',  label: 'Growth check'},
   mortality: {ico: 'skull',  label: 'Mortality'},
   harvest:   {ico: 'basket', label: 'Harvest'},
+  sort:      {ico: 'swap',   label: 'Sorted'},
   note:      {ico: 'note',   label: 'Note'}
 };
 function renderEventRow(lineId, cageId, ev){
@@ -2452,6 +2972,238 @@ function bulkRemoveCages(){
   clearSel(); commit(); closeSheet();
   toast(n + ' ' + (n === 1 ? 'cage' : 'cages') + ' removed — spots kept on the line');
 }
+
+/* ---------------- sort & transfer wizard sheets ---------------- */
+/* entry: the current selection's stocked cages become the wizard sources */
+function startSortWizard(){
+  var sel = bulkSelection();
+  var stocked = sel.filter(function(f){ return f.cage.batch; });
+  if (!stocked.length){ toast('No stocked cages selected'); return; }
+  var sources = {};
+  stocked.forEach(function(f){ sources[f.cage.id] = f.line.id; });
+  sortWiz = {step: 'sets', date: todayISO(), sources: sources,
+             skippedEmpty: sel.filter(function(f){ return !f.cage.batch && !f.cage.detached; }).length,
+             sets: [newSortSet()], activeSet: 0};
+  clearSel();
+  render();
+  openSheet(buildSortSets);
+}
+/* radio-style grade chips from the farm vocabulary + free-text custom */
+function gradeChips(set){
+  var grades = farmGrades(getFarm());
+  var radios = [];
+  var wrap = h('div', {class: 'chips'});
+  grades.forEach(function(g){
+    var rb = h('input', {type: 'radio', name: 'grade-' + set.id, value: g});
+    rb.checked = set.grade === g;
+    rb.addEventListener('change', function(){
+      if (rb.checked){ set.grade = g; other.value = ''; }
+    });
+    radios.push(rb);
+    wrap.appendChild(h('label', {class: 'chip'}, rb, h('span', null, g)));
+  });
+  var other = h('input', {type: 'text', placeholder: 'Other grade…', maxlength: '40',
+    style: 'margin-top:8px', value: grades.indexOf(set.grade) === -1 ? set.grade : ''});
+  other.addEventListener('input', function(){
+    var v = other.value.trim();
+    if (v){
+      set.grade = v;
+      radios.forEach(function(r){ r.checked = false; });
+    } else if (radios.every(function(r){ return !r.checked; })){
+      set.grade = '';
+    }
+  });
+  return h('div', null, wrap, other);
+}
+function buildSortSets(){
+  if (!sortWiz) return sheetHead('No sort in progress');
+  sortWiz.step = 'sets';
+  var nSrc = Object.keys(sortWiz.sources).length;
+  var dateIn = h('input', {type: 'date', value: sortWiz.date});
+  dateIn.addEventListener('change', function(){ if (isValidISO(dateIn.value)) sortWiz.date = dateIn.value; });
+
+  var wrap = h('div', null,
+    sheetHead('Sort ' + nSrc + ' ' + (nSrc === 1 ? 'cage' : 'cages')),
+    h('div', {class: 'hint', style: 'margin-bottom:10px'},
+      'These cages get emptied and their oysters graded into the sets below. Next you’ll tap destination cages for each set — any plot works.'),
+    sortWiz.skippedEmpty ? h('div', {class: 'hint', style: 'margin-bottom:10px'},
+      sortWiz.skippedEmpty + ' empty ' + (sortWiz.skippedEmpty === 1 ? 'cage was' : 'cages were')
+      + ' skipped — only stocked cages can be sorted.') : null,
+    field('Sort date', dateIn)
+  );
+  sortWiz.sets.forEach(function(set, i){
+    var sizeIn = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any',
+      placeholder: 'e.g. 45', value: typeof set.sizeMm === 'number' ? String(set.sizeMm) : ''});
+    sizeIn.addEventListener('input', function(){
+      var v = parseFloat(sizeIn.value);
+      set.sizeMm = (sizeIn.value !== '' && v >= 0) ? v : null;
+    });
+    var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1',
+      placeholder: 'optional', value: typeof set.count === 'number' ? String(set.count) : ''});
+    countIn.addEventListener('input', function(){
+      var v = parseInt(countIn.value, 10);
+      set.count = (v >= 1) ? v : null;
+    });
+    var picked = sortDestCount(set);
+    wrap.appendChild(h('div', {class: 'batchCard'},
+      h('div', {style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px'},
+        h('strong', {style: 'flex:1'}, 'Set ' + (i + 1)
+          + (picked ? ' · ' + picked + ' ' + (picked === 1 ? 'cage' : 'cages') + ' picked' : '')),
+        sortWiz.sets.length > 1 ? h('button', {class: 'linklike', onclick: function(){
+          sortWiz.sets.splice(i, 1);
+          if (sortWiz.activeSet >= sortWiz.sets.length) sortWiz.activeSet = sortWiz.sets.length - 1;
+          refreshSheet();
+        }}, 'Remove') : null
+      ),
+      field('Grade', gradeChips(set)),
+      h('div', {class: 'row2'},
+        field('Size (mm)', sizeIn),
+        field('Count per cage', countIn, 'Rough is fine — blank if not counted')
+      )
+    ));
+  });
+  wrap.appendChild(h('button', {class: 'btn secondary', onclick: function(){
+    sortWiz.sets.push(newSortSet());
+    refreshSheet();
+  }}, '+ Add set'));
+  wrap.appendChild(h('button', {class: 'btn', onclick: function(){
+    for (var i = 0; i < sortWiz.sets.length; i++){
+      var s = sortWiz.sets[i];
+      if (!s.grade){ toast('Pick or type a grade for set ' + (i + 1)); return; }
+      if (typeof s.sizeMm !== 'number'){ toast('Enter a size for ' + s.grade); return; }
+    }
+    var names = sortWiz.sets.map(function(s){ return s.grade; });
+    if (names.some(function(n, ix){ return names.indexOf(n) !== ix; })
+        && !confirm('Two sets share a grade name. Keep both?')) return;
+    sortWiz.step = 'pick';
+    sortWiz.activeSet = 0;
+    closeSheet();
+    render();
+    window.scrollTo(0, 0);
+    toast('Tap cages for ' + sortWiz.sets[0].grade + ' — empty cages, or the ones being sorted');
+  }}, 'Pick destination cages'));
+  wrap.appendChild(h('button', {class: 'linklike', style: 'margin-top:10px', onclick: cancelSortWizard}, 'Cancel sort'));
+  return wrap;
+}
+function buildSortReview(){
+  if (!sortWiz) return sheetHead('No sort in progress');
+  sortWiz.step = 'review';
+  var farm = getFarm();
+  var nSrc = Object.keys(sortWiz.sources).length;
+  var wrap = h('div', null,
+    sheetHead('Review sort', {onBack: function(){ sortWiz.step = 'sets'; openSheet(buildSortSets); }}),
+    h('div', {class: 'hint', style: 'margin-bottom:10px'},
+      'Emptying ' + nSrc + ' ' + (nSrc === 1 ? 'cage' : 'cages') + ' · ' + fmtDate(sortWiz.date)
+      + '. Nothing is saved until you confirm.')
+  );
+  sortWiz.sets.forEach(function(set, i){
+    /* resolve picks fresh and group by line for a readable summary */
+    var byLine = {};
+    Object.keys(set.dests).forEach(function(cid){
+      var f = findCage(farm, set.dests[cid], cid);
+      if (!f) return;
+      if (!byLine[f.line.id]) byLine[f.line.id] = {name: f.line.name, labels: []};
+      byLine[f.line.id].labels.push(f.cage.label);
+    });
+    var destBits = Object.keys(byLine).map(function(k){
+      return byLine[k].name + ': ' + byLine[k].labels.join(', ');
+    });
+    wrap.appendChild(h('div', {class: 'batchCard'},
+      h('div', {style: 'display:flex;align-items:center;gap:8px;margin-bottom:6px'},
+        h('strong', {style: 'flex:1'}, set.grade + ' — ' + set.sizeMm + ' mm'
+          + (set.count != null ? ' · ~' + set.count + '/cage' : '')),
+        h('button', {class: 'linklike', onclick: function(){
+          sortWiz.activeSet = i;
+          sortWiz.step = 'pick';
+          closeSheet();
+          render();
+          toast('Tap cages for ' + set.grade);
+        }}, 'Re-pick')
+      ),
+      destBits.length
+        ? h('div', {class: 'hint'}, destBits.join(' · '))
+        : h('div', {class: 'hint', style: 'color:#a05c12'}, 'No cages picked — this set will be skipped.')
+    ));
+  });
+  wrap.appendChild(h('button', {class: 'btn', onclick: commitSort}, 'Confirm sort'));
+  wrap.appendChild(h('button', {class: 'linklike', style: 'margin-top:10px', onclick: cancelSortWizard}, 'Cancel sort'));
+  return wrap;
+}
+/* the wizard's single mutation point.  Everything is re-resolved and
+   re-validated here, runs synchronously, then one commit() — cancel or
+   reload at any earlier step leaves farm state untouched. */
+function commitSort(){
+  var farm = getFarm();
+  var sources = [];
+  Object.keys(sortWiz.sources).forEach(function(cid){
+    var f = findCage(farm, sortWiz.sources[cid], cid);
+    if (f && f.cage.batch) sources.push(f); /* must still be stocked */
+  });
+  if (!sources.length){
+    toast('The source cages are gone — sort cancelled');
+    sortWiz = null; closeSheet(); render();
+    return;
+  }
+  var dropped = 0;
+  var liveSets = [];
+  sortWiz.sets.forEach(function(s){
+    var dests = [];
+    Object.keys(s.dests).forEach(function(cid){
+      var f = findCage(farm, s.dests[cid], cid);
+      /* still eligible: exists, on the line, and empty OR one of our sources */
+      if (f && !f.cage.detached && (!f.cage.batch || sortWiz.sources[cid])) dests.push(f);
+      else dropped++;
+    });
+    if (dests.length) liveSets.push({grade: s.grade, sizeMm: s.sizeMm, count: s.count, dests: dests});
+  });
+  if (!liveSets.length){
+    toast('No destination cages picked — to just empty cages, use Empty instead');
+    return;
+  }
+  /* a uniform ploidy across the source batches carries over; mixed sources → 'Mixed' */
+  var ploidy = sources[0].cage.batch.ploidy || '';
+  sources.forEach(function(f){ if ((f.cage.batch.ploidy || '') !== ploidy) ploidy = 'Mixed'; });
+
+  var date = sortWiz.date;
+  var breakdown = liveSets.map(function(s){
+    return s.grade + ' → ' + s.dests.length + (s.dests.length === 1 ? ' cage' : ' cages');
+  }).join(' · ');
+
+  /* sources first: log the sort against the OLD batch, then clear it.
+     Order matters — a source reused as a destination must end up restocked,
+     and its sort event keeps the old batchId so the new batch's timeline
+     stays clean in batchEvents(). */
+  sources.forEach(function(f){
+    var b = f.cage.batch;
+    f.cage.events.push({id: uid(), type: 'sort', date: date, batchId: b.id,
+      note: 'Sorted & transferred: ' + breakdown + '. (Was: stocked ' + fmtDate(b.stockDate)
+        + (b.count != null ? ', ' + b.count : '') + (b.initialSizeMm != null ? ' @ ' + b.initialSizeMm + ' mm' : '')
+        + (b.source ? ', from ' + b.source : '') + ')'});
+    f.cage.batch = null;
+  });
+  /* destinations: a fresh batch per cage — the batch itself carries the
+     provenance and restarts the growth curve + work clock at the sort */
+  liveSets.forEach(function(s){
+    s.dests.forEach(function(f){
+      f.cage.batch = {id: uid(), stockDate: date, ploidy: ploidy,
+        source: 'Sort ' + fmtDate(date) + ': ' + s.grade + ' from ' + sources.length + (sources.length === 1 ? ' cage' : ' cages'),
+        initialSizeMm: s.sizeMm, count: s.count != null ? s.count : null,
+        prep: ['Graded'], notes: ''};
+    });
+  });
+  /* custom grade names join the farm vocabulary for next time */
+  if (!Array.isArray(farm.grades)) farm.grades = farmGrades(farm).slice();
+  sortWiz.sets.forEach(function(s){
+    if (s.grade && farm.grades.indexOf(s.grade) === -1) farm.grades.push(s.grade);
+  });
+  var nDest = liveSets.reduce(function(a, s){ return a + s.dests.length; }, 0);
+  var nSrc = sources.length;
+  sortWiz = null;
+  commit();
+  closeSheet();
+  toast('Sorted ' + nSrc + ' ' + (nSrc === 1 ? 'cage' : 'cages') + ' into ' + nDest
+    + (dropped ? ' · ' + dropped + ' skipped (changed since picking)' : ''));
+}
 function buildBulkSheet(){
   var sel = bulkSelection();
   if (!sel.length) return sheetHead('Nothing selected');
@@ -2478,6 +3230,8 @@ function buildBulkSheet(){
       function(){ openSheet(function(){ return buildBulkEvent('mortality'); }); });
     item('basket', 'Harvest', 'Count per cage, or empty them all out',
       function(){ openSheet(function(){ return buildBulkEvent('harvest'); }); });
+    item('swap', 'Sorted & transferred', 'Empty ' + (stocked.length === 1 ? 'this cage' : 'these ' + stocked.length) + ', regrade into other cages',
+      startSortWizard);
     item('note', 'Note', 'Same note on each stocked cage',
       function(){ openSheet(function(){ return buildBulkEvent('note'); }); });
   }
@@ -3084,6 +3838,7 @@ function loadBrightsideFarm(){
   var farm = newFarm('Brightside');
   farm.brightside = true;
   farm.brightsideV = BRIGHTSIDE_SEED_V;
+  farm.grades = BRIGHTSIDE_GRADES.slice();
   var tBag = farm.cageTypes[0].id, tFlip = farm.cageTypes[1].id, tOy = farm.cageTypes[2].id;
   var secs = flatSections(farm);
   /* Quarters 3–4 run as vertical columns, like the spreadsheet */
@@ -3156,6 +3911,7 @@ function loadBrightsideFarm(){
 }
 
 function clearSampleFarm(){
+  if (sortWiz){ toast('Finish or cancel the sort first'); return; }
   var farm = getFarm();
   if (!farm || !farm.sample) return;
   if (!confirm('Remove the sample farm and all its sample data?')) return;
@@ -3176,7 +3932,10 @@ render();
 /* console/debug handle for the pure calculators (reads only, no state mutation) */
 window.SpatMapDebug = {
   growthModel: growthModel, growthPoints: growthPoints, integrateGrowth: integrateGrowth,
-  needsWork: needsWork, lastWorked: lastWorked, cageStatus: cageStatus, fetchWater: fetchWater
+  needsWork: needsWork, lastWorked: lastWorked, cageStatus: cageStatus, fetchWater: fetchWater,
+  haversineMi: haversineMi, nearestTideStation: nearestTideStation, parseUsgsSiteList: parseUsgsSiteList,
+  nextHiLo: nextHiLo, tideTimeMs: tideTimeMs, fetchTides: fetchTides, fetchWeather: fetchWeather,
+  curStation: curStation
 };
 
 })();
