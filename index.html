@@ -301,6 +301,10 @@
     background:repeating-linear-gradient(25deg,#e6cc92 0 5px,#bd9a62 5px 10px);
   }
   .miniDots .dot,.miniCol .dot{position:relative;z-index:1}
+  /* invisible thumb halo on each 9px mini dot (~17px target). -4px, not -6px:
+     the flex gap is only 3px, so -6px would let a dot steal taps well past
+     its neighbor's visual midpoint; at -4px adjacent halos barely overlap */
+  .miniDots .dot::after,.miniCol .dot::after{content:'';position:absolute;inset:-4px}
   /* pulled lines draw their own .minirope dash in the same spot — skip the
      backdrop rope so it doesn't double-paint (pre-:has browsers paint both,
      which overlaps invisibly) */
@@ -393,6 +397,9 @@
   .selbar .sb:active{background:rgba(255,255,255,.3)}
   .selbar .x{min-width:44px;min-height:46px;border-radius:50%;font-size:1.05rem;color:#cfe3ea;flex:none}
   .selbar .x:active{background:rgba(255,255,255,.14)}
+  /* sort wizard's bar: same bones, green hue + gold inner ring so
+     "sorting" reads differently from "selecting" at a glance */
+  .selbar.sorting{background:#0a5c54;box-shadow:inset 0 0 0 2px rgba(227,179,78,.6),0 4px 16px rgba(0,0,0,.35)}
 
   /* ---------- Legend (on water) ---------- */
   .legend{margin:6px 0 0}
@@ -420,15 +427,18 @@
   .linklike{color:var(--teal);font-weight:700;text-decoration:underline;min-height:44px;padding:8px}
 
   /* ---------- FAB ---------- */
+  /* bottom-right, not center — centered it sat on top of the Acre 2 card /
+     last lines.  never coexists with the selbar/sortbar (mutually exclusive
+     branches in viewMap/viewPlot), so no lift needed */
   .fab{
-    position:fixed;left:50%;transform:translateX(-50%);
+    position:fixed;right:calc(18px + env(safe-area-inset-right));
     bottom:calc(16px + env(safe-area-inset-bottom));z-index:15;
     background:var(--teal);color:#fff;font-weight:800;font-size:1.05rem;
     border-radius:999px;padding:15px 26px;min-height:52px;
     box-shadow:0 4px 16px rgba(14,124,134,.45);
     transition:transform .18s var(--ease),background .15s ease,box-shadow .18s ease;
   }
-  .fab:active{background:var(--teal-dark);transform:translateX(-50%) scale(.95);box-shadow:0 2px 8px rgba(14,124,134,.4)}
+  .fab:active{background:var(--teal-dark);transform:scale(.95);box-shadow:0 2px 8px rgba(14,124,134,.4)}
 
   /* ---------- Sheets / modals ---------- */
   .overlay{
@@ -504,6 +514,10 @@
 
   /* ---------- Cage sheet details ---------- */
   .batchCard{background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  /* one-shot attention pulse for a form block that failed validation —
+     the global reduced-motion rule flattens it to a near-instant blip */
+  .flashbad{animation:flashbad 1s ease}
+  @keyframes flashbad{0%,55%{background:#f8e3b0}100%{background:var(--bg)}}
   .batchCard .bigsize{font-size:1.7rem;font-weight:800;color:var(--deep)}
   .batchCard .ready{color:var(--c-ring);font-weight:800;font-size:.85rem}
   .kv{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:.92rem}
@@ -575,6 +589,11 @@
     transition:opacity .22s ease,transform .28s var(--ease);
   }
   #toast.show{opacity:1;transform:translate(-50%,0)}
+  /* optional one-shot action button inside the toast (e.g. UNDO) —
+     tappable only while the toast is up */
+  #toast .tact{margin:-8px -10px -8px 8px;padding:10px 12px;min-height:44px;border-radius:999px;color:#8fdde6;font-weight:800;letter-spacing:.4px}
+  #toast.show .tact{pointer-events:auto}
+  #toast .tact:active{background:rgba(255,255,255,.16)}
 
   /* ---------- Peek popup — quick cage info on hover / single tap ---------- */
   #peek{
@@ -630,6 +649,12 @@
      means pushing a summary note event and setting cage.batch = null;
      the events array is the permanent history.
 
+   CageType:
+     { id, name, shape: 'square'|'rect'|'circle',
+       meshMm: number|null }
+     meshMm = bag/cage mesh size in mm; null = not recorded.
+     older saves are backfilled to null on load.
+
    Area  (displayed as "Acre"):
      { id, name, sections: Section[] }
 
@@ -648,7 +673,11 @@
 
    Cage:
      { id, typeId, label, batch: Batch|null, events: Event[],
-       detached?: true }
+       workDue: ISO|null, detached?: true }
+     workDue = optional work-again reminder picked when logging work;
+     null = none. past the date → needsWork() rings; a future date
+     suppresses the 8-week untouched rule. cleared whenever the cage
+     is worked, emptied, sorted out, or removed.
      detached = true means no physical cage is hanging at that spot;
      the slot renders as a hollow gap mark and is excluded from all
      counts and not selectable in select-then-fill mode.
@@ -831,6 +860,10 @@ function daysSince(iso){
   return Math.max(0, Math.round((isoToMs(todayISO()) - isoToMs(iso)) / 86400000));
 }
 function monthsSince(iso){ return daysSince(iso) / 30.44; } /* 30.44 = mean days/month (365.25/12) */
+function isoAddDays(iso, n){
+  var d = new Date(isoToMs(iso) + n * 86400000); /* isoToMs is UTC, so read back in UTC */
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+}
 function inWaterLabel(iso){
   var d = daysSince(iso);
   if (d < 61) return d + (d === 1 ? ' day' : ' days') + ' in water';
@@ -838,12 +871,22 @@ function inWaterLabel(iso){
   return (m >= 24 ? Math.round(m) : Math.round(m*10)/10) + ' months in water';
 }
 
-function toast(msg){
+/* action (optional): {label, onAction} adds a one-shot button (e.g. UNDO)
+   and holds the toast long enough to tap it.  any newer toast replaces
+   the button, so a stale action can't fire later. */
+function toast(msg, action){
   var t = document.getElementById('toast');
   t.textContent = msg;
+  if (action && action.label){
+    t.appendChild(h('button', {class: 'tact', onclick: function(){
+      t.classList.remove('show');
+      clearTimeout(toast._t);
+      if (action.onAction) action.onAction();
+    }}, action.label));
+  }
   t.classList.add('show');
   clearTimeout(toast._t);
-  toast._t = setTimeout(function(){ t.classList.remove('show'); }, 2400);
+  toast._t = setTimeout(function(){ t.classList.remove('show'); }, action && action.label ? 6000 : 2400);
 }
 
 /* ================================================================
@@ -1114,7 +1157,7 @@ function waterChipInner(){
   if (!w){
     parts.push(h('span', {class: 'offline'}, 'no water reading yet'));
   } else {
-    if (typeof w.salinity === 'number') parts.push(h('span', {class: 'src'}, '≈ ' + w.salinity + ' ppt'));
+    if (typeof w.salinity === 'number') parts.push(h('span', {class: 'src'}, '~' + w.salinity + ' ppt'));
     if (typeof w.tempC === 'number') parts.push(h('span', {class: 'val'}, w.tempC.toFixed(1) + '°C'));
     if (!parts.length) parts.push(h('span', {class: 'val'}, '—'));
     if (Date.now() - w.fetchedAt > WATER_MAX_AGE_MS) parts.push(h('span', {class: 'offline'}, 'cached'));
@@ -1222,7 +1265,8 @@ function buildStationPicker(){
       listEl.appendChild(h('button', {class: 'menuItem', onclick: function(){ pick(s); }},
         h('span', {class: 'grow'},
           (s.site === st.site ? '✓ ' : '') + s.name,
-          h('span', {class: 'sub'}, Math.round(row.d) + ' mi')
+          /* the chosen gauge is the sort origin — "0 mi" reads wrong */
+          h('span', {class: 'sub'}, s.site === st.site ? 'current gauge' : Math.round(row.d) + ' mi')
         )
       ));
     });
@@ -1282,10 +1326,11 @@ function buildStationPicker(){
 var state;
 
 function defaultCageTypes(){
+  /* meshMm stays null on the defaults — the farm fills real values */
   return [
-    {id: uid(), name: 'Bag',    shape: 'square'},
-    {id: uid(), name: 'Flip',   shape: 'rect'},
-    {id: uid(), name: 'OyGrow', shape: 'circle'}
+    {id: uid(), name: 'Bag',    shape: 'square', meshMm: null},
+    {id: uid(), name: 'Flip',   shape: 'rect',   meshMm: null},
+    {id: uid(), name: 'OyGrow', shape: 'circle', meshMm: null}
   ];
 }
 function defaultAreas(){
@@ -1352,6 +1397,8 @@ function loadState(){
         if (t.shape === 'square' && t.name === 'Cage') t.name = 'Bag';
         else if (t.shape === 'rect' && t.name === 'Bag') t.name = 'Flip';
         else if (t.shape === 'circle' && t.name === 'Basket') t.name = 'OyGrow';
+        /* meshMm introduced later; null = not recorded */
+        if (typeof t.meshMm !== 'number' || !(t.meshMm > 0)) t.meshMm = null;
       });
       /* areas/sections introduced after first release; assign defaults
          if missing or malformed (at least one area with at least one section) */
@@ -1373,6 +1420,8 @@ function loadState(){
         l.cages.forEach(function(c){
           if (!Array.isArray(c.events)) c.events = [];
           if (c.batch === undefined) c.batch = null;
+          /* workDue (work-again reminder) introduced later; null = none */
+          if (!isValidISO(c.workDue)) c.workDue = null;
           if (c.batch && !c.batch.ploidy && (c.batch.source === 'Trips' || c.batch.source === 'Dips' || c.batch.source === 'Mixed')){
             /* migrate: ploidy used to be stored in the Source field */
             c.batch.ploidy = c.batch.source;
@@ -1436,7 +1485,7 @@ function relabelLine(line){
   line.cages.forEach(function(c, i){ c.label = p + '-' + (i + 1); });
 }
 function makeCage(typeId){
-  return {id: uid(), label: '', typeId: typeId, batch: null, events: []};
+  return {id: uid(), label: '', typeId: typeId, batch: null, events: [], workDue: null};
 }
 
 /* ================================================================
@@ -1488,8 +1537,17 @@ function lastWorked(cage){
   return last;
 }
 function needsWork(cage){
+  /* a scheduled work-again reminder wins: overdue past the date, quiet
+     before it (the farmer scheduled it — don't ring early). no workDue
+     → the legacy 8-week untouched rule. */
+  if (cage.batch && isValidISO(cage.workDue)) return todayISO() > cage.workDue;
   var d = lastWorked(cage);
   return !!d && daysSince(d) > WORK_RESET_DAYS;
+}
+/* clear-then-set in one move: every logged work event clears the old
+   reminder (the work happened); dueISO, when valid, schedules the next */
+function setWorkDue(cage, dueISO){
+  cage.workDue = isValidISO(dueISO) ? dueISO : null;
 }
 /* farm-wide summary for the stats strip.  detached spots are excluded
    from total so the number matches physical cages, not map positions. */
@@ -1691,7 +1749,7 @@ function buildOutlook(){
   var o = outlookBuckets(farm, Date.now());
   if (o.avgRate !== null){
     wrap.appendChild(h('div', {class: 'hint', style: 'margin:0 0 8px'},
-      '≈ ' + o.avgRate.toFixed(2) + ' mm/day · seasonal model'));
+      '~' + o.avgRate.toFixed(2) + ' mm/day · seasonal model'));
   }
   function val(b){
     var s = b.cages + (b.cages === 1 ? ' cage' : ' cages');
@@ -1859,7 +1917,8 @@ function field(labelText, inputEl, hintText){
 }
 
 /* mutation helper: persist + repaint main view */
-function commit(){ save(); render(); }
+/* commit.seq lets transient undo offers expire once anything else commits */
+function commit(){ commit.seq = (commit.seq || 0) + 1; save(); render(); }
 
 /* ================================================================
    Peek popup — quick cage info on hover / single tap
@@ -1879,11 +1938,25 @@ function ensurePeek(){
   if (peekEl) return peekEl;
   peekEl = h('div', {id: 'peek', role: 'status'});
   document.body.appendChild(peekEl);
-  /* a press anywhere outside the popup and its anchor dismisses it */
+  /* a press anywhere outside the popup and its anchor dismisses it.
+     touch: the dismiss tap is also SWALLOWED (capture preventDefault +
+     a click suppressor) so whatever sat under the finger — farm switcher,
+     stats, another card — doesn't fire too.  taps on another cage/dot are
+     not swallowed: moving the peek there is the intent.  deliberate primary
+     actions are exempt too: the toast's UNDO has a 6s window the swallow
+     must not eat, and the FAB is never an accident. */
+  var swallowClick = false;
   function away(e){
     if (!peekAnchor) return;
     var t = e.target;
     if (t && t.nodeType && (peekEl.contains(t) || peekAnchor.contains(t))) return;
+    if (!CAN_HOVER && !(t && t.closest && (t.closest('.cage') || t.closest('.dot') ||
+        t.closest('#toast') || t.closest('.fab')))){
+      e.preventDefault();
+      e.stopPropagation();
+      swallowClick = true;
+      setTimeout(function(){ swallowClick = false; }, 600); /* failsafe: no click followed */
+    }
     hidePeek();
   }
   if (window.PointerEvent) document.addEventListener('pointerdown', away, true);
@@ -1891,6 +1964,14 @@ function ensurePeek(){
     document.addEventListener('touchstart', away, true);
     document.addEventListener('mousedown', away, true);
   }
+  /* pointerdown preventDefault doesn't cancel the click in all browsers —
+     eat it explicitly */
+  document.addEventListener('click', function(e){
+    if (!swallowClick) return;
+    swallowClick = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
   /* capture catches the inner cageScroller panes scrolling too */
   window.addEventListener('scroll', hidePeek, {capture: true, passive: true});
   return peekEl;
@@ -1915,22 +1996,31 @@ function buildPeekContent(farm, line, cage){
     cage.label + ' · ' + line.name
   ));
   if (!cage.batch){
-    wrap.appendChild(h('div', {class: 'prow'}, 'Empty · ' + getType(farm, cage.typeId).name));
+    var pt = getType(farm, cage.typeId);
+    wrap.appendChild(h('div', {class: 'prow'},
+      'Empty · ' + pt.name + (pt.meshMm ? ' · ' + pt.meshMm + ' mm mesh' : '')));
     return wrap;
   }
-  var size = latestSize(cage), sizeTxt;
+  var size = latestSize(cage), sizeRow;
   if (typeof size === 'number'){
-    sizeTxt = size + ' mm';
+    sizeRow = h('span', {class: 'pnum'}, size + ' mm');
   } else {
     var model = growthModel(cage, farm);
-    sizeTxt = model.ok ? '~' + model.estTodayMm.toFixed(0) + ' mm est' : '—';
+    /* no measurement and no usable model — say so, not a bare dash */
+    sizeRow = model.ok ? h('span', {class: 'pnum'}, '~' + model.estTodayMm.toFixed(0) + ' mm est') : 'no size yet';
   }
   var n = estCount(cage);
-  wrap.appendChild(h('div', {class: 'prow'}, h('span', {class: 'pnum'}, sizeTxt)));
+  wrap.appendChild(h('div', {class: 'prow'}, sizeRow));
   wrap.appendChild(h('div', {class: 'prow'}, 'in ' + fmtDate(cage.batch.stockDate) + ' · ' + inWaterLabel(cage.batch.stockDate)));
   wrap.appendChild(h('div', {class: 'prow'},
     n === null ? 'count —' : [h('span', {class: 'pnum'}, String(n)), ' oysters']
   ));
+  /* work-again reminder, when one is set */
+  if (isValidISO(cage.workDue)){
+    var late = todayISO() > cage.workDue;
+    wrap.appendChild(h('div', {class: 'prow', style: late ? 'color:var(--c-work);font-weight:700' : ''},
+      late ? 'work OVERDUE — due ' + fmtDate(cage.workDue) : 'work due ' + fmtDate(cage.workDue)));
+  }
   return wrap;
 }
 /* fills the card and floats it next to anchorEl: above-centered when it
@@ -2014,10 +2104,15 @@ function peekWire(btn, lineId, cageId){
   }
 }
 /* overview dots: same peek, but the dot sits inside the plot-card button —
-   the tap must not fall through and open the plot.  a second tap on the
-   same dot just re-peeks; the card opens the plot everywhere else. */
+   the first tap must not fall through and open the plot.  touch: a second
+   tap on the SAME dot (its peek already up) is navigation intent — it
+   falls through and opens the plot.  desktop click just pins the peek. */
 function peekDotWire(dot, lineId, cageId){
   dot.addEventListener('click', function(e){
+    if (!CAN_HOVER && peekAnchor === dot){
+      hidePeek();
+      return; /* no stopPropagation — the card's onclick opens the plot */
+    }
     e.stopPropagation();
     e.preventDefault();
     showPeek(dot, lineId, cageId);
@@ -2117,14 +2212,14 @@ function sortDone(){
 function renderSortBar(){
   if (sortPicking()){
     var set = sortWiz.sets[sortWiz.activeSet];
-    return h('div', {class: 'selbar'},
+    return h('div', {class: 'selbar sorting'},
       h('span', {class: 'scount', id: 'sortcount'}, set.grade + ' · ' + sortDestCount(set) + ' picked'),
       h('button', {class: 'sb', onclick: function(){ sortWiz.step = 'sets'; openSheet(buildSortSets); render(); }}, 'Sets'),
       h('button', {class: 'go', onclick: sortDone}, sortWiz.activeSet + 1 < sortWiz.sets.length ? 'Next set' : 'Review'),
       h('button', {class: 'x', 'aria-label': 'Cancel sort', onclick: cancelSortWizard}, '✕')
     );
   }
-  return h('div', {class: 'selbar'},
+  return h('div', {class: 'selbar sorting'},
     h('span', {class: 'scount'}, 'Sort in progress'),
     h('button', {class: 'go', onclick: function(){
       openSheet(sortWiz.step === 'review' ? buildSortReview : buildSortSets);
@@ -2543,7 +2638,7 @@ function renderLegend(){
       key(STATUS_COLORS.mid, '6–12 mo'),
       key(STATUS_COLORS.old, '> 12 mo'),
       key(null, 'Market ready (blue ring)', 'ringed'),
-      key(null, 'Needs work — 8+ wks untouched (red ring)', 'workring')
+      key(null, 'Needs work — overdue or 8+ wks untouched (red ring)', 'workring')
     )
   );
 }
@@ -2579,28 +2674,40 @@ function buildAddLine(preSecId){
     var m = name.match(/^(.*?)(\d+)\s*$/);
     var prefix = m ? m[1] : name + ' ';
     var start = m ? parseInt(m[2], 10) : 1;
+    var newIds = [];
     for (var k = 0; k < nLines; k++){
       var lineName = nLines === 1 ? name : prefix + (start + k);
       var line = {id: uid(), name: lineName, section: secSel.value, cages: []};
       for (var i = 0; i < n; i++) line.cages.push(makeCage(typeSel.value));
       relabelLine(line);
       farm.lines.push(line);
+      newIds.push(line.id);
     }
     commit();
     closeSheet();
-    toast(nLines === 1
+    /* undoable while the toast is up; goes stale on any other commit */
+    var undoSeq = commit.seq;
+    toast((nLines === 1
       ? 'Added ' + name + ' with ' + n + ' ' + (n === 1 ? 'cage' : 'cages')
-      : 'Added ' + nLines + ' lines (' + (nLines * n) + ' cages)');
+      : 'Added ' + nLines + ' lines (' + (nLines * n) + ' cages)'),
+      {label: 'UNDO', onAction: function(){
+        if (commit.seq !== undoSeq) return;
+        var f = getFarm();
+        if (!f) return;
+        f.lines = f.lines.filter(function(l){ return newIds.indexOf(l.id) === -1; });
+        commit();
+        toast('Removed');
+      }});
   }
+  /* one line is the everyday case — the bulk count sits last so a stray
+     number can't quietly mint 10 lines (recorded mis-fill) */
   return h('div', null,
     sheetHead('Add lines'),
     field('Plot', secSel, 'Where these anchor runs sit on the map'),
-    h('div', {class: 'row2'},
-      field('Number of lines', linesInput),
-      field('Cages per line', countInput)
-    ),
-    field('Line name', nameInput, 'Adding several? Names count up from here'),
+    field('Line name', nameInput),
     field('Cage type', typeSel),
+    field('Cages per line', countInput),
+    field('How many lines like this?', linesInput, 'Adding several? Names count up from here'),
     h('button', {class: 'btn', onclick: submit}, 'Create')
   );
 }
@@ -2770,7 +2877,9 @@ function buildCageSheet(lineId, cageId){
       toast('Cage attached at ' + cage.label);
     }}, 'Attach cage'));
   } else {
-    /* quick type switch for this one cage */
+    /* quick type switch for this one cage — a rare action, so the field
+       renders LAST (below the stock form / batch card + actions), keeping
+       the everyday work above the fold on a phone */
     var tSel = h('select', {'aria-label': 'Cage type'});
     farm.cageTypes.forEach(function(t){
       var lbl = SHAPE_LABELS[t.shape];
@@ -2783,10 +2892,12 @@ function buildCageSheet(lineId, cageId){
       openSheet(function(){ return buildCageSheet(lineId, cageId); });
       toast(cage.label + ' is now a ' + getType(farm, tSel.value).name);
     });
-    wrap.appendChild(field('Cage type', tSel, 'To change many at once, use the line’s ⋯ menu'));
+    var typeField = field('Cage type', tSel,
+      (type.meshMm ? type.meshMm + ' mm mesh · ' : '') + 'To change many at once, use the line’s ⋯ menu');
 
     if (!cage.batch){
       wrap.appendChild(buildStockForm(farm, line, cage, pos));
+      wrap.appendChild(typeField);
       wrap.appendChild(h('button', {class: 'btn secondary', style: 'margin-top:10px', onclick: function(){
         cage.detached = true;
         commit(); closeSheet();
@@ -2794,6 +2905,7 @@ function buildCageSheet(lineId, cageId){
       }}, 'Take cage off line (keep the spot)'));
     } else {
       wrap.appendChild(buildBatchSummary(farm, line, cage));
+      wrap.appendChild(typeField);
     }
   }
 
@@ -2872,6 +2984,42 @@ function prepChips(){
     }
   };
 }
+/* "Work again" reminder row — shared by every work-logging form.
+   radio chips for the common intervals plus a free date; none selected
+   by default and a second tap on the picked chip clears it.
+   returns {el, getDueISO(baseISO)}: interval picks count from the
+   form's event date; the date chip reads its own input; null = no pick. */
+function workAgainChips(){
+  var grp = 'workAgain-' + uid();
+  var radios = [];
+  var last = null; /* value of the current pick, for toggle-off */
+  var dateIn = h('input', {type: 'date', style: 'margin-top:8px;display:none'});
+  var wrap = h('div', {class: 'chips'});
+  [['1 wk', '7'], ['2 wks', '14'], ['4 wks', '28'], ['8 wks', '56'], ['date', 'date']].forEach(function(o){
+    var rb = h('input', {type: 'radio', name: grp, value: o[1]});
+    rb.addEventListener('click', function(){
+      /* radios don't toggle off natively — re-tapping the pick clears it */
+      if (rb.value === last){
+        rb.checked = false;
+        last = null;
+      } else {
+        last = rb.value;
+      }
+      dateIn.style.display = (rb.checked && rb.value === 'date') ? '' : 'none';
+    });
+    radios.push(rb);
+    wrap.appendChild(h('label', {class: 'chip'}, rb, h('span', null, o[0])));
+  });
+  return {
+    el: h('div', null, wrap, dateIn),
+    getDueISO: function(baseISO){
+      var rb = radios.find(function(r){ return r.checked; });
+      if (!rb) return null;
+      if (rb.value === 'date') return isValidISO(dateIn.value) ? dateIn.value : null;
+      return isoAddDays(isValidISO(baseISO) ? baseISO : todayISO(), parseInt(rb.value, 10));
+    }
+  };
+}
 function buildStockForm(farm, line, cage, pos){
   var dateIn  = h('input', {type: 'date', value: todayISO()});
   var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', placeholder: 'e.g. 500'});
@@ -2881,6 +3029,7 @@ function buildStockForm(farm, line, cage, pos){
   var srcIn   = h('input', {type: 'text', placeholder: 'Hatchery / origin', maxlength: '80'});
   var prep    = prepChips();
   var notesIn = h('textarea', {placeholder: 'Notes (optional)', maxlength: '500'});
+  var workAgain = workAgainChips(); /* stocking day often implies "first tumble in N weeks" */
 
   var multiCb = h('input', {type: 'checkbox'});
   var fromIn  = h('input', {type: 'number', inputmode: 'numeric', min: '1', max: String(line.cages.length), value: String(pos)});
@@ -2922,6 +3071,7 @@ function buildStockForm(farm, line, cage, pos){
       }
       if (targets.length === 0){ toast('All cages in that range are already stocked'); return; }
     }
+    var due = workAgain.getDueISO(date);
     targets.forEach(function(c){
       c.batch = {
         id: uid(),
@@ -2933,6 +3083,7 @@ function buildStockForm(farm, line, cage, pos){
         prep: base.prep.slice(),
         notes: base.notes
       };
+      setWorkDue(c, due);
     });
     commit();
     closeSheet();
@@ -2954,6 +3105,7 @@ function buildStockForm(farm, line, cage, pos){
     field('Source', srcIn, 'Hatchery or where the seed came from'),
     field('Prep before stocking', prep.el),
     field('Notes', notesIn),
+    field('Work again', workAgain.el),
     h('label', {class: 'toggleRow'}, multiCb, 'Stock more cages on this line with same batch'),
     rangeBox,
     h('button', {class: 'btn', onclick: submit}, h('span', {style: 'display:flex', html: icon('shell', 19)}), 'Stock cage' + (multiCb.checked ? 's' : ''))
@@ -3042,6 +3194,32 @@ function buildBatchSummary(farm, line, cage){
     return h('div', {class: 'hint', style: 'padding:2px 0 0'},
       (model.confidence === 'low' ? 'Low' : 'Medium') + ' confidence projection: ' + why + '.');
   }
+  /* actions first — on a phone they must sit above the fold, ahead of
+     the batch details card */
+  function act(ico, label, evType){
+    return h('button', {class: 'btn secondary', onclick: function(){
+      openSheet(function(){ return buildEventForm(line.id, cage.id, evType); });
+    }},
+      h('span', {class: 'ico', html: icon(ico, 22)}), label
+    );
+  }
+  wrap.appendChild(h('div', {class: 'actGrid'},
+    act('ruler', 'Growth check', 'growth'),
+    act('skull', 'Mortality', 'mortality'),
+    act('basket', 'Harvest', 'harvest'),
+    act('note', 'Note', 'note')
+  ));
+  wrap.appendChild(h('button', {class: 'btn danger', onclick: function(){
+    if (!confirm('Empty cage ' + cage.label + '? The batch record is removed (its logged events stay in history).')) return;
+    cage.events.push({id: uid(), type: 'note', date: todayISO(), batchId: b.id,
+      note: 'Cage emptied (was: ' + (typeof b.count === 'number' ? b.count : '?') + ' @ ' + (typeof b.initialSizeMm === 'number' ? b.initialSizeMm : '?') + ' mm, stocked ' + fmtDate(b.stockDate) + ')'});
+    cage.batch = null;
+    cage.workDue = null; /* an empty cage has no pending work */
+    commit();
+    openSheet(function(){ return buildCageSheet(line.id, cage.id); });
+    toast('Cage emptied');
+  }}, 'Empty this cage'));
+
   wrap.appendChild(h('div', {class: 'batchCard'},
     h('div', {style: 'display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px'},
       h('span', {class: 'bigsize'}, (typeof size === 'number' ? size : '—') + ' mm'),
@@ -3059,11 +3237,17 @@ function buildBatchSummary(farm, line, cage){
     model.ok ? confidenceHint() : null,
     !model.ok ? h('div', {class: 'hint', style: 'padding:2px 0 6px'}, 'Log a growth check (or record an initial size) to estimate growth and a harvest date.') : null,
     overdue ? h('div', {class: 'hint', style: 'padding:2px 0 6px;color:var(--c-work)'},
-      'Last worked ' + fmtDate(lastWorked(cage)) + ' (' + daysSince(lastWorked(cage)) + ' days ago). Logging a growth check, mortality, or harvest resets this.') : null,
+      'Last worked ' + fmtDate(lastWorked(cage)) + ' (' + daysSince(lastWorked(cage)) + ' days ago).'
+      + (isValidISO(cage.workDue) ? ' Work was due ' + fmtDate(cage.workDue) + '.' : '')
+      + ' Logging a growth check, mortality, or harvest resets this.') : null,
+    (!overdue && isValidISO(cage.workDue)) ? h('div', {class: 'hint', style: 'padding:2px 0 6px'},
+      'Last worked ' + fmtDate(lastWorked(cage)) + '. Next work due ' + fmtDate(cage.workDue) + '.') : null,
     kv('Stocked', fmtDate(b.stockDate) + ' · ' + inWaterLabel(b.stockDate)),
     kv('Ploidy', b.ploidy || '—'),
     kv('Source', b.source || '—'),
-    kv('Initial size', (typeof b.initialSizeMm === 'number' ? b.initialSizeMm + ' mm' : '—') + ' × ' + (typeof b.count === 'number' ? b.count : '—')),
+    kv('Initial size', (typeof b.initialSizeMm !== 'number' && typeof b.count !== 'number') ? '—'
+      : (typeof b.initialSizeMm === 'number' ? b.initialSizeMm : '—') + ' mm · '
+        + (typeof b.count === 'number' ? b.count : '—') + ' ct'),
     kv('Est. count now', remaining === null ? '—' : String(remaining)),
     (b.prep && b.prep.length) ? kv('Prep', b.prep.join(', ')) : null,
     b.notes ? kv('Notes', b.notes) : null,
@@ -3073,30 +3257,6 @@ function buildBatchSummary(farm, line, cage){
   ));
 
   wrap.appendChild(h('div', {class: 'chartBox', html: growthChartSVG(cage, farm.marketSizeMm, model)}));
-
-  function act(ico, label, evType){
-    return h('button', {class: 'btn secondary', onclick: function(){
-      openSheet(function(){ return buildEventForm(line.id, cage.id, evType); });
-    }},
-      h('span', {class: 'ico', html: icon(ico, 22)}), label
-    );
-  }
-  wrap.appendChild(h('div', {class: 'actGrid'},
-    act('ruler', 'Log growth', 'growth'),
-    act('skull', 'Mortality', 'mortality'),
-    act('basket', 'Harvest', 'harvest'),
-    act('note', 'Note', 'note')
-  ));
-
-  wrap.appendChild(h('button', {class: 'btn danger', onclick: function(){
-    if (!confirm('Empty cage ' + cage.label + '? The batch record is removed (its logged events stay in history).')) return;
-    cage.events.push({id: uid(), type: 'note', date: todayISO(), batchId: b.id,
-      note: 'Cage emptied (was: ' + (typeof b.count === 'number' ? b.count : '?') + ' @ ' + (typeof b.initialSizeMm === 'number' ? b.initialSizeMm : '?') + ' mm, stocked ' + fmtDate(b.stockDate) + ')'});
-    cage.batch = null;
-    commit();
-    openSheet(function(){ return buildCageSheet(line.id, cage.id); });
-    toast('Cage emptied');
-  }}, 'Empty this cage'));
 
   return wrap;
 }
@@ -3115,6 +3275,7 @@ function buildEventForm(lineId, cageId, evType){
   var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', placeholder: 'count'});
   var noteIn = h('textarea', {placeholder: 'Note (optional)', maxlength: '500'});
   var lineCb = h('input', {type: 'checkbox'});
+  var workAgain = evType === 'note' ? null : workAgainChips(); /* bare notes aren't work */
   var remaining = estCount(cage);
 
   function submit(){
@@ -3128,8 +3289,10 @@ function buildEventForm(lineId, cageId, evType){
       var targets = lineCb.checked
         ? line.cages.filter(function(c){ return c.batch; })
         : [cage];
+      var gDue = workAgain.getDueISO(date);
       targets.forEach(function(c){
         c.events.push({id: uid(), type: 'growth', date: date, sizeMm: size, note: note, batchId: c.batch.id});
+        setWorkDue(c, gDue);
       });
       commit(); backToCage();
       toast('Growth logged' + (targets.length > 1 ? ' for ' + targets.length + ' cages' : ''));
@@ -3155,6 +3318,9 @@ function buildEventForm(lineId, cageId, evType){
         cage.batch = null;
         emptied = true;
       }
+      /* clears the old reminder; a pick still schedules one even on a
+         full harvest (the farmer may restock soon) */
+      setWorkDue(cage, workAgain.getDueISO(date));
       commit(); backToCage();
       if (emptied) toast('Full harvest — cage is now empty 🎉');
       else toast(meta.label + ' logged' + (capped ? ' (capped at ' + n + ' remaining)' : '') + (nowLeft === null ? '' : ' · ' + nowLeft + ' left'));
@@ -3185,6 +3351,7 @@ function buildEventForm(lineId, cageId, evType){
   if (evType === 'growth'){
     kids.push(h('label', {class: 'toggleRow'}, lineCb, 'Apply to every stocked cage on ' + line.name));
   }
+  if (workAgain) kids.push(field('Work again', workAgain.el));
   kids.push(h('button', {class: 'btn', onclick: submit}, 'Save ' + meta.label.toLowerCase()));
   return h('div', null, kids);
 }
@@ -3273,6 +3440,7 @@ function bulkEmptyCages(){
         + (b.count != null ? ', ' + b.count : '') + (b.initialSizeMm != null ? ' @ ' + b.initialSizeMm + ' mm' : '')
         + (b.source ? ', from ' + b.source : '') + ')'});
     f.cage.batch = null;
+    f.cage.workDue = null; /* an empty cage has no pending work */
   });
   var n = sel.length;
   clearSel(); commit(); closeSheet();
@@ -3287,7 +3455,7 @@ function bulkRemoveCages(){
   var msg = 'Take ' + sel.length + ' ' + (sel.length === 1 ? 'cage' : 'cages') + ' off the line? Each spot stays on the map holding its place.';
   if (stocked) msg = '⚠ ' + stocked + ' of them ' + (stocked === 1 ? 'is' : 'are') + ' STOCKED — removing deletes their batch records. ' + msg;
   if (!confirm(msg)) return;
-  sel.forEach(function(f){ f.cage.batch = null; f.cage.detached = true; });
+  sel.forEach(function(f){ f.cage.batch = null; f.cage.workDue = null; f.cage.detached = true; });
   var n = sel.length;
   clearSel(); commit(); closeSheet();
   toast(n + ' ' + (n === 1 ? 'cage' : 'cages') + ' removed — spots kept on the line');
@@ -3351,6 +3519,7 @@ function buildSortSets(){
       + ' skipped — only stocked cages can be sorted.') : null,
     field('Sort date', dateIn)
   );
+  var setEls = []; /* one block per set, for pointing at validation misses */
   sortWiz.sets.forEach(function(set, i){
     var sizeIn = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any',
       placeholder: 'e.g. 45', value: typeof set.sizeMm === 'number' ? String(set.sizeMm) : ''});
@@ -3365,7 +3534,7 @@ function buildSortSets(){
       set.count = (v >= 1) ? v : null;
     });
     var picked = sortDestCount(set);
-    wrap.appendChild(h('div', {class: 'batchCard'},
+    setEls.push(wrap.appendChild(h('div', {class: 'batchCard'},
       h('div', {style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px'},
         h('strong', {style: 'flex:1'}, 'Set ' + (i + 1)
           + (picked ? ' · ' + picked + ' ' + (picked === 1 ? 'cage' : 'cages') + ' picked' : '')),
@@ -3380,17 +3549,26 @@ function buildSortSets(){
         field('Size (mm)', sizeIn),
         field('Count per cage', countIn, 'Rough is fine — blank if not counted')
       )
-    ));
+    )));
   });
   wrap.appendChild(h('button', {class: 'btn secondary', onclick: function(){
     sortWiz.sets.push(newSortSet());
     refreshSheet();
   }}, '+ Add set'));
+  /* show, don't just tell: scroll the offending set into view and pulse it */
+  function flagSet(el){
+    if (!el) return;
+    if (el.scrollIntoView) el.scrollIntoView({block: 'center'});
+    el.classList.remove('flashbad');
+    void el.offsetWidth; /* restart the one-shot animation */
+    el.classList.add('flashbad');
+    setTimeout(function(){ el.classList.remove('flashbad'); }, 1100);
+  }
   wrap.appendChild(h('button', {class: 'btn', onclick: function(){
     for (var i = 0; i < sortWiz.sets.length; i++){
       var s = sortWiz.sets[i];
-      if (!s.grade){ toast('Pick or type a grade for set ' + (i + 1)); return; }
-      if (typeof s.sizeMm !== 'number'){ toast('Enter a size for ' + s.grade); return; }
+      if (!s.grade){ toast('Pick or type a grade for set ' + (i + 1)); flagSet(setEls[i]); return; }
+      if (typeof s.sizeMm !== 'number'){ toast('Enter a size for ' + s.grade); flagSet(setEls[i]); return; }
     }
     var names = sortWiz.sets.map(function(s){ return s.grade; });
     if (names.some(function(n, ix){ return names.indexOf(n) !== ix; })
@@ -3500,6 +3678,7 @@ function commitSort(){
         + (b.count != null ? ', ' + b.count : '') + (b.initialSizeMm != null ? ' @ ' + b.initialSizeMm + ' mm' : '')
         + (b.source ? ', from ' + b.source : '') + ')'});
     f.cage.batch = null;
+    f.cage.workDue = null; /* sorted out — no pending work */
   });
   /* destinations: a fresh batch per cage — the batch itself carries the
      provenance and restarts the growth curve + work clock at the sort */
@@ -3509,6 +3688,7 @@ function commitSort(){
         source: 'Sort ' + fmtDate(date) + ': ' + s.grade + ' from ' + sources.length + (sources.length === 1 ? ' cage' : ' cages'),
         initialSizeMm: s.sizeMm, count: s.count != null ? s.count : null,
         prep: ['Graded'], notes: ''};
+      f.cage.workDue = null; /* destinations start with no reminder */
     });
   });
   /* custom grade names join the farm vocabulary for next time */
@@ -3570,6 +3750,7 @@ function buildBulkStock(){
   var srcIn   = h('input', {type: 'text', placeholder: 'Hatchery / origin', maxlength: '80'});
   var prep    = prepChips();
   var notesIn = h('textarea', {placeholder: 'Notes (optional)', maxlength: '500'});
+  var workAgain = workAgainChips();
   function submit(){
     var date = dateIn.value;
     if (!isValidISO(date)){ toast('Pick a stock date'); return; }
@@ -3578,9 +3759,11 @@ function buildBulkStock(){
     var size = parseFloat(sizeIn.value);
     if (!(size >= 0) || sizeIn.value === ''){ toast('Enter starting size in mm'); sizeIn.focus(); return; }
     var pv = prep.values(), notes = notesIn.value.trim(), src = srcIn.value.trim();
+    var due = workAgain.getDueISO(date);
     empty.forEach(function(f){
       f.cage.batch = {id: uid(), stockDate: date, ploidy: ploidyIn.value, source: src,
                       initialSizeMm: size, count: count, prep: pv.slice(), notes: notes};
+      setWorkDue(f.cage, due);
     });
     clearSel(); commit(); closeSheet();
     toast('Stocked ' + empty.length + ' ' + (empty.length === 1 ? 'cage' : 'cages'));
@@ -3599,6 +3782,7 @@ function buildBulkStock(){
     field('Source', srcIn, 'Hatchery or where the seed came from'),
     field('Prep before stocking', prep.el),
     field('Notes', notesIn),
+    field('Work again', workAgain.el),
     h('button', {class: 'btn', onclick: submit}, h('span', {style: 'display:flex', html: icon('shell', 19)}), 'Stock cages')
   );
 }
@@ -3616,6 +3800,7 @@ function buildBulkEvent(evType){
   var sizeIn = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: 'mm'});
   var countIn = h('input', {type: 'number', inputmode: 'numeric', min: '1', placeholder: 'count'});
   var noteIn = h('textarea', {placeholder: evType === 'note' ? 'What happened?' : 'Note (optional)', maxlength: '500'});
+  var workAgain = evType === 'note' ? null : workAgainChips(); /* bare notes aren't work */
   var fullCb = h('input', {type: 'checkbox'});
   var countField = field(evType === 'mortality' ? 'Number dead per cage' : 'Number harvested per cage', countIn,
     'Capped at what each cage has left');
@@ -3629,8 +3814,10 @@ function buildBulkEvent(evType){
     if (evType === 'growth'){
       var size = parseFloat(sizeIn.value);
       if (!(size >= 0) || sizeIn.value === ''){ toast('Enter size in mm'); sizeIn.focus(); return; }
+      var gDue = workAgain.getDueISO(date);
       stocked.forEach(function(f){
         f.cage.events.push({id: uid(), type: 'growth', date: date, sizeMm: size, note: note, batchId: f.cage.batch.id});
+        setWorkDue(f.cage, gDue);
       });
       clearSel(); commit(); closeSheet();
       toast('Growth logged for ' + stocked.length + (stocked.length === 1 ? ' cage' : ' cages'));
@@ -3652,6 +3839,7 @@ function buildBulkEvent(evType){
     var n = parseInt(countIn.value, 10);
     if (!full && !(n >= 1)){ toast('Enter a count per cage'); countIn.focus(); return; }
     var logged = 0, emptied = 0;
+    var due = workAgain.getDueISO(date);
     stocked.forEach(function(f){
       var cage = f.cage;
       var remaining = estCount(cage);
@@ -3672,6 +3860,9 @@ function buildBulkEvent(evType){
         cage.batch = null;
         emptied++;
       }
+      /* clears the old reminder; a pick still schedules one even on a
+         full harvest (the farmer may restock soon) */
+      setWorkDue(cage, due);
     });
     clearSel(); commit(); closeSheet();
     var cw = logged === 1 ? ' cage' : ' cages';
@@ -3687,6 +3878,7 @@ function buildBulkEvent(evType){
   if (evType === 'harvest') kids.push(h('label', {class: 'toggleRow'}, fullCb, 'Full harvest — empty every selected cage'));
   if (evType === 'mortality' || evType === 'harvest') kids.push(countField);
   kids.push(field(evType === 'note' ? 'Note' : 'Note (optional)', noteIn));
+  if (workAgain) kids.push(field('Work again', workAgain.el));
   kids.push(h('button', {class: 'btn', onclick: submit}, 'Save ' + meta.label.toLowerCase()));
   return h('div', null, kids);
 }
@@ -3951,24 +4143,36 @@ function buildCageTypes(){
 
   farm.cageTypes.forEach(function(t){
     if (typeRenaming === t.id){
+      /* in-row edit: name + mesh save together */
       var inp = h('input', {type: 'text', value: t.name, maxlength: '30'});
+      var meshEd = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any',
+        placeholder: 'Mesh (mm) — e.g. 9', value: typeof t.meshMm === 'number' ? String(t.meshMm) : ''});
       wrap.appendChild(h('div', {class: 'typeRow'},
         h('div', {html: shapeSVG(t.shape, '#9fc4cf', false, 34), style: 'flex:none'}),
-        inp,
+        h('div', {style: 'flex:1;min-width:0;display:flex;flex-direction:column;gap:6px'}, inp, meshEd),
         h('button', {class: 'btn secondary sm', onclick: function(){
           var v = inp.value.trim();
           if (!v){ toast('Name cannot be empty'); return; }
-          t.name = v; typeRenaming = null;
+          var mv = parseFloat(meshEd.value);
+          t.name = v;
+          t.meshMm = (meshEd.value !== '' && mv > 0) ? mv : null;
+          typeRenaming = null;
           commit(); refreshSheet();
         }}, 'Save')
       ));
       return;
     }
     var inUse = typeInUse(farm, t.id);
+    /* sub line: shape label (only when it isn't just the name again),
+       then mesh when set, then in use */
+    var subBits = [];
+    if (SHAPE_LABELS[t.shape].toLowerCase() !== t.name.toLowerCase()) subBits.push(SHAPE_LABELS[t.shape]);
+    if (typeof t.meshMm === 'number') subBits.push(t.meshMm + ' mm mesh');
+    if (inUse) subBits.push('in use');
     wrap.appendChild(h('div', {class: 'typeRow'},
       h('div', {html: shapeSVG(t.shape, '#9fc4cf', false, 34), style: 'flex:none'}),
-      h('span', {class: 'tname'}, t.name, h('span', {class: 'sub', style: 'display:block;font-size:.76rem;color:var(--muted);font-weight:400'}, SHAPE_LABELS[t.shape] + (inUse ? ' · in use' : ''))),
-      h('button', {style: 'min-width:44px;min-height:44px', 'aria-label': 'Rename type', onclick: function(){
+      h('span', {class: 'tname'}, t.name, subBits.length ? h('span', {class: 'sub', style: 'display:block;font-size:.76rem;color:var(--muted);font-weight:400'}, subBits.join(' · ')) : null),
+      h('button', {style: 'min-width:44px;min-height:44px', 'aria-label': 'Edit type', onclick: function(){
         typeRenaming = t.id; refreshSheet();
       }, html: icon('pencil', 18)}),
       h('button', {style: 'min-width:44px;min-height:44px;opacity:' + (inUse || farm.cageTypes.length <= 1 ? '.3' : '1'), 'aria-label': 'Delete type', onclick: function(){
@@ -3983,14 +4187,18 @@ function buildCageTypes(){
 
   if (farm.cageTypes.length < MAX_TYPES){
     var nameIn = h('input', {type: 'text', placeholder: 'e.g. Floating bag', maxlength: '30'});
+    var meshIn = h('input', {type: 'number', inputmode: 'decimal', min: '0', step: 'any', placeholder: 'e.g. 9'});
     var picker = shapePicker('newTypeShape');
     wrap.appendChild(h('div', {class: 'sectionTitle'}, 'Add a type'));
     wrap.appendChild(field('Name', nameIn));
+    wrap.appendChild(field('Mesh (mm)', meshIn, 'Optional'));
     wrap.appendChild(field('Shape', picker.el));
     wrap.appendChild(h('button', {class: 'btn', onclick: function(){
       var v = nameIn.value.trim();
-      if (!v){ toast('Give the type a name'); nameIn.focus(); return; }
-      farm.cageTypes.push({id: uid(), name: v, shape: picker.value()});
+      if (!v){ toast('Name the type first'); nameIn.focus(); return; }
+      var mv = parseFloat(meshIn.value);
+      farm.cageTypes.push({id: uid(), name: v, shape: picker.value(),
+        meshMm: (meshIn.value !== '' && mv > 0) ? mv : null});
       commit(); refreshSheet();
       toast('Type added');
     }}, 'Add cage type'));
