@@ -556,9 +556,9 @@ label{ display:block; font:700 12px/1 var(--font-ui); letter-spacing:.06em; text
 .chip.add{ border-style:dashed; color:var(--teal); }
 
 /* cage-type editor rows */
-.typeRow{ display:flex; align-items:center; gap:8px; padding:10px 0; border-top:1px solid var(--hair); }
+.typeRow{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 0; border-top:1px solid var(--hair); }
 .typeRow:first-of-type{ border-top:0; }
-.typeRow .tname{ flex:1 1 auto; min-width:0; }
+.typeRow .tname{ flex:1 1 100%; min-width:0; }   /* name on its OWN full-width row; shape·mesh·remove wrap below (readable cage names) */
 .typeRow .tmesh{ flex:0 0 86px; }
 .typeRow .shapeToggle{ flex:0 0 auto; display:flex; gap:4px; }
 .shapeToggle .sbtn{ width:44px; height:40px; border-radius:9px; border:1.5px solid var(--hair-strong);
@@ -2175,9 +2175,8 @@ function render(){
   // map well — the worktable
   var well = h('div', { class:'mapwell', id:'mapwell' });
   visibleLines(farm).forEach(function(line){ well.appendChild(renderLine(line, farm)); });
-  // + Add line (in flow, no FAB)
-  well.appendChild(h('button', { class:'addLine', onclick:function(){ addLine(); } },
-    h('span', { html:icon('plus', 18) }), 'Add line'));
+  // NOTE: no "Add line" button here — adding/removing LINES belongs to the Farm Layout editor only
+  // (owner ask). The daily work view edits CAGES (per-line ⋯ menu: bulk add/remove), never line count.
   // tap empty chart → deselect + dismiss popup (DESIGN §6)
   well.addEventListener('click', function(e){
     if (e.target === well) clearSelection();
@@ -6890,7 +6889,7 @@ function buildMenu(){
   }));
   list.appendChild(item('log', 'Harvest Log', (farm.harvestLog.length || 'No') + ' harvests', function(){ openSheet(buildHarvestLog); }));
   list.appendChild(item('grade', 'Grades', farm.grades.length ? farm.grades.join(', ') : 'None yet', function(){ openSheet(buildGrades); }));
-  list.appendChild(item('gear', 'Settings', 'Market size, alert interval', function(){ openSheet(buildSettings); }));
+  list.appendChild(item('gear', 'Settings', 'Cage types & mesh, market size, alerts', function(){ openSheet(buildSettings); }));
   list.appendChild(item('data', 'Data', 'Export / import backup', function(){ openSheet(buildDataMenu); }));
   if (state.farms.length > 1){
     list.appendChild(item('anchor', 'Switch farm', state.farms.length + ' farms', function(){ openSheet(buildFarmSwitcher); }));
@@ -6917,10 +6916,20 @@ function buildLineMenu(line){
   farm.cageTypes.forEach(function(t){ typeSel.appendChild(h('option', { value:t.id }, typeLabel(t))); });
   if (line.cages.length) typeSel.value = line.cages[0].typeId;
   kids.push(field('Set all cages on this line to', typeSel));
-  // add a cage to the end
-  kids.push(h('button', { class:'btn btn-quiet btn-block', style:{marginTop:'14px'},
-    onclick:function(){ addCageToLine(line); refreshSheet(); } },
-    h('span', { html:icon('plus', 18) }), 'Add a cage'));
+  // BULK add / remove cages (owner ask): a count stepper. + appends empty cages; − removes empty cages
+  // from the end. To remove SPECIFIC cages anywhere on the line, drag-select them and tap Remove.
+  var cageVal = h('input', { class:'num-in stp-val', type:'number', inputmode:'numeric', min:'0',
+    value:line.cages.length });
+  function applyCages(target){ setLineCageCount(getFarm(), line, target); refreshSheet(); }
+  var cageStep = h('div', { class:'stepper' },
+    h('button', { class:'stp-btn', 'aria-label':'Remove a cage',
+      onclick:function(){ applyCages(line.cages.length - 1); } }, '−'),
+    cageVal,
+    h('button', { class:'stp-btn', 'aria-label':'Add a cage',
+      onclick:function(){ applyCages(line.cages.length + 1); } }, '+'));
+  cageVal.addEventListener('change', function(){ applyCages(parseNum(this.value)); });
+  kids.push(field('Cages on this line', cageStep,
+    'Adds empty cages to the end; reducing removes empty cages from the end. Drag-select to remove specific cages.'));
   // remove the line entirely (explicit, destructive)
   kids.push(h('button', { class:'btn btn-danger btn-block', style:{marginTop:'10px'},
     onclick:function(){ removeLineWithUndo(farm, line); } },
@@ -6934,6 +6943,44 @@ function addCageToLine(line){
   line.cages.push(newCage(typeId, line.order, line.cages.length));
   reindexLines(farm);
   commit();
+}
+// setLineCageCount(farm, line, target) — BULK add/remove cages on ONE line (work view, owner ask).
+// Grow → append empty cages (the line's existing type). Shrink → remove EMPTY cages from the END only,
+// stopping at the first stocked cage from the end (those must be emptied first). One commit + one undo.
+function lineByIdLocal(f, id){ for (var i=0;i<f.lines.length;i++) if (f.lines[i].id === id) return f.lines[i]; return null; }
+function setLineCageCount(farm, line, target){
+  target = Math.max(0, Math.floor(target || 0));
+  var cur = line.cages.length;
+  if (target === cur) return;
+  var lineId = line.id;
+  if (target > cur){
+    var typeId = cur ? line.cages[cur-1].typeId : farm.cageTypes[0].id;
+    var added = target - cur;
+    for (var i=cur; i<target; i++) line.cages.push(newCage(typeId, line.order, i));
+    reindexLines(farm); commit();
+    undoable('Added ' + added + (added===1 ? ' cage' : ' cages'), function(){
+      var l = lineByIdLocal(getFarm(), lineId); if (!l) return;
+      l.cages.splice(Math.max(0, l.cages.length - added));
+      reindexLines(getFarm()); commit();
+    });
+  } else {
+    var want = cur - target, removed = [];
+    for (var j=line.cages.length-1; j>=0 && removed.length<want; j--){
+      if (line.cages[j].batch) break;                    // stocked → can't trim past it
+      removed.push({ index:j, cage:line.cages[j] });
+    }
+    if (!removed.length){ toast('Those end cages are stocked — empty them first'); return; }
+    removed.forEach(function(r){ line.cages.splice(r.index, 1); });
+    reindexLines(farm); commit();
+    var n = removed.length;
+    undoable('Removed ' + n + (n===1 ? ' cage' : ' cages') + ' — line keeps its place', function(){
+      var l = lineByIdLocal(getFarm(), lineId); if (!l) return;
+      removed.slice().sort(function(a,b){ return a.index - b.index; }).forEach(function(r){
+        l.cages.splice(Math.min(r.index, l.cages.length), 0, r.cage);
+      });
+      reindexLines(getFarm()); commit();
+    });
+  }
 }
 function removeLineWithUndo(farm, line){
   var idx = farm.lines.indexOf(line);
@@ -7011,7 +7058,10 @@ function buildGrades(){
 // buildSettings — market size + neglect interval (edits farm.settings).
 function buildSettings(){
   var farm = getFarm();
-  var kids = sheetHead('Settings');
+  var kids = sheetHead('Settings', 'Cage types & mesh, market size, alerts.');
+  // ── Cage types (owner ask): set the mesh of each brand + custom-build any cage for the stock/convert
+  // dropdown. buildCageTypesEditor edits farm.cageTypes live (name · shape · mm mesh · add/remove). ──
+  kids.push(buildCageTypesEditor(farm, false));
   var marketIn = h('input', { type:'number', inputmode:'decimal', min:'1', value:farm.settings.marketSizeMm,
     oninput:function(){ var v = parseNum(this.value); if (v != null && v > 0){ farm.settings.marketSizeMm = v; persist(); } } });
   kids.push(field('Market size (mm)', marketIn, 'The size you sell at — used to project harvest dates.'));
