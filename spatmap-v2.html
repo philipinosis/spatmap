@@ -6916,20 +6916,33 @@ function buildLineMenu(line){
   farm.cageTypes.forEach(function(t){ typeSel.appendChild(h('option', { value:t.id }, typeLabel(t))); });
   if (line.cages.length) typeSel.value = line.cages[0].typeId;
   kids.push(field('Set all cages on this line to', typeSel));
-  // BULK add / remove cages (owner ask): a count stepper. + appends empty cages; − removes empty cages
-  // from the end. To remove SPECIFIC cages anywhere on the line, drag-select them and tap Remove.
+  // BULK add cages to EITHER end (owner ask): a count + To-start / To-end buttons.
+  var addN = h('input', { class:'num-in', type:'number', inputmode:'numeric', min:'1', value:'1',
+    style:{flex:'0 0 60px', textAlign:'center'} });
+  function addCount(){ return Math.max(1, Math.floor(parseNum(addN.value) || 1)); }
+  var addRow = h('div', { style:{display:'flex', gap:'8px', alignItems:'center'} },
+    addN,
+    h('button', { class:'btn btn-quiet', style:{flex:'1 1 0'},
+      onclick:function(){ addCagesToLineEnd(getFarm(), line, addCount(), true); refreshSheet(); } },
+      h('span', { html:icon('plus', 16) }), ' To start'),
+    h('button', { class:'btn btn-quiet', style:{flex:'1 1 0'},
+      onclick:function(){ addCagesToLineEnd(getFarm(), line, addCount(), false); refreshSheet(); } },
+      'To end ', h('span', { html:icon('plus', 16) })));
+  kids.push(field('Add cages', addRow, 'Clips new empty cages onto whichever end you pick.'));
+  // Count stepper — quick adjust + remove empties FROM THE END (− or type a lower number). To remove
+  // SPECIFIC cages anywhere on the line, drag-select them and tap Remove.
   var cageVal = h('input', { class:'num-in stp-val', type:'number', inputmode:'numeric', min:'0',
     value:line.cages.length });
   function applyCages(target){ setLineCageCount(getFarm(), line, target); refreshSheet(); }
   var cageStep = h('div', { class:'stepper' },
-    h('button', { class:'stp-btn', 'aria-label':'Remove a cage',
+    h('button', { class:'stp-btn', 'aria-label':'Remove a cage from the end',
       onclick:function(){ applyCages(line.cages.length - 1); } }, '−'),
     cageVal,
-    h('button', { class:'stp-btn', 'aria-label':'Add a cage',
+    h('button', { class:'stp-btn', 'aria-label':'Add a cage to the end',
       onclick:function(){ applyCages(line.cages.length + 1); } }, '+'));
   cageVal.addEventListener('change', function(){ applyCages(parseNum(this.value)); });
   kids.push(field('Cages on this line', cageStep,
-    'Adds empty cages to the end; reducing removes empty cages from the end. Drag-select to remove specific cages.'));
+    'Quick count: − removes an empty cage from the end. Drag-select to remove specific cages.'));
   // remove the line entirely (explicit, destructive)
   kids.push(h('button', { class:'btn btn-danger btn-block', style:{marginTop:'10px'},
     onclick:function(){ removeLineWithUndo(farm, line); } },
@@ -6997,6 +7010,26 @@ function removeLineWithUndo(farm, line){
     reindexLines(f);
     rebuildLineIds(f);
     commit();
+  });
+}
+
+// addCagesToLineEnd(farm, line, count, atStart) — BULK add empty cages to EITHER end of a line (owner ask).
+// atStart=true prepends (clip cages onto the start piling end), else appends. Cage objects (with any
+// batch) keep travelling; reindexLines renumbers every cage's position label. One commit + one undo.
+function addCagesToLineEnd(farm, line, count, atStart){
+  count = Math.max(1, Math.floor(count || 1));
+  var refIdx = atStart ? 0 : line.cages.length - 1;
+  var typeId = line.cages.length ? line.cages[refIdx].typeId : farm.cageTypes[0].id;
+  var fresh = [];
+  for (var i=0; i<count; i++) fresh.push(newCage(typeId, line.order, 0));   // label fixed by reindexLines
+  line.cages = atStart ? fresh.concat(line.cages) : line.cages.concat(fresh);
+  reindexLines(farm); commit();
+  var lineId = line.id;
+  undoable('Added ' + count + (count===1 ? ' cage' : ' cages') + (atStart ? ' to start' : ' to end'), function(){
+    var l = lineByIdLocal(getFarm(), lineId); if (!l) return;
+    if (atStart) l.cages.splice(0, count);                  // the prepended fresh cages are empty
+    else l.cages.splice(Math.max(0, l.cages.length - count));
+    reindexLines(getFarm()); commit();
   });
 }
 
