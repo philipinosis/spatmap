@@ -3044,32 +3044,28 @@ function layoutContentBounds(farm){
   return { x:minX, y:minY, w:Math.max(1,maxX-minX), h:Math.max(1,maxY-minY) };
 }
 
-// clampViewToContent(farm) — keep the user's current zoom (k), but nudge tx/ty so the content can't be
-// pushed off-screen after a viewport resize. If the content is smaller than the viewport on an axis it is
-// CENTERED on that axis; otherwise the pan is clamped so a margin of content always stays visible. Used by
-// the resize handler (Bug B4) so a window/orientation change never strands the farm off the right edge.
+// clampOpenAxis(t, lo, hi, k, viewLen) — clamp a translate so the world envelope [lo,hi] (world units)
+// stays reachable: if the envelope is narrower than the viewport on this axis, center it; otherwise allow
+// panning anywhere WITHIN the envelope (the envelope edges can reach the viewport edges, no further).
+function clampOpenAxis(t, lo, hi, k, viewLen){
+  var span = (hi - lo) * k;
+  if (span <= viewLen) return (viewLen - span)/2 - lo*k;   // envelope fits the viewport → center it
+  return Math.max(viewLen - hi*k, Math.min(-lo*k, t));     // else keep the envelope covering the viewport
+}
+
+// clampViewToContent(farm) — keep the user's zoom (k); nudge tx/ty so the camera stays within the farm's
+// content bounds PLUS a generous open margin of water on every side. The owner wants an OPEN canvas (plots
+// in "entirely different places", room to pan over and place new ones), so this is NOT a tight leash — you
+// can pan a screen-or-more of empty water past the content, but you can't lose the farm to infinity.
+// Fit-all (the ⤢ control) / the breadcrumb are the get-unlost recovery. (Was a tight 40px-of-content clamp.)
 function clampViewToContent(farm){
   refreshSvgRect();
   var r = LAYOUT.svgRect; if (!r || !r.width || !r.height) return;
   var B = layoutContentBounds(farm); if (!B) return;
   var v = LAYOUT.view, k = v.k;
-  var cw = B.w * k, ch = B.h * k;                          // content size in screen px at current zoom
-  var x0 = B.x * k, y0 = B.y * k;                          // content top-left in world*k (pre-translate)
-  var keep = 40;                                           // px of content that must remain on-screen each side
-  // X axis
-  if (cw <= r.width){ v.tx = (r.width - cw)/2 - x0; }      // fits → center
-  else {
-    var minTx = r.width - keep - (x0 + cw);                // right edge of content ≥ keep from left
-    var maxTx = keep - x0;                                 // left edge of content ≤ width-keep
-    v.tx = Math.max(minTx, Math.min(maxTx, v.tx));
-  }
-  // Y axis
-  if (ch <= r.height){ v.ty = (r.height - ch)/2 - y0; }
-  else {
-    var minTy = r.height - keep - (y0 + ch);
-    var maxTy = keep - y0;
-    v.ty = Math.max(minTy, Math.min(maxTy, v.ty));
-  }
+  var MARGIN = Math.max(B.w, B.h, 1200);                   // ≥ one content-size / 1200u of open water each side
+  v.tx = clampOpenAxis(v.tx, B.x - MARGIN, B.x + B.w + MARGIN, k, r.width);
+  v.ty = clampOpenAxis(v.ty, B.y - MARGIN, B.y + B.h + MARGIN, k, r.height);
   scheduleApplyView();
 }
 
@@ -5349,8 +5345,14 @@ function editStartMove(kind, plotId, areaId, ptWorld){
 // alignCandidates(farm, ed) — sibling/parent/grid edge candidates for X and Y snapping.
 function alignCandidates(farm, ed){
   var xs = [], ys = [];
-  // coarse grid
-  for (var gx=0; gx<=1000; gx+=GRID_STEP){ xs.push(gx); ys.push(gx); }
+  // coarse grid — spans the farm's content bounds + a margin (was a fixed 0..1000 box, which stopped
+  // snapping once the canvas opened up past 1000u). Capped to a sane count so a huge farm can't blow up.
+  var gB = layoutContentBounds(farm);
+  var gLoX = gB ? gB.x - 300 : 0, gHiX = gB ? gB.x + gB.w + 300 : 1000;
+  var gLoY = gB ? gB.y - 300 : 0, gHiY = gB ? gB.y + gB.h + 300 : 1000;
+  var gx0 = Math.floor(gLoX/GRID_STEP)*GRID_STEP, gy0 = Math.floor(gLoY/GRID_STEP)*GRID_STEP;
+  for (var gx=gx0, gn=0; gx<=gHiX && gn<400; gx+=GRID_STEP, gn++) xs.push(gx);
+  for (var gy=gy0, gm=0; gy<=gHiY && gm<400; gy+=GRID_STEP, gm++) ys.push(gy);
   if (ed.kind === 'area'){
     var fa = findAreaById(farm, ed.areaId); var plot = fa && fa.plot;
     if (plot){ xs.push(plot.x, plot.x+plot.w, plot.x+plot.w/2); ys.push(plot.y, plot.y+plot.h, plot.y+plot.h/2);
@@ -5361,6 +5363,24 @@ function alignCandidates(farm, ed){
       xs.push(sib.x, sib.x+sib.w, sib.x+sib.w/2); ys.push(sib.y, sib.y+sib.h, sib.y+sib.h/2); });
   }
   return { xs:xs, ys:ys };
+}
+
+// growPlotToContainArea(plot, area) — expand a plot's rect so it encloses the (rotation-aware) area bbox
+// plus a small pad. Used when an area is dragged: the plot is a soft container that follows its areas
+// instead of jailing them, so areas feel freely placeable on the open canvas. Only ever GROWS the plot.
+function growPlotToContainArea(plot, area){
+  if (!plot || !area) return;
+  var c = (typeof areaCorners === 'function') ? areaCorners(area) : null;
+  var minX, minY, maxX, maxY;
+  if (c){
+    var xs = [c.nw.x, c.ne.x, c.se.x, c.sw.x], ys = [c.nw.y, c.ne.y, c.se.y, c.sw.y];
+    minX = Math.min.apply(null, xs); maxX = Math.max.apply(null, xs);
+    minY = Math.min.apply(null, ys); maxY = Math.max.apply(null, ys);
+  } else { minX = area.x; minY = area.y; maxX = area.x + area.w; maxY = area.y + area.h; }
+  var pad = 14;
+  var L = Math.min(plot.x, minX - pad),           T = Math.min(plot.y, minY - pad);
+  var R = Math.max(plot.x + plot.w, maxX + pad),   B = Math.max(plot.y + plot.h, maxY + pad);
+  plot.x = L; plot.y = T; plot.w = R - L; plot.h = B - T;
 }
 
 // editApply(ed, ptWorld) — drive the live gesture: mutate the model in place, redraw, draw guides.
@@ -5382,19 +5402,25 @@ function editApply(ed, ptWorld){
       var sy = snapVal(ny, cand.ys, tolW), sy2 = snapVal(ny + a.h, cand.ys, tolW) - a.h,
           syc = snapVal(ny + a.h/2, cand.ys, tolW) - a.h/2;
       ny = pickClosest(ny, [sy, sy2, syc], tolW);
-      // clamp the (axis-aligned) area bbox inside the parent plot
-      nx = Math.max(plot.x, Math.min(plot.x + plot.w - a.w, nx));
-      ny = Math.max(plot.y, Math.min(plot.y + plot.h - a.h, ny));
+      // OPEN canvas: don't jail the area inside its plot rect. Let it move freely; the plot is a SOFT
+      // container that GROWS to enclose the area, so dragging an area never dead-ends at the plot wall.
+      // (Bug: an area could only travel ~40u inside its plot.) growPlotToContainArea expands plot.x/y/w/h.
       a.x = nx; a.y = ny;
+      growPlotToContainArea(plot, a);
     } else {
       var p = (farm.plots||[]).filter(function(q){ return q.id===ed.plotId; })[0]; if (!p) return;
       var npx = ed.start.x + dx, npy = ed.start.y + dy;
       var candP = alignCandidates(farm, ed);
       npx = pickClosest(npx, [snapVal(npx, candP.xs, tolW), snapVal(npx + p.w, candP.xs, tolW) - p.w], tolW);
       npy = pickClosest(npy, [snapVal(npy, candP.ys, tolW), snapVal(npy + p.h, candP.ys, tolW) - p.h], tolW);
-      // clamp so the plot can't be dragged fully off-canvas (keep ≥80u on-world)
-      npx = Math.max(80 - p.w, Math.min(1000 - 80, npx));
-      npy = Math.max(80 - p.h, Math.min(1000 - 80, npy));
+      // OPEN canvas: a plot is "entirely different place" — it can be dragged anywhere within the farm's
+      // content bounds + a generous margin (NOT the old fixed 1000×1000 box that pinned every new plot onto
+      // the first one). The bound tracks live content so placing plots farther out keeps growing the space;
+      // a finger drag can't exceed it in one gesture, and Fit-all recovers. (Bug: plot teleported to x=920.)
+      var Bp = layoutContentBounds(farm) || { x:0, y:0, w:1000, h:1000 };
+      var Mp = Math.max(Bp.w, Bp.h, 1200);
+      npx = Math.max(Bp.x - Mp, Math.min(Bp.x + Bp.w + Mp - p.w, npx));
+      npy = Math.max(Bp.y - Mp, Math.min(Bp.y + Bp.h + Mp - p.h, npy));
       // carry delta is measured from the gesture START (not the running position) so areas, derived
       // from their OWN start snapshots, move by the SAME total delta as the plot every frame.
       var pdx = npx - ed.start.x, pdy = npy - ed.start.y;
