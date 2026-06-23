@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SpatMap tub art — LOADED (clawfoot tub + natural-shell pile). SOURCE OF TRUTH is the inline copy in spatmap-v3.html; this file mirrors it. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 110" width="120" height="110" class="bargeSvg">
+ <defs>
+  <linearGradient id="tubl_en" x1="0" y1="0" x2="1" y2="0.35">
+   <stop offset="0" stop-color="#FCFBF7"/><stop offset="0.5" stop-color="#EDEAE2"/><stop offset="1" stop-color="#D4D0C5"/>
+  </linearGradient>
+  <radialGradient id="tubl_bas" cx="0.5" cy="0.32" r="0.75">
+   <stop offset="0" stop-color="#cfcabd"/><stop offset="1" stop-color="#aaa394"/>
+  </radialGradient>
+  <linearGradient id="tubl_cl" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0" stop-color="#E8B65E"/><stop offset="0.55" stop-color="#CC8A2C"/><stop offset="1" stop-color="#A86A18"/>
+  </linearGradient>
+  <linearGradient id="tubl_ft" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0" stop-color="#8E7E66"/><stop offset="1" stop-color="#574A3A"/>
+  </linearGradient>
+ </defs>
+ <!-- hint of gold cloth under the tub -->
+ <path d="M 16 90 Q 60 84 104 90 L 102 103 Q 60 109 18 103 Z" fill="url(#tubl_cl)" opacity="0.92"/>
+ <path d="M 18 91 Q 60 86 102 91" fill="none" stroke="#F2CC7C" stroke-width="1" opacity="0.6"/>
+ <g stroke="#90591A" stroke-width="0.8" opacity="0.55" stroke-linecap="round">
+  <line x1="24" y1="103" x2="23.5" y2="106"/><line x1="36" y1="104" x2="36" y2="107"/><line x1="48" y1="104.6" x2="48" y2="107.6"/>
+  <line x1="60" y1="104.8" x2="60" y2="107.8"/><line x1="72" y1="104.6" x2="72" y2="107.6"/><line x1="84" y1="104" x2="84.4" y2="107"/><line x1="96" y1="103" x2="96.5" y2="106"/>
+ </g>
+ <!-- contact shadow -->
+ <ellipse cx="60" cy="99" rx="42" ry="4.4" fill="#000000" opacity="0.16"/>
+ <!-- ornate ball-and-claw feet (drawn behind body so the leg tucks under the belly) -->
+ <g>
+  <!-- far feet peeking at the same corners (depth) -->
+  <g fill="#483C2C"><ellipse cx="40" cy="89" rx="3.2" ry="3.8"/><ellipse cx="80" cy="89" rx="3.2" ry="3.8"/></g>
+  <!-- front-left claw foot -->
+  <path d="M 30 78 C 23 82 22 90 27 93 L 39 93 C 35 88 37 80 41 77 Z" fill="url(#tubl_ft)"/>
+  <path d="M 31 79 C 26 83 26 89 29 92" fill="none" stroke="#A8997F" stroke-width="0.9" opacity="0.6"/>
+  <ellipse cx="32" cy="95" rx="6.4" ry="5.2" fill="url(#tubl_ft)"/>
+  <ellipse cx="29.5" cy="93" rx="2.1" ry="1.4" fill="#AC9D82" opacity="0.7"/>
+  <path d="M 28 91 Q 26 97 29 100" fill="none" stroke="#3E3324" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 32 90.5 Q 32 97 32 100.5" fill="none" stroke="#3E3324" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 37 91 Q 39 97 35 100" fill="none" stroke="#3E3324" stroke-width="2" stroke-linecap="round"/>
+  <!-- front-right claw foot -->
+  <path d="M 90 78 C 97 82 98 90 93 93 L 81 93 C 85 88 83 80 79 77 Z" fill="url(#tubl_ft)"/>
+  <path d="M 89 79 C 94 83 94 89 91 92" fill="none" stroke="#A8997F" stroke-width="0.9" opacity="0.6"/>
+  <ellipse cx="88" cy="95" rx="6.4" ry="5.2" fill="url(#tubl_ft)"/>
+  <ellipse cx="85.5" cy="93" rx="2.1" ry="1.4" fill="#AC9D82" opacity="0.7"/>
+  <path d="M 84 91 Q 82 97 85 100" fill="none" stroke="#3E3324" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 88 90.5 Q 88 97 88 100.5" fill="none" stroke="#3E3324" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 93 91 Q 95 97 91 100" fill="none" stroke="#3E3324" stroke-width="2" stroke-linecap="round"/>
+ </g>
+ <!-- tub body (deeper, lifted on the legs) -->
+ <path d="M 16 48 C 12 62 16 76 30 82 Q 60 92 90 82 C 104 76 108 62 104 48 A 44 12 0 0 1 16 48 Z" fill="url(#tubl_en)"/>
+ <!-- body shading -->
+ <path d="M 22 53 C 18 64 21 76 32 81 L 39 79 C 28 74 25 64 29 54 Z" fill="#FFFFFF" opacity="0.34"/>
+ <path d="M 100 52 C 104 64 101 76 88 81 L 81 79 C 92 74 95 64 91 54 Z" fill="#9C958A" opacity="0.30"/>
+ <path d="M 30 82 Q 60 91 90 82" fill="none" stroke="#B7B0A2" stroke-width="0.8" opacity="0.5"/>
+ <!-- enamel chips + hairline -->
+ <circle cx="34" cy="74" r="1.1" fill="#8a8478"/><circle cx="82" cy="70" r="0.9" fill="#7e786c"/><circle cx="53" cy="85" r="0.7" fill="#8a8478"/>
+ <path d="M 71 58 Q 73 66 71 74" fill="none" stroke="#bdb7ab" stroke-width="0.4" opacity="0.5"/>
+ <!-- rolled rim -->
+ <ellipse cx="60" cy="48" rx="44" ry="12" fill="#F4F2EC" stroke="#C9C3B4" stroke-width="1"/>
+ <ellipse cx="60" cy="46.8" rx="41.5" ry="10" fill="none" stroke="#FFFFFF" stroke-width="0.9" opacity="0.7"/>
+ <ellipse cx="60" cy="49" rx="36" ry="9" fill="url(#tubl_bas)"/>
+ <ellipse cx="60" cy="49" rx="36" ry="9" fill="none" stroke="#A39C8C" stroke-width="0.8"/>
+ <!-- back inner wall shadow -->
+ <path d="M 30 47 Q 60 40.5 90 47 Q 60 53 30 47 Z" fill="#968E7E" opacity="0.5"/>
+ <!-- oyster pile (natural shell) -->
+ <g id="oysterPile">
+  <g class="pileBack">
+   <ellipse cx="52" cy="50" rx="5.4" ry="2.6" fill="#a99e8a" transform="rotate(-14 52 50)"/>
+   <ellipse cx="60" cy="48" rx="5.8" ry="2.7" fill="#c8bda8" transform="rotate(6 60 48)"/>
+   <ellipse cx="68" cy="50" rx="5.2" ry="2.6" fill="#b7ac97" transform="rotate(-9 68 50)"/>
+   <ellipse cx="56" cy="52" rx="5.2" ry="2.6" fill="#beb39e" transform="rotate(10 56 52)"/>
+   <ellipse cx="64" cy="52" rx="5" ry="2.5" fill="#a99e8a" transform="rotate(-6 64 52)"/>
+   <path d="M 55 49 Q 60 47.6 65 49" fill="none" stroke="#ece3d0" stroke-width="0.7" opacity="0.7"/>
+  </g>
+  <g class="pileMid">
+   <ellipse cx="46" cy="56" rx="5.8" ry="2.9" fill="#b7ac97" transform="rotate(-18 46 56)"/>
+   <ellipse cx="54" cy="54" rx="6.2" ry="3" fill="#d3c9b4" transform="rotate(7 54 54)"/>
+   <ellipse cx="63" cy="54" rx="6" ry="2.9" fill="#c8bda8" transform="rotate(-5 63 54)"/>
+   <ellipse cx="71" cy="56" rx="5.4" ry="2.7" fill="#a99e8a" transform="rotate(15 71 56)"/>
+   <ellipse cx="59" cy="57" rx="6.2" ry="3" fill="#cabfa9" transform="rotate(3 59 57)"/>
+   <ellipse cx="50" cy="58" rx="5" ry="2.5" fill="#b0a591" transform="rotate(-22 50 58)"/>
+   <path d="M 50 54.6 Q 56 53 62 54.4" fill="none" stroke="#ece3d0" stroke-width="0.8" opacity="0.65"/>
+   <path d="M 50 55.4 Q 55 56.8 60 55.4" fill="none" stroke="#6f6757" stroke-width="0.5" opacity="0.4"/>
+  </g>
+  <g class="pileFront">
+   <ellipse cx="44" cy="62" rx="5.4" ry="2.9" fill="#cabfa9" transform="rotate(-22 44 62)"/>
+   <ellipse cx="51" cy="60" rx="6.4" ry="3.2" fill="#d3c9b4" transform="rotate(8 51 60)"/>
+   <ellipse cx="60" cy="59" rx="6.7" ry="3.3" fill="#e0d6c0" transform="rotate(-4 60 59)"/>
+   <ellipse cx="69" cy="60" rx="6.2" ry="3.1" fill="#cabfa9" transform="rotate(14 69 60)"/>
+   <ellipse cx="76" cy="62" rx="5.2" ry="2.8" fill="#b7ac97" transform="rotate(-16 76 62)"/>
+   <ellipse cx="48" cy="64" rx="4.6" ry="2.3" fill="#beb39e" transform="rotate(-12 48 64)"/>
+   <ellipse cx="56" cy="65" rx="4.7" ry="2.4" fill="#d3c9b4" transform="rotate(8 56 65)"/>
+   <ellipse cx="64" cy="65" rx="4.7" ry="2.4" fill="#c8bda8" transform="rotate(-6 64 65)"/>
+   <ellipse cx="72" cy="64" rx="4.2" ry="2.2" fill="#a99e8a" transform="rotate(18 72 64)"/>
+   <path d="M 46 61 Q 51 59.4 56 60.6" fill="none" stroke="#efe6d2" stroke-width="0.9" opacity="0.75"/>
+   <path d="M 60 58.6 Q 65 57.8 70 59.4" fill="none" stroke="#efe6d2" stroke-width="0.8" opacity="0.6"/>
+   <path d="M 48 60.6 Q 51 62 54 60.6" fill="none" stroke="#6f6757" stroke-width="0.5" opacity="0.45"/>
+   <path d="M 40 65 Q 60 67.4 80 65" fill="none" stroke="#6f6757" stroke-width="0.6" opacity="0.32"/>
+  </g>
+ </g>
+ <!-- front rim lip crosses in front of the pile base -->
+ <path d="M 24 49 Q 60 60 96 49" fill="none" stroke="#EFEDE6" stroke-width="1.4" opacity="0.85"/>
+</svg>

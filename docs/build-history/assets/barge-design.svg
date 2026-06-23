@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpatMap — Barge Illustration (LOADED STATE)
+  viewBox: 0 0 120 110
+  Theme: dark teal ocean (#0e2d3a bg), amber accent (#c88530)
+  Palette:
+    Hull:      #3a6e5a (weathered green-grey hull)
+    Hull dark: #2a4e3e (shadow underside)
+    Deck:      #4a7a5a (deck boards)
+    Wood:      #6b4a2a (wood plank warm tone)
+    Water:     #0d3a4a / #1a5068 (ocean water)
+    Wake:      #1e6878 (wake highlight)
+    Skin:      #c4956a (fisherman skin)
+    Clothing:  #4a6a8a (oilskin slicker blue-grey)
+    Hat:       #d4a44a (amber/straw hat)
+    Oysters:   #8a9a7a (shells — pearlescent grey-green)
+    Shell hi:  #b4c4a4 (shell highlight)
+    Bag mesh:  #5a7a5a (harvest mesh bags)
+    Outline:   #c8e8d8 (light outlines on dark bg)
+    Accent:    #c88530 (amber accent — ropes, details)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 110" width="120" height="110">
+
+  <!-- ═══════════════════════════════════════
+       WATER & WAKE
+       ═══════════════════════════════════════ -->
+
+  <!-- Deep water background -->
+  <ellipse cx="60" cy="90" rx="58" ry="14" fill="#0a2830" opacity="0.9"/>
+
+  <!-- Water surface — main body -->
+  <path d="M 4 84 Q 30 80 60 82 Q 90 84 116 80 L 116 96 Q 90 100 60 98 Q 30 96 4 100 Z"
+        fill="#0d3a4a"/>
+
+  <!-- Water highlight ripple layer -->
+  <path d="M 8 86 Q 35 83 60 85 Q 85 87 112 83"
+        fill="none" stroke="#1a5068" stroke-width="1.2" opacity="0.7"/>
+  <path d="M 12 89 Q 40 86 60 88 Q 80 90 108 87"
+        fill="none" stroke="#1e6878" stroke-width="0.8" opacity="0.5"/>
+
+  <!-- Wake lines left of hull -->
+  <path d="M 10 87 Q 5 90 2 95" fill="none" stroke="#1e6878" stroke-width="1.0" stroke-linecap="round" opacity="0.6"/>
+  <path d="M 14 89 Q 8 93 5 98" fill="none" stroke="#1a5068" stroke-width="0.7" stroke-linecap="round" opacity="0.4"/>
+
+  <!-- Wake lines right of hull -->
+  <path d="M 110 87 Q 115 90 118 95" fill="none" stroke="#1e6878" stroke-width="1.0" stroke-linecap="round" opacity="0.6"/>
+  <path d="M 106 89 Q 112 93 115 98" fill="none" stroke="#1a5068" stroke-width="0.7" stroke-linecap="round" opacity="0.4"/>
+
+  <!-- ═══════════════════════════════════════
+       HULL (flat-bottomed Louisiana barge)
+       ═══════════════════════════════════════ -->
+
+  <!-- Hull underside / shadow -->
+  <path d="M 10 84 L 14 88 L 106 88 L 110 84 Z"
+        fill="#1a3a28"/>
+
+  <!-- Hull body — main shape, slightly raked bow/stern -->
+  <path d="M 8 72 L 12 84 L 108 84 L 112 72 Z"
+        fill="#2d5a42"/>
+
+  <!-- Hull planks (subtle horizontal lines) -->
+  <line x1="10" y1="75" x2="110" y2="75" stroke="#254a38" stroke-width="0.6" opacity="0.6"/>
+  <line x1="11" y1="78" x2="109" y2="78" stroke="#254a38" stroke-width="0.6" opacity="0.6"/>
+  <line x1="12" y1="81" x2="108" y2="81" stroke="#254a38" stroke-width="0.6" opacity="0.6"/>
+
+  <!-- Hull outer outline -->
+  <path d="M 8 72 L 12 84 L 108 84 L 112 72 Z"
+        fill="none" stroke="#7ac8a8" stroke-width="1.0" opacity="0.5"/>
+
+  <!-- Bow cap (port — left) -->
+  <path d="M 8 72 L 6 76 L 10 80 L 12 84 L 10 84 L 6 78 L 4 74 Z"
+        fill="#3a6e52"/>
+
+  <!-- Stern cap (starboard — right) -->
+  <path d="M 112 72 L 114 76 L 110 80 L 108 84 L 110 84 L 114 78 L 116 74 Z"
+        fill="#3a6e52"/>
+
+  <!-- ═══════════════════════════════════════
+       DECK
+       ═══════════════════════════════════════ -->
+
+  <!-- Deck surface -->
+  <rect x="10" y="65" width="100" height="8" rx="1" fill="#3a6040"/>
+
+  <!-- Deck planks -->
+  <line x1="10" y1="67.5" x2="110" y2="67.5" stroke="#2a4a30" stroke-width="0.5" opacity="0.7"/>
+  <line x1="10" y1="70.0" x2="110" y2="70.0" stroke="#2a4a30" stroke-width="0.5" opacity="0.7"/>
+
+  <!-- Deck rail (gunwale) — top edge of hull -->
+  <rect x="9" y="64" width="102" height="2" rx="1" fill="#4a7a56"/>
+  <line x1="9" y1="65" x2="111" y2="65" stroke="#8ad4a8" stroke-width="0.6" opacity="0.4"/>
+
+  <!-- Deck cleats (two small rope tie-offs) -->
+  <rect x="16" y="63.5" width="5" height="1.5" rx="0.7" fill="#c88530"/>
+  <rect x="99" y="63.5" width="5" height="1.5" rx="0.7" fill="#c88530"/>
+
+  <!-- Rope coil on port cleat -->
+  <path d="M 17 63 Q 19 61 21 63 Q 19 61.5 17 63"
+        fill="none" stroke="#c88530" stroke-width="0.8" opacity="0.8"/>
+
+  <!-- ═══════════════════════════════════════
+       OYSTER PILE (center of barge)
+       Heap of harvested shells + mesh bags
+       ═══════════════════════════════════════ -->
+
+  <!-- Mesh harvest bags — base layer, behind shells -->
+  <ellipse cx="60" cy="63" rx="14" ry="5" fill="#4a6a48" opacity="0.9"/>
+  <!-- Bag mesh texture lines -->
+  <line x1="48" y1="60" x2="52" y2="66" stroke="#3a5538" stroke-width="0.5" opacity="0.6"/>
+  <line x1="53" y1="59" x2="56" y2="66" stroke="#3a5538" stroke-width="0.5" opacity="0.6"/>
+  <line x1="58" y1="58.5" x2="60" y2="66" stroke="#3a5538" stroke-width="0.5" opacity="0.6"/>
+  <line x1="63" y1="59" x2="64" y2="66" stroke="#3a5538" stroke-width="0.5" opacity="0.6"/>
+  <line x1="68" y1="60" x2="68" y2="65" stroke="#3a5538" stroke-width="0.5" opacity="0.6"/>
+  <line x1="72" y1="61" x2="70" y2="65" stroke="#3a5538" stroke-width="0.5" opacity="0.6"/>
+  <!-- horizontal mesh cross lines -->
+  <path d="M 48 61 Q 60 59 72 61" fill="none" stroke="#3a5538" stroke-width="0.4" opacity="0.5"/>
+  <path d="M 47 63 Q 60 61.5 73 63" fill="none" stroke="#3a5538" stroke-width="0.4" opacity="0.5"/>
+
+  <!-- Oyster shell pile — main mound shape -->
+  <ellipse cx="60" cy="58" rx="16" ry="8" fill="#6a8060"/>
+
+  <!-- Individual oyster shells — irregular, overlapping heap -->
+  <!-- Back row shells (smaller, more muted) -->
+  <ellipse cx="50" cy="56" rx="5" ry="2.5" fill="#7a9070" transform="rotate(-15 50 56)"/>
+  <ellipse cx="57" cy="53" rx="5.5" ry="2.2" fill="#8aa080" transform="rotate(5 57 53)"/>
+  <ellipse cx="65" cy="54" rx="5" ry="2.3" fill="#7a9070" transform="rotate(-8 65 54)"/>
+  <ellipse cx="71" cy="56" rx="4.5" ry="2" fill="#6a8060" transform="rotate(12 71 56)"/>
+
+  <!-- Mid row shells -->
+  <ellipse cx="48" cy="59" rx="5.5" ry="2.8" fill="#8aaa7a" transform="rotate(-20 48 59)"/>
+  <ellipse cx="54" cy="57" rx="6" ry="2.5" fill="#9ab88a" transform="rotate(8 54 57)"/>
+  <ellipse cx="61" cy="56" rx="5.5" ry="2.3" fill="#8aaa7a" transform="rotate(-5 61 56)"/>
+  <ellipse cx="68" cy="57.5" rx="5" ry="2.5" fill="#9ab88a" transform="rotate(18 68 57.5)"/>
+  <ellipse cx="73" cy="59" rx="4.5" ry="2.2" fill="#7a9a6a" transform="rotate(-10 73 59)"/>
+
+  <!-- Front row shells (larger, brighter — closest viewer) -->
+  <ellipse cx="46" cy="62" rx="5" ry="2.5" fill="#aac898" transform="rotate(-25 46 62)"/>
+  <ellipse cx="52" cy="61" rx="6.5" ry="2.8" fill="#b4d0a0" transform="rotate(10 52 61)"/>
+  <ellipse cx="60" cy="60" rx="6" ry="2.6" fill="#c4d8b0" transform="rotate(-3 60 60)"/>
+  <ellipse cx="67" cy="61" rx="6" ry="2.7" fill="#b4d0a0" transform="rotate(15 67 61)"/>
+  <ellipse cx="74" cy="62" rx="4.8" ry="2.4" fill="#aac898" transform="rotate(-18 74 62)"/>
+
+  <!-- Shell highlights (pearlescent sheen) -->
+  <path d="M 50 59.5 Q 54 58 58 59" fill="none" stroke="#d4e8c4" stroke-width="0.7" opacity="0.6"/>
+  <path d="M 57 56.5 Q 61 55 65 56" fill="none" stroke="#d4e8c4" stroke-width="0.6" opacity="0.5"/>
+  <path d="M 45 61 Q 50 59.5 54 61" fill="none" stroke="#e0eed4" stroke-width="0.8" opacity="0.5"/>
+
+  <!-- Shell pile outline / shadow -->
+  <ellipse cx="60" cy="60" rx="16.5" ry="7.5" fill="none" stroke="#3a5030" stroke-width="0.8" opacity="0.5"/>
+
+  <!-- Rope/net accent over pile -->
+  <path d="M 46 64 Q 60 62 74 64" fill="none" stroke="#c88530" stroke-width="0.8" stroke-dasharray="2,1.5" opacity="0.7"/>
+
+  <!-- Scattered individual shells at pile base -->
+  <ellipse cx="44" cy="65" rx="3" ry="1.5" fill="#9ab08a" transform="rotate(-30 44 65)"/>
+  <ellipse cx="76" cy="65" rx="3" ry="1.5" fill="#8aa07a" transform="rotate(20 76 65)"/>
+  <ellipse cx="56" cy="66" rx="2.8" ry="1.3" fill="#b0c89a" transform="rotate(10 56 66)"/>
+  <ellipse cx="63" cy="66.5" rx="2.5" ry="1.2" fill="#9ab08a" transform="rotate(-15 63 66.5)"/>
+
+  <!-- ═══════════════════════════════════════
+       BASKET / TOTE on left side of pile
+       ═══════════════════════════════════════ -->
+
+  <!-- Bushel basket (wire/plastic harvest basket) -->
+  <path d="M 35 62 L 38 68 L 45 68 L 48 62 Z" fill="#3a5040"/>
+  <!-- basket weave lines -->
+  <line x1="36" y1="64" x2="47" y2="64" stroke="#2a3a30" stroke-width="0.5" opacity="0.7"/>
+  <line x1="37" y1="66" x2="46" y2="66" stroke="#2a3a30" stroke-width="0.5" opacity="0.7"/>
+  <line x1="38.5" y1="62.5" x2="37" y2="68" stroke="#2a3a30" stroke-width="0.4" opacity="0.5"/>
+  <line x1="42" y1="62" x2="41" y2="68" stroke="#2a3a30" stroke-width="0.4" opacity="0.5"/>
+  <line x1="45.5" y1="62.5" x2="44.5" y2="68" stroke="#2a3a30" stroke-width="0.4" opacity="0.5"/>
+  <!-- basket rim -->
+  <path d="M 35 62 Q 41.5 60.5 48 62" fill="none" stroke="#5a7060" stroke-width="1.2"/>
+  <!-- basket outline -->
+  <path d="M 35 62 L 38 68 L 45 68 L 48 62" fill="none" stroke="#6a9878" stroke-width="0.7" opacity="0.6"/>
+  <!-- oysters spilling from basket top -->
+  <ellipse cx="39" cy="61.5" rx="3.5" ry="1.5" fill="#9ab890" transform="rotate(-10 39 61.5)"/>
+  <ellipse cx="44" cy="61" rx="3" ry="1.4" fill="#aac898" transform="rotate(12 44 61)"/>
+
+  <!-- ═══════════════════════════════════════
+       FISHERMAN #1 — LEFT SIDE
+       Leaning forward, reaching / tossing oysters
+       Oilskin slicker, baseball cap
+       ═══════════════════════════════════════ -->
+
+  <!-- Body / slicker torso -->
+  <path d="M 18 48 Q 16 52 15 60 Q 16 64 22 65 Q 26 65 28 63 Q 30 60 30 56 Q 29 50 26 47 Z"
+        fill="#3a5a7a"/>
+
+  <!-- Slicker highlight -->
+  <path d="M 20 49 Q 19 54 19 60" fill="none" stroke="#4a7a9a" stroke-width="1.0" opacity="0.5"/>
+
+  <!-- Legs (trousers, dark) -->
+  <path d="M 18 63 Q 16 68 15 73 L 18 73 Q 19 68 21 64 Z" fill="#2a3a4a"/>
+  <path d="M 26 63 Q 28 68 30 73 L 27 73 Q 26 68 24 64 Z" fill="#2a3a4a"/>
+
+  <!-- Boots -->
+  <ellipse cx="16" cy="73" rx="3" ry="1.5" fill="#1a2530"/>
+  <ellipse cx="29" cy="73" rx="3" ry="1.5" fill="#1a2530"/>
+
+  <!-- Left arm — reaching out toward pile -->
+  <path d="M 24 52 Q 30 50 35 55 Q 34 57 33 57 Q 29 53 24 54 Z"
+        fill="#3a5a7a"/>
+  <!-- Gloved hand reaching -->
+  <circle cx="35" cy="56" r="2.2" fill="#c4956a"/>
+  <!-- Shell in hand -->
+  <ellipse cx="37" cy="55" rx="2.5" ry="1.2" fill="#b4d0a0" transform="rotate(-20 37 55)"/>
+
+  <!-- Right arm — braced on gunwale -->
+  <path d="M 19 55 Q 14 58 12 62 Q 13 63 14 63 Q 16 60 20 57 Z"
+        fill="#3a5a7a"/>
+  <circle cx="12.5" cy="62.5" r="2" fill="#c4956a"/>
+
+  <!-- Neck -->
+  <rect x="20" y="43" width="5" height="5" rx="2" fill="#c4956a"/>
+
+  <!-- Head -->
+  <circle cx="22.5" cy="40" r="5.5" fill="#c4956a"/>
+
+  <!-- Face details — looking toward pile (turned slightly right) -->
+  <!-- Eye -->
+  <circle cx="24" cy="39" r="0.8" fill="#2a1a0a"/>
+  <circle cx="24.4" cy="38.7" r="0.3" fill="#fff" opacity="0.6"/>
+  <!-- Brow -->
+  <path d="M 23 37.5 Q 24.5 37 26 37.8" fill="none" stroke="#5a3a20" stroke-width="0.7"/>
+  <!-- Nose hint -->
+  <path d="M 24.5 39.5 L 25 40.5" fill="none" stroke="#b07848" stroke-width="0.7" stroke-linecap="round"/>
+  <!-- Mouth (slight grin) -->
+  <path d="M 22.5 41.5 Q 24 42.5 25.5 41.5" fill="none" stroke="#8a5830" stroke-width="0.7"/>
+
+  <!-- Baseball cap -->
+  <path d="M 17 39 Q 17 34 22.5 34 Q 28 34 28 39" fill="#c88530"/>
+  <path d="M 17 39 Q 22.5 37 28 39" fill="none" stroke="#a06820" stroke-width="0.6"/>
+  <!-- Cap brim — forward facing -->
+  <path d="M 16 39 Q 22 40.5 28 39 L 29 38.5 Q 22.5 40 16 38.5 Z"
+        fill="#b07820"/>
+  <!-- Cap button -->
+  <circle cx="22.5" cy="34.5" r="0.8" fill="#a06820"/>
+
+  <!-- ═══════════════════════════════════════
+       FISHERMAN #2 — RIGHT SIDE
+       Standing upright, one hand on hip,
+       watching the load — oilskin + wide-brim hat
+       ═══════════════════════════════════════ -->
+
+  <!-- Body / slicker torso (slightly different shade) -->
+  <path d="M 84 50 Q 82 54 83 62 Q 84 66 90 66 Q 95 66 97 63 Q 99 58 97 52 Q 94 48 90 48 Z"
+        fill="#4a6a5a"/>
+
+  <!-- Slicker highlight -->
+  <path d="M 87 51 Q 86 56 87 62" fill="none" stroke="#5a8a70" stroke-width="1.0" opacity="0.5"/>
+
+  <!-- Legs -->
+  <path d="M 85 64 Q 84 69 83 73 L 86 73 Q 87 69 88 65 Z" fill="#2a3a3a"/>
+  <path d="M 92 64 Q 93 69 94 73 L 91 73 Q 90 69 90 65 Z" fill="#2a3a3a"/>
+
+  <!-- Boots -->
+  <ellipse cx="84" cy="73" rx="3" ry="1.5" fill="#1a2530"/>
+  <ellipse cx="93" cy="73" rx="3" ry="1.5" fill="#1a2530"/>
+
+  <!-- Left arm — hand on hip (akimbo) -->
+  <path d="M 86 54 Q 82 58 82 62 Q 83 63 84 63 Q 85 59 87 56 Z"
+        fill="#4a6a5a"/>
+  <circle cx="83" cy="63" r="2" fill="#c4956a"/>
+
+  <!-- Right arm — extended out, pointing or gesturing -->
+  <path d="M 94 53 Q 100 51 105 55 Q 104 57 103 57 Q 99 54 94 55 Z"
+        fill="#4a6a5a"/>
+  <circle cx="105" cy="56" r="2.2" fill="#c4956a"/>
+
+  <!-- Neck -->
+  <rect x="87" y="45" width="5" height="5" rx="2" fill="#c4956a"/>
+
+  <!-- Head -->
+  <circle cx="89.5" cy="42" r="5.5" fill="#c4956a"/>
+
+  <!-- Face details — looking left toward pile -->
+  <!-- Eye -->
+  <circle cx="87.5" cy="41" r="0.8" fill="#2a1a0a"/>
+  <circle cx="87.1" cy="40.7" r="0.3" fill="#fff" opacity="0.6"/>
+  <!-- Brow (raised — watching pile grow) -->
+  <path d="M 86 39.5 Q 87.5 38.8 89 39.5" fill="none" stroke="#5a3a20" stroke-width="0.7"/>
+  <!-- Nose -->
+  <path d="M 88 41.5 L 87.5 42.5" fill="none" stroke="#b07848" stroke-width="0.7" stroke-linecap="round"/>
+  <!-- Mouth (neutral, focused) -->
+  <path d="M 87.5 43.5 Q 89 44 90.5 43.5" fill="none" stroke="#8a5830" stroke-width="0.6"/>
+
+  <!-- Wide-brim oilskin hat (sou'wester style) -->
+  <!-- Crown -->
+  <path d="M 84 41 Q 84 35.5 89.5 35.5 Q 95 35.5 95 41" fill="#8a9a3a"/>
+  <!-- Wide brim (front and back) -->
+  <ellipse cx="89.5" cy="41" rx="8" ry="2.5" fill="#9aaa4a"/>
+  <!-- Brim underside (shadow) -->
+  <path d="M 82 42 Q 89.5 44 97 42 L 97 41 Q 89.5 43 82 41 Z" fill="#6a7a2a" opacity="0.7"/>
+  <!-- Hat sheen -->
+  <path d="M 85 37 Q 89.5 36 94 37.5" fill="none" stroke="#c4cc7a" stroke-width="0.8" opacity="0.5"/>
+
+  <!-- ═══════════════════════════════════════
+       BARGE DETAILS — poles, rope, accessories
+       ═══════════════════════════════════════ -->
+
+  <!-- Boat hook / push pole leaning on stern -->
+  <line x1="104" y1="35" x2="108" y2="65" stroke="#8b6a3a" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- Pole hook -->
+  <path d="M 103.5 35.5 Q 101 33 102 31 Q 104 33 103.5 35.5" fill="none" stroke="#c88530" stroke-width="1.0"/>
+
+  <!-- Rope line (dock line coiled at stern) -->
+  <path d="M 100 65 Q 105 63 108 64 Q 110 65 109 67 Q 107 68 105 67 Q 103 66 100 65"
+        fill="none" stroke="#c88530" stroke-width="1.0" opacity="0.8"/>
+  <path d="M 103 66 Q 106 65 108 66 Q 106 67 103 66"
+        fill="none" stroke="#a06820" stroke-width="0.7" opacity="0.6"/>
+
+  <!-- Small tally board / marker on bow -->
+  <rect x="12" y="56" width="6" height="4" rx="0.5" fill="#4a3020"/>
+  <line x1="13" y1="57.5" x2="17" y2="57.5" stroke="#c8a860" stroke-width="0.5"/>
+  <line x1="13" y1="59" x2="17" y2="59" stroke="#c8a860" stroke-width="0.5"/>
+
+  <!-- Water reflection under hull (subtle) -->
+  <path d="M 14 84 Q 40 86 60 85 Q 80 84 106 86"
+        fill="none" stroke="#1e6878" stroke-width="0.5" opacity="0.3"/>
+  <path d="M 16 87 Q 40 89 60 88 Q 80 87 104 89"
+        fill="none" stroke="#1e6878" stroke-width="0.4" opacity="0.2"/>
+
+  <!-- ═══════════════════════════════════════
+       WATERLINE FOAM / HULL REFLECTION
+       ═══════════════════════════════════════ -->
+
+  <!-- Foam at waterline (port side) -->
+  <path d="M 8 82 Q 10 80 12 82 Q 10 83 8 82" fill="#3a8898" opacity="0.5"/>
+  <path d="M 5 85 Q 8 83 10 85" fill="none" stroke="#4a9aaa" stroke-width="0.6" opacity="0.4"/>
+
+  <!-- Foam at waterline (starboard side) -->
+  <path d="M 112 82 Q 110 80 108 82 Q 110 83 112 82" fill="#3a8898" opacity="0.5"/>
+  <path d="M 115 85 Q 112 83 110 85" fill="none" stroke="#4a9aaa" stroke-width="0.6" opacity="0.4"/>
+
+</svg>
