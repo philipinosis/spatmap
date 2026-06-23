@@ -837,6 +837,34 @@ label{ display:block; font:700 12px/1 var(--font-ui); letter-spacing:.06em; text
     background:#241B10; border:1px solid rgba(216,155,67,0.30); }
   .harvestHero svg, .harvestHeroSvg{ display:block; width:100%; height:auto; }
 
+/* ── BATCH-SPLIT: sorted-batch chips + the "split the remainder" editor (tub palette = --barge-amber) ── */
+.batchChip{ border-color:var(--barge-amber); color:var(--ink); flex-direction:column; align-items:flex-start;
+  gap:2px; padding:7px 15px; min-height:var(--tap-min); justify-content:center; }
+.batchChip .bc-name{ font:700 14px/1.1 var(--font-ui); color:var(--barge-amber-ink); }
+.batchChip .bc-sub{ font:600 11px/1.1 var(--font-num); font-variant-numeric:tabular-nums; color:var(--ink-2); }
+.batchChip.on{ background:rgba(216,155,67,0.16); border-color:var(--barge-amber); }
+.batchChip.on .bc-name{ color:var(--barge-amber-ink); }
+.chip.add.batchAdd{ color:var(--barge-amber-ink); border-color:var(--barge-amber); }
+
+.splitEditor{ margin-top:10px; border:1px solid var(--hair-strong); border-radius:var(--radius-sm);
+  background:var(--surface-sink); padding:12px 12px 14px; }
+.splitRow{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px; padding:10px 0; border-top:1px solid var(--hair); }
+.splitRow:first-child{ border-top:0; padding-top:2px; }
+.splitRow .sr-cell{ display:flex; flex-direction:column; flex:1 1 88px; min-width:0; }
+.splitRow .sr-cap{ font:700 10px/1 var(--font-ui); letter-spacing:.06em; text-transform:uppercase;
+  color:var(--ink-3); margin:0 0 4px 2px; }
+/* the cells (above) own the horizontal share of the row; inputs just fill their cell at natural height.
+   (flex sizing on the inputs themselves was being read as HEIGHT inside the column cell — giant boxes.) */
+.splitRow .sr-count, .splitRow .sr-size, .splitRow .sr-grade{ flex:0 0 auto; width:100%; min-width:0; box-sizing:border-box; }
+.splitRow .sr-label{ flex:1 1 100%; box-sizing:border-box; }
+.splitRow .sr-x{ flex:0 0 var(--tap-min); width:var(--tap-min); min-height:var(--tap-min); border-radius:var(--radius-sm);
+  border:1.5px solid var(--hair-strong); background:var(--surface); color:var(--danger);
+  font:700 20px/1 var(--font-ui); display:flex; align-items:center; justify-content:center; align-self:flex-end; }
+.splitRow .sr-x:active{ background:var(--surface); border-color:var(--danger); }
+.splitRemain{ margin-top:12px; font:700 14px/1.2 var(--font-num); font-variant-numeric:tabular-nums;
+  color:var(--barge-amber-ink); }
+.splitRemain.over{ color:var(--danger); }
+
 
 /* ╔══ DARK DASHBOARD CSS (BIT B/C/D, spliced) ══╗ */
 /* ───────────────────────────────────────────────────────────────────
@@ -1509,6 +1537,20 @@ function migrateFarm(f){
   if (!('ploidy' in f.barge)) f.barge.ploidy = null;                        // B6: ploidy pooled from pulled sources
   if (!('hatchery' in f.barge)) f.barge.hatchery = '';                      // B6: hatchery pooled from pulled sources
   if (!('origin' in f.barge)) f.barge.origin = null;
+  // BATCH-SPLIT: additive splits[] (sub-batches carved off the remainder). Coerce defensively.
+  if (!Array.isArray(f.barge.splits)) f.barge.splits = [];
+  f.barge.splits = f.barge.splits.filter(function(s){ return s && typeof s === 'object'; }).map(function(s){
+    if (!s.id) s.id = uid();
+    s.count  = (typeof s.count  === 'number' && isFinite(s.count))  ? s.count  : null;
+    s.sizeMm = (typeof s.sizeMm === 'number' && isFinite(s.sizeMm)) ? s.sizeMm : null;
+    s.grade  = (typeof s.grade  === 'string') ? s.grade  : null;
+    s.label  = (typeof s.label  === 'string') ? s.label  : null;
+    s.ploidy   = (typeof s.ploidy   === 'string') ? s.ploidy   : null;
+    s.hatchery = (typeof s.hatchery === 'string') ? s.hatchery : '';
+    s.origin = (s.origin && typeof s.origin === 'object') ? s.origin : null;
+    if (!('parentBatchId' in s)) s.parentBatchId = null;
+    return s;
+  });
 
   // LINES — flatten legacy areas[].sections[]/lines into flat f.lines; drop section/vert/area
   var flatLines = [];
@@ -1602,7 +1644,35 @@ function backfillSeedCohorts(f){
   }); });
 }
 
-function freshBarge(){ return { state:'empty', batchId:null, count:null, sizeMm:null, grade:null, ploidy:null, hatchery:'', origin:null, events:[] }; }
+function freshBarge(){ return { state:'empty', batchId:null, count:null, sizeMm:null, grade:null, ploidy:null, hatchery:'', origin:null, events:[], splits:[] }; }
+
+// BATCH-SPLIT helpers (additive). A SPLIT is a self-contained sub-batch snapshot living on barge.splits[],
+// so it survives the remainder pile draining. The legacy single-pile fields (state/count/sizeMm/…) are now
+// the UNSORTED REMAINDER pile.
+function bargeHasContent(b){
+  return !!b && ((b.state === 'pile' && (b.count == null || b.count > 0)) || (Array.isArray(b.splits) && b.splits.length > 0));
+}
+// total oysters across remainder + all splits; null if ANY relevant count is null (uncounted)
+function bargeTotalCount(b){
+  if (!b) return null;
+  var total = 0;
+  if (b.state === 'pile'){
+    if (b.count == null) return null;
+    total += b.count;
+  }
+  if (Array.isArray(b.splits)){
+    for (var i=0; i<b.splits.length; i++){
+      if (b.splits[i].count == null) return null;
+      total += b.splits[i].count;
+    }
+  }
+  return total;
+}
+function bargeSplitById(b, id){
+  if (!b || !Array.isArray(b.splits) || !id) return null;
+  for (var i=0; i<b.splits.length; i++) if (b.splits[i].id === id) return b.splits[i];
+  return null;
+}
 
 /* ─────────────────────────────────────────────────────────────────
    LAYOUT EDITOR — DATA FOUNDATION (LAYOUT §2 / §6)
@@ -2204,7 +2274,7 @@ function latestSize(cage){
   var best = null, bestMs = -Infinity;
   for (var i=0; i<cage.events.length; i++){
     var ev = cage.events[i];
-    if ((ev.type === 'growth' || ev.type === 'stocked') && typeof ev.sizeMm === 'number'){
+    if ((ev.type === 'growth' || ev.type === 'stocked' || ev.type === 'filled') && typeof ev.sizeMm === 'number'){
       var ms = isoToMs(ev.date);
       if (ms >= bestMs){ bestMs = ms; best = ev.sizeMm; }
     }
@@ -2881,7 +2951,9 @@ function bargeOriginText(barge){
 // renderBarge(farm) — art + dynamic pile + count pill + origin caption; tap → Harvest sheet
 function renderBarge(farm){
   var barge = farm.barge;
-  var loaded = barge.state === 'pile';
+  // BATCH-SPLIT: "loaded" now means the tub holds ANYTHING — a remainder pile OR sorted batches.
+  var loaded = bargeHasContent(barge);
+  var nSplits = (Array.isArray(barge.splits) ? barge.splits.length : 0);
   // WP6: the wrap is a column; the caption block is appended FIRST and the hull SECOND, so the
   // count/origin/"Tub empty" pill docks ABOVE the hull and never collides with content below it.
   var wrap = h('div', { class:'barge ' + (loaded ? 'loaded' : 'empty'),
@@ -2889,10 +2961,15 @@ function renderBarge(farm){
 
   // count pill / caption — above the hull
   if (loaded){
-    var pillTxt = (barge.count == null) ? 'uncounted' : ('~' + fmtCompact(barge.count));
+    var totalCount = bargeTotalCount(barge);
+    var pillTxt = (totalCount == null) ? 'uncounted' : ('~' + fmtCompact(totalCount));
     wrap.appendChild(h('div', { class:'barge-pill num' }, pillTxt));
-    var origin = bargeOriginText(barge);
-    if (origin) wrap.appendChild(h('div', { class:'barge-origin' }, origin));
+    if (nSplits){
+      wrap.appendChild(h('div', { class:'barge-origin' }, nSplits + (nSplits === 1 ? ' batch sorted' : ' batches sorted')));
+    } else {
+      var origin = bargeOriginText(barge);
+      if (origin) wrap.appendChild(h('div', { class:'barge-origin' }, origin));
+    }
   } else {
     wrap.appendChild(h('div', { class:'barge-empty-cap' }, 'Tub empty'));
   }
@@ -2902,7 +2979,7 @@ function renderBarge(farm){
 
   // drive the pile after it mounts (next frame so the SVG <g> exists in DOM)
   if (loaded){
-    var lvl = pileLevel(barge.count);
+    var lvl = pileLevel(bargeTotalCount(barge));
     // apply from the LIVE DOM next frame — a rapid re-render can detach the captured `wrap` (M1)
     requestAnimationFrame(function(){ applyPileLevel(document.querySelector('.barge'), lvl); });
   }
@@ -3425,14 +3502,20 @@ function editorBottomInset(){
   } catch (e) { safe = 0; }
   return 120 + safe;                                       // ≈ bar bottom-offset + bar height + handle slack + margin
 }
-function fitToContent(farm, target){
+// fitViewFor(farm, [target]) — PURE compute of the camera {k,tx,ty} that frames `target` ({x,y,w,h}
+// world bbox) or, when target is omitted, all plots. Shared by the INSTANT fit (fitToContent) and the
+// ANIMATED fit (zoomToShape) so a tap-zoom lands EXACTLY where a fit-all / double-tap would. Returns null
+// if the canvas isn't measurable. `.whole` flags the all-plots fit (callers store it as LAYOUT.fitView);
+// `.empty` flags the no-plots fallback (don't store that as fitView). See fitToContent for the Bug B2/B4
+// rationale (the math is verbatim — only the apply step moved out).
+function fitViewFor(farm, target){
   refreshSvgRect();
-  var r = LAYOUT.svgRect; if (!r || !r.width || !r.height) return;
+  var r = LAYOUT.svgRect; if (!r || !r.width || !r.height) return null;
   var B;
   if (target){ B = { x:target.x, y:target.y, w:target.w, h:target.h }; }
   else {
     B = layoutContentBounds(farm);
-    if (!B){ LAYOUT.view = { k:1, tx:r.width/2 - 500, ty:r.height/2 - 500 }; scheduleApplyView(); return; }
+    if (!B) return { k:1, tx:r.width/2 - 500, ty:r.height/2 - 500, whole:true, empty:true };
   }
   // Reserve a bottom band in the EDITOR so content+handles never tuck under the action bar (Bug B2).
   // Fit into the SHRUNK viewport (availH) and center the content within that band (its vertical center
@@ -3442,11 +3525,68 @@ function fitToContent(farm, target){
   var m = Math.max(B.w, B.h) * 0.10 + 20;                  // margin in world units
   var k = clampZoom(Math.min(r.width/(B.w + 2*m), availH/(B.h + 2*m)));
   var cx = B.x + B.w/2, cy = B.y + B.h/2;
-  LAYOUT.view = { k:k, tx:r.width/2 - cx*k, ty:availH/2 - cy*k };
-  // Remember the exact whole-farm fit camera (Bug B4): the resize handler treats "view still equals this"
-  // as "the user hasn't taken over the zoom" → re-fit on resize; once they pan/zoom away, only re-clamp.
-  if (!target) LAYOUT.fitView = { k:LAYOUT.view.k, tx:LAYOUT.view.tx, ty:LAYOUT.view.ty };
+  return { k:k, tx:r.width/2 - cx*k, ty:availH/2 - cy*k, whole:!target, empty:false };
+}
+
+// fitToContent(farm, [target]) — INSTANT fit (behavior verbatim). Remembers the whole-farm fit camera in
+// LAYOUT.fitView (Bug B4): the resize handler treats "view still equals this" as "the user hasn't taken
+// over the zoom" → re-fit on resize; once they pan/zoom away, only re-clamp.
+function fitToContent(farm, target){
+  var v = fitViewFor(farm, target); if (!v) return;
+  LAYOUT.view = { k:v.k, tx:v.tx, ty:v.ty };
+  if (v.whole && !v.empty) LAYOUT.fitView = { k:v.k, tx:v.tx, ty:v.ty };
   scheduleApplyView();
+}
+
+// areaWorldBox(area) — the area's AXIS-ALIGNED world bbox, accounting for area.rot (rotated areas use
+// areaCorners). Feeds zoomToShape so a tap-zoom frames a rotated area without clipping it.
+function areaWorldBox(area){
+  if (!area.rot) return { x:area.x, y:area.y, w:area.w, h:area.h };
+  var c = areaCorners(area);
+  var xs = [c.nw.x, c.ne.x, c.se.x, c.sw.x], ys = [c.nw.y, c.ne.y, c.se.y, c.sw.y];
+  var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+  var minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+  return { x:minX, y:minY, w:maxX - minX, h:maxY - minY };
+}
+
+// animateViewTo(target, dur, done) — tween LAYOUT.view {k,tx,ty} to `target` over `dur` ms with an
+// easeInOutCubic, applying the transform each frame (applyView is cheap — no scene rebuild). On the LAST
+// frame it calls scheduleApplyView() ONCE so the LOD tier-change redraw (cells/strokes for the new tier)
+// fires a single time at rest, not on every animated frame. Honors prefers-reduced-motion (jumps). A new
+// call — or a pointerdown (onDown clears LAYOUT.viewAnim) — supersedes any in-flight tween via the token.
+function animateViewTo(target, dur, done){
+  if (!LAYOUT.world || !target){ if (done) done(); return; }
+  var reduce = false;
+  try { reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e){}
+  if (reduce || !window.requestAnimationFrame){
+    LAYOUT.view = { k:target.k, tx:target.tx, ty:target.ty }; scheduleApplyView(); if (done) done(); return;
+  }
+  var token = (LAYOUT.viewAnim || 0) + 1; LAYOUT.viewAnim = token;
+  var from = { k:LAYOUT.view.k, tx:LAYOUT.view.tx, ty:LAYOUT.view.ty };
+  var nowFn = (window.performance && performance.now) ? function(){ return performance.now(); } : function(){ return Date.now(); };
+  var t0 = nowFn();
+  function step(){
+    if (LAYOUT.viewAnim !== token) return;                 // superseded by a newer tween or a manual gesture
+    var p = Math.min(1, (nowFn() - t0) / dur);
+    var e = (p < 0.5) ? 4*p*p*p : 1 - Math.pow(-2*p + 2, 3) / 2;   // easeInOutCubic
+    LAYOUT.view = { k:from.k + (target.k - from.k) * e,
+                    tx:from.tx + (target.tx - from.tx) * e,
+                    ty:from.ty + (target.ty - from.ty) * e };
+    applyView();
+    if (p < 1){ requestAnimationFrame(step); }
+    else { LAYOUT.viewAnim = 0; scheduleApplyView(); if (done) done(); }
+  }
+  requestAnimationFrame(step);
+}
+
+// zoomToShape(farm, [target], done) — smooth camera move that frames `target` ({x,y,w,h} world bbox) or
+// all plots (target omitted). The progressive tap-to-zoom uses this: tap a plot → frame the plot; tap an
+// area → frame the area; the breadcrumb steps back out. Camera-only — NO history entry (per the nav model:
+// camera state isn't on the back stack; only drillIntoArea/scope changes are). ~260ms.
+function zoomToShape(farm, target, done){
+  var v = fitViewFor(farm, target); if (!v){ if (done) done(); return; }
+  if (v.whole && !v.empty) LAYOUT.fitView = { k:v.k, tx:v.tx, ty:v.ty };
+  animateViewTo({ k:v.k, tx:v.tx, ty:v.ty }, 260, done);
 }
 
 // zoomBy(factor) — step k about the viewport center (the +/− cluster).
@@ -4750,8 +4890,18 @@ function buildLayoutEditor(farm, mode){
   // re-derived on every pan/zoom (cheap, text-only — see updateBreadcrumb, hooked off scheduleApplyView).
   // View mode only (the editor keeps its ‹ Map back chip). The Overview/Work segmented toggle stays too.
   if (isView){
-    var crumb = h('button', { class:'lp-crumb', id:'lpCrumb', type:'button', 'aria-label':'Zoom out to all plots',
-      onclick:function(){ LAYOUT.sel = null; fitToContent(getFarm()); updateBreadcrumb(); } });
+    var crumb = h('button', { class:'lp-crumb', id:'lpCrumb', type:'button', 'aria-label':'Zoom out one level',
+      // Step OUT one level (mirrors the progressive tap-to-zoom IN): area framing → zoom to its plot;
+      // plot framing → zoom to all plots. Animated (zoomToShape), camera-only — no history entry.
+      onclick:function(){
+        var f = getFarm(); if (!f) return;
+        LAYOUT.sel = null;
+        if (isScopedIntoArea(f)){
+          var sp = currentScopePlot(f);
+          if (sp){ zoomToShape(f, sp); return; }
+        }
+        zoomToShape(f);                                    // → all plots
+      } });
     canvasWrap.appendChild(crumb);
     // WP9 #5: first-run "drag to the next plot →" coachmark (reuses the .lp-zoomhint pill look). Hidden
     // by default; updateNeighborCoach shows it once when zoomed into a plot that has a neighbor; the
@@ -4890,6 +5040,38 @@ function isScopedIntoPlot(farm){
   return (onScreenW >= r.width * 0.62) ? p : null;
 }
 
+// currentScopeArea(farm) — the AREA the camera is "in": within the scoped plot, the area whose world box
+// (rotation-aware) best contains the viewport center. Returns { area, box } or null. Used by the
+// progressive tap-to-zoom + the 3-level breadcrumb. Mirrors currentScopePlot at one level deeper.
+function currentScopeArea(farm){
+  var p = currentScopePlot(farm); if (!p) return null;     // already ran refreshSvgRect()
+  var r = LAYOUT.svgRect; if (!r || !r.width) return null;
+  var wc = toWorld(r.width/2, r.height/2);
+  var best = null, bestD = Infinity;
+  (p.areas || []).forEach(function(a){
+    var b = areaWorldBox(a);
+    if (wc.x >= b.x && wc.x <= b.x+b.w && wc.y >= b.y && wc.y <= b.y+b.h){
+      var dx = wc.x - (b.x+b.w/2), dy = wc.y - (b.y+b.h/2), d = dx*dx + dy*dy;
+      if (d < bestD){ bestD = d; best = { area:a, box:b }; }
+    }
+  });
+  return best;
+}
+
+// isScopedIntoArea(farm) — true (returns the area) when the camera is zoomed in to frame ONE area: the
+// level where cage peek + drill-to-work take over from the progressive zoom. Measured by ZOOM LEVEL, not
+// on-screen width: "scoped in" = the current k has reached ≥85% of this area's own fit-zoom. This is
+// aspect-ratio robust (a tall/narrow area's fitted on-screen WIDTH can stay small, which a width test
+// would never register → a tap would re-zoom forever instead of drilling). At plot framing the camera k
+// is well below an area's fit-k, so this stays false until a tap zooms to the area. A single-area plot
+// (area ≈ plot) reads as scoped as soon as the plot is framed — correct: there's no deeper level to step
+// through, so the next tap drills.
+function isScopedIntoArea(farm){
+  var sa = currentScopeArea(farm); if (!sa) return null;
+  var v = fitViewFor(farm, sa.box); if (!v) return null;
+  return (LAYOUT.view.k >= v.k * 0.85) ? sa.area : null;
+}
+
 // updateBreadcrumb() — WP9 #4: refresh the top-center breadcrumb pill text from the current scope. At the
 // all-plots zoom (tier 'farm', or the center over open water) it shows just the farm name; zoomed into a
 // plot it shows "Farm › Plot". Text-only DOM write (no scene rebuild) so it is cheap to call every frame
@@ -4907,15 +5089,22 @@ function updateBreadcrumb(){
     return;
   }
   el.hidden = false;
-  // Build "Farm › Plot": farm name (muted) · chevron · plot name (bright). textContent on spans → XSS-safe.
+  // Build "Farm › Plot[ › Area]": ancestors muted, the current (deepest) level bright. textContent on
+  // spans → XSS-safe. The pill is the step-OUT affordance (onclick zooms out one level); the trail just
+  // shows where you are. When zoomed into an area, the plot becomes a muted ancestor and the area is bright.
   while (el.firstChild) el.removeChild(el.firstChild);
+  var area = isScopedIntoArea(farm);                       // deepest level, or null when only plot-scoped
   var root = farm.name || 'Farm';
-  var here = scope.name || 'Plot';
+  var plotName = scope.name || 'Plot';
   el.appendChild(h('span', { class:'lp-crumb-root' }, root));
   // dedupe: when the plot is named the same as the farm (e.g. the Brightside seed), don't repeat it (UX #12)
-  if (here !== root){
+  if (plotName !== root){
     el.appendChild(h('span', { class:'lp-crumb-sep', 'aria-hidden':'true' }, ' › '));
-    el.appendChild(h('span', { class:'lp-crumb-here' }, here));
+    el.appendChild(h('span', { class: area ? 'lp-crumb-root' : 'lp-crumb-here' }, plotName));
+  }
+  if (area){
+    el.appendChild(h('span', { class:'lp-crumb-sep', 'aria-hidden':'true' }, ' › '));
+    el.appendChild(h('span', { class:'lp-crumb-here' }, area.name || 'Area'));
   }
 }
 
@@ -5320,8 +5509,8 @@ function drawCageCells(farm, plot, area, tier, g){
   var n = lines.length;
   var horiz = area.axis !== 'v';                        // 'h' rows run along X; 'v' rows run along Y
   var cross = horiz ? area.h : area.w;                  // rows are spaced ACROSS this axis (mirror drawArea)
-  var usable = cross * (1 - Math.max(0, Math.min(0.9, area.spacing || 0)) * 0.4);
-  var pad = (cross - usable) / 2;
+  var _band = rowBand(area, n);                         // pitch-capped row geometry (shared w/ drawArea)
+  var usable = _band.usable, pad = _band.pad;
   // Row span along the line's long axis (mirror the line-stroke endpoints in drawArea).
   var spanStart = horiz ? (area.x + area.w*0.06) : (area.y + area.h*0.06);
   var spanEnd   = horiz ? (area.x + area.w*0.94) : (area.y + area.h*0.94);
@@ -5570,6 +5759,26 @@ function drawCageCells(farm, plot, area, tier, g){
   }
 }
 
+// LINE_PITCH_MAX — cap (world units) on the centre-to-centre distance between adjacent oyster line-rows
+// drawn on the canvas. Without a cap, n rows spread to fill the whole area cross-axis, so a tall/sparse
+// area drew its ropes far apart. Capping the pitch packs the rows into a tight, legible raft centred in
+// the area (owner ask: "lines of the plots closer together"). Dense areas already sit below the cap, so
+// they are unaffected. Shared by drawArea (strokes) + drawCageCells (cells/hit-rects) via rowBand().
+var LINE_PITCH_MAX = 22;
+
+// rowBand(area, n) — the centred cross-axis span (usable) and its edge inset (pad) that the n line-rows
+// occupy, in world units. usable starts from area.spacing (tight/normal/wide), then the pitch (usable/n)
+// is capped at LINE_PITCH_MAX so rows never spread edge-to-edge. drawArea + drawCageCells MUST share this
+// so the rope strokes and the per-cage cells/hit-rects stay pixel-aligned (they used to inline the
+// identical formula in two places — see the old usable/pad pair at each site).
+function rowBand(area, n){
+  var horiz = area.axis !== 'v';
+  var cross = horiz ? area.h : area.w;
+  var usable = cross * (1 - Math.max(0, Math.min(0.9, area.spacing || 0)) * 0.4);
+  if (n > 0) usable = Math.min(usable, LINE_PITCH_MAX * n);   // cap the row pitch (usable/n)
+  return { usable:usable, pad:(cross - usable) / 2 };
+}
+
 // drawArea — an area rect inside its plot, drawn with the area's rotate() transform. Rows of lines
 // appear at PLOT/AREA tiers (never per-cage glyphs). A focused/selected area gets an "Open ›" chip.
 function drawArea(farm, plot, area, tier){
@@ -5591,8 +5800,8 @@ function drawArea(farm, plot, area, tier){
     var n = lines.length;
     var horiz = area.axis !== 'v';                       // 'h' rows run horizontally (along width)
     var cross = horiz ? area.h : area.w;                 // axis rows are spaced ACROSS
-    var usable = cross * (1 - Math.max(0, Math.min(0.9, area.spacing || 0)) * 0.4);
-    var pad = (cross - usable) / 2;
+    var _band = rowBand(area, n);                        // pitch-capped row geometry (shared w/ drawCageCells)
+    var usable = _band.usable, pad = _band.pad;
     var stroke = (tier === 'area') ? 3 : (tier === 'plot' ? 2 : 1.4);   // farm tier = thinnest rope
     for (var i=0; i<n; i++){
       var frac = (n === 1) ? 0.5 : (i + 0.5) / n;        // even spacing across the cross axis
@@ -6193,6 +6402,7 @@ function wireLayoutPointers(svg){
   function onDown(e){
     if (e.pointerType === 'mouse' && e.button != null && e.button !== 0) return;
     lastPointerType = e.pointerType || 'mouse';
+    LAYOUT.viewAnim = 0;                                   // a manual pan/pinch supersedes any in-flight camera tween
     refreshSvgRect();
     LAYOUT.ptrs.set(e.pointerId, { x:e.clientX, y:e.clientY });
     try { svg.setPointerCapture(e.pointerId); } catch (err){}
@@ -6701,6 +6911,53 @@ function handleLayoutTap(e, target){
   // Disambiguation: resolve data-cage-id FIRST; if found it's a cell (no drill). Else fall back to
   // the area-id walk-up and drill. Empty water clears any active pin.
   if (layoutIsView()){
+    // ── Progressive tap-to-zoom (owner ask) ──────────────────────────────────────────────────────────
+    // On the zoomed-OUT framings a single tap NAVIGATES the camera one level deeper instead of jumping
+    // straight to the work list, so you walk farm → plot → area → work:
+    //   • all-plots framing  → tap a plot  → smooth-zoom to frame that plot (its areas appear)
+    //   • one-plot framing    → tap an area → smooth-zoom to frame that area
+    //   • one-area framing    → fall through to the cage-peek / area-drill logic below (open the work map)
+    // The LEVEL is decided by COVERAGE scope (isScopedIntoPlot / isScopedIntoArea — the same on-screen
+    // model the breadcrumb uses), NOT the raw k-tier: a single-plot farm fits in the 'farm' k-band yet is
+    // already "scoped into" its one plot, so coverage avoids a stuck state where a tap can't progress.
+    // Double-tap and an in-flight drill are left to the existing fit/drill paths. Camera-only (no history).
+    if (!isDouble && !LAYOUT.drilling){
+      var scopedArea = isScopedIntoArea(farm);             // one area fills the viewport → deepest map level
+      if (!scopedArea){
+        var scopedPlot = isScopedIntoPlot(farm);           // one plot fills the viewport → next stop is an area
+        // resolve the tapped plot + area by walking up the data-* ids
+        var zAreaId = null, zPlotId = null, zEl = target;
+        while (zEl && zEl !== LAYOUT.svg){
+          if (zEl.getAttribute){
+            if (!zAreaId) zAreaId = zEl.getAttribute('data-area-id');
+            if (!zPlotId) zPlotId = zEl.getAttribute('data-plot-id');
+          }
+          if (zAreaId && zPlotId) break;
+          zEl = zEl.parentNode;
+        }
+        if (!scopedPlot){
+          // all-plots framing → zoom to the tapped plot (or the plot owning the tapped area)
+          var zPlot = zPlotId ? (farm.plots || []).filter(function(q){ return q.id === zPlotId; })[0] : null;
+          if (!zPlot && zAreaId){ var zfa0 = findAreaById(farm, zAreaId); if (zfa0) zPlot = zfa0.plot; }
+          if (zPlot){
+            if (LAYOUT.hlCage || LAYOUT.hlGroup) clearCageHighlight();
+            LAYOUT.sel = null; zoomToShape(farm, zPlot);
+          }
+          return;                                          // tapped a plot → zoomed in; tapped open water → no-op
+        } else {
+          // one-plot framing → zoom to the tapped area (the next level in)
+          if (zAreaId){
+            var zfa = findAreaById(farm, zAreaId);
+            if (zfa){
+              if (LAYOUT.hlCage || LAYOUT.hlGroup) clearCageHighlight();
+              LAYOUT.sel = null; zoomToShape(farm, areaWorldBox(zfa.area));
+            }
+          }
+          return;                                          // tapped an area → zoomed in; header/water → no-op
+        }
+      }
+      // scopedArea set → fall through: at the area level a tap peeks a cage / drills into the work map.
+    }
     // Bug B1 (round-9): the VIEW-mode "Open ›" chip (drawArea) drills immediately — resolve it FIRST,
     // before cage/area disambiguation, so its tap is never mistaken for a cell peek or empty water. The
     // chip carries data-open-area-id on the group + its rect; walk up to find it (text is pointer-none).
@@ -7378,7 +7635,8 @@ function loadBrightsideFarm(){
   farm.batches.push(pileBatch);
   farm.barge = { state:'pile', batchId:pileBatch.id, count:3200, sizeMm:60, grade:'Standard', ploidy:'triploid', hatchery:'Grand Isle Hatchery',
     origin:{ parentBatchIds:[pileBatch.id], cageLabels:['2-3','2-5'], lineNames:['Line 2'], pulledDate:isoDaysAgo(1) },
-    events:[{ id:uid(), type:'pulled', date:isoDaysAgo(1), batchId:pileBatch.id, method:null, sizeMm:60, count:3200, note:null, photoIds:[] }] };
+    events:[{ id:uid(), type:'pulled', date:isoDaysAgo(1), batchId:pileBatch.id, method:null, sizeMm:60, count:3200, note:null, photoIds:[] }],
+    splits:[] };
 
   // a couple of prior harvests for the log
   farm.harvestLog.push({ id:uid(), date:isoDaysAgo(12), count:2400, grade:'Jumbo', sizeMm:80,
@@ -7831,8 +8089,18 @@ function triggerImport(){
 /* ── selection store + clear (clearSelection/removeDragBands/hidePopup
       are foundation helpers other code calls; keep them exact) ──────── */
 var selCages = {};                                   // selection store, keyed by cage id
+// BATCH-SPLIT: which tub sub-batch the next Fill should draw from (null = remainder pool / new-seed path).
+// NOT persisted in farm state — a transient UI selection only.
+var activeFillSplitId = null;
+function setActiveFillSplit(id){ activeFillSplitId = id || null; }
 function clearSelection(){
   selCages = {};
+  // BATCH-SPLIT: do NOT drop the armed tub batch here. A fresh DRAG to select the fill targets calls
+  // clearSelection() on its first cross-cell move (denseRangeSelect), so clearing the arm here would
+  // disarm the batch mid-drag and break "tap a batch → drag-select empty cages → Fill". The arm is a
+  // standing intent; it's cleared only when the split is consumed (fillFromBarge), the tub is cleared
+  // (clearBarge), or the farmer arms a different batch. A stale arm is harmless — every Fill path
+  // re-checks bargeSplitById() and falls through to the pool / new-seed when the split is gone.
   hidePopup();
   // de-select any rendered cells without a full re-render
   var sel = document.querySelectorAll('.cage.sel');
@@ -8048,7 +8316,7 @@ function renderPopup(farm){
 
   var allFilled = true, allEmpty = true, i;
   for (i=0; i<sel.length; i++){ if (sel[i].batch) allEmpty = false; else allFilled = false; }
-  var bargeHasPile = farm.barge.state === 'pile';
+  var bargeHasPile = bargeHasContent(farm.barge);
   var n = sel.length;
 
   var pop = h('div', { class:'popup' });
@@ -8079,11 +8347,23 @@ function renderPopup(farm){
       var ids = selectedIds(); openSheet(function(){ return buildWorkSheet(ids); });
     } }, 'Work'));
   } else { // allEmpty
-    var fillHint = bargeHasPile ? ' · distribute' : ' · new seed';
+    // BATCH-SPLIT: the Fill source is (1) the active tub batch if one is chosen, else (2) the remainder
+    // pool, else (3) the harvest sheet (so the farmer can pick a batch) if splits exist but none chosen,
+    // else (4) new seed.
+    var bg = getFarm().barge;
+    var activeSplit = activeFillSplitId ? bargeSplitById(bg, activeFillSplitId) : null;
+    var fillHint;
+    if (activeSplit) fillHint = ' · ' + (activeSplit.label || ((activeSplit.sizeMm ? activeSplit.sizeMm + 'mm ' : '') + 'batch'));
+    else if (bg.state === 'pile') fillHint = ' · distribute';
+    else if (bg.splits.length) fillHint = ' · pick a batch';
+    else fillHint = ' · new seed';
     pop.appendChild(h('div', { class:'lbl' }, n + (n === 1 ? ' empty cage' : ' empty cages') + fillHint));
     row.appendChild(h('button', { class:'pbtn fill', onclick:function(){
       var ids = selectedIds();
-      if (getFarm().barge.state === 'pile') fillFromBarge(ids);
+      var b = getFarm().barge;
+      if (activeFillSplitId && bargeSplitById(b, activeFillSplitId)) fillFromBarge(ids, activeFillSplitId);
+      else if (b.state === 'pile') fillFromBarge(ids);
+      else if (b.splits.length){ toast('Pick a batch in the tub first'); openSheet(function(){ return buildHarvestSheet(getFarm()); }); }
       else openSheet(function(){ return buildFillSeedForm(ids); });
     } }, 'Fill'));
     // Remove only when exactly one empty cage is selected (§2.5)
@@ -8346,25 +8626,109 @@ function pullSelectedCages(cageIds){
   });
 }
 
-/* ── §3.6 — Fill selected empty cages from the barge pile (even split,
-      lose no oysters). Each cage gets a CHILD batch with provenance. ── */
-function fillFromBarge(cageIds){
+/* ── BATCH-SPLIT — carve the unsorted remainder pile into named sub-batches.
+      rows = [{count, sizeMm, grade, label}]. Each becomes a self-contained
+      split snapshot on barge.splits[] (provenance copied from the remainder so
+      a later remainder-drain can't strand it). Decrements the remainder; if it
+      reaches 0 the remainder goes empty but the splits + events are kept. ── */
+function splitBarge(rows){
   var farm = getFarm(); if (!farm) return;
   var barge = farm.barge;
-  if (barge.state !== 'pile'){ toast('Tub is empty'); return; }
+  if (barge.state !== 'pile'){ toast('Tub is empty'); return; }   // need a remainder to carve from
+  rows = Array.isArray(rows) ? rows : [];
+  if (!rows.length){ toast('Add a batch first'); return; }
+  // CR-#2: an uncounted pile has no denominator to divide. Splitting "an amount I decide" needs a known
+  // total — otherwise the split rows either mint hard counts or double-represent the same undrained pile.
+  // The farmer fills the whole uncounted pool as before; this never lets uncounted oysters be miscounted.
+  if (barge.count == null){ toast('Count the tub before sorting it into batches.'); return; }
+
+  var counted = (barge.count != null);
+  var sum = 0, i;
+  for (i=0; i<rows.length; i++){
+    var c = rows[i].count;
+    if (counted){
+      if (typeof c !== 'number' || !isFinite(c) || c < 1 || c !== Math.floor(c)){
+        toast('Each batch needs a whole number of oysters'); return;
+      }
+      sum += c;
+    }
+  }
+  if (counted){
+    if (sum < 1){ toast('Split must move at least 1 oyster'); return; }
+    if (sum > barge.count){ toast('Only ' + fmtCompact(barge.count) + ' in the tub'); return; }
+  }
+
+  var snapBarge = JSON.parse(JSON.stringify(barge));
+  rows.forEach(function(r){
+    var lbl = (r.label != null && typeof r.label === 'string') ? r.label.trim() : '';
+    barge.splits.push({
+      id: uid(),
+      count:  (typeof r.count === 'number' && isFinite(r.count)) ? r.count : null,
+      sizeMm: (typeof r.sizeMm === 'number' && isFinite(r.sizeMm)) ? r.sizeMm : null,
+      grade:  (r.grade || null),
+      label:  (lbl || null),
+      ploidy: (barge.ploidy || null),
+      hatchery: (barge.hatchery || ''),
+      origin: barge.origin ? JSON.parse(JSON.stringify(barge.origin)) : null,
+      parentBatchId: (barge.batchId || null)
+    });
+  });
+
+  // decrement the remainder; if drained, empty it but KEEP splits + events (splits are self-contained)
+  if (counted){
+    barge.count -= sum;
+    if (barge.count <= 0){
+      barge.state = 'empty'; barge.batchId = null; barge.count = null;
+      barge.sizeMm = null; barge.grade = null; barge.origin = null; barge.ploidy = null; barge.hatchery = '';
+    }
+  }
+
+  commit();
+  undoable('Split into ' + rows.length + (rows.length === 1 ? ' batch' : ' batches'), function(){
+    getFarm().barge = snapBarge; commit();
+  });
+}
+
+/* ── §3.6 — Fill selected empty cages from the barge (even split, lose no
+      oysters). Source = a chosen split (splitId) OR the remainder pool. Each
+      cage gets a CHILD batch with provenance + a `filled` event carrying the
+      source size, so the per-cage growth chart gets an anchor dot. ── */
+function fillFromBarge(cageIds, splitId){
+  var farm = getFarm(); if (!farm) return;
+  var barge = farm.barge;
+
+  // resolve the SOURCE — a split snapshot, or the remainder pool
+  var source = null, fromSplit = false;
+  if (splitId){
+    source = bargeSplitById(barge, splitId);
+    if (!source){ toast('Batch not found'); return; }
+    fromSplit = true;
+  } else {
+    if (barge.state !== 'pile'){ toast('Tub is empty'); return; }
+  }
+
   var targets = [];
   cageIds.forEach(function(id){ var c = cageById(id); if (c && !c.batch) targets.push(c); });
   if (!targets.length){ toast('Nothing to fill'); return; }
 
+  // read the source fields (split snapshot or remainder pool)
+  var srcCount    = fromSplit ? source.count    : barge.count;
+  var srcSize     = fromSplit ? source.sizeMm   : barge.sizeMm;
+  var srcGrade    = fromSplit ? source.grade    : barge.grade;
+  var srcPloidy   = fromSplit ? source.ploidy   : barge.ploidy;
+  var srcHatchery = fromSplit ? source.hatchery : barge.hatchery;
+  var prov        = (fromSplit ? source.origin : barge.origin) || {};
+  var srcParentId = fromSplit ? source.parentBatchId : barge.batchId;
+
   var snapBarge = JSON.parse(JSON.stringify(barge));
   var n = targets.length;
-  var total = barge.count;                        // number | null
+  var total = srcCount;                           // number | null
   var shares = [];                                // per-target count (number | null)
   var used = targets.slice();                     // which cages actually get filled
   var shortfall = false;
 
   if (total == null){
-    for (var i=0; i<n; i++) shares.push(null);     // uncounted pile → even share, no number
+    for (var i=0; i<n; i++) shares.push(null);     // uncounted source → even share, no number
   } else if (total <= 0){
     toast('Tub is empty'); return;
   } else if (total < n){
@@ -8378,18 +8742,17 @@ function fillFromBarge(cageIds){
   }
 
   var made = [];
-  var prov = barge.origin || {};
   used.forEach(function(cage, idx){
     var share = shares[idx];
     var child = newBatch({
-      count: share, sizeMm: barge.sizeMm, ploidy: (barge.ploidy || null), hatchery: (barge.hatchery || ''),
-      grade: barge.grade, notes: '', stockedDate: todayISO(), photoIds: [],
+      count: share, sizeMm: srcSize, ploidy: (srcPloidy || null), hatchery: (srcHatchery || ''),
+      grade: srcGrade, notes: '', stockedDate: todayISO(), photoIds: [],
       origin: {
-        // chain to BOTH the pile id and the real source batch ids so lineageEvents
+        // chain to BOTH the parent id and the real source batch ids so lineageEvents
         // (and the photo strips it drives) can walk back to the originating cages.
         parentBatchIds: (function(){
           var pp = (prov.parentBatchIds || []).slice();
-          if (barge.batchId && pp.indexOf(barge.batchId) < 0) pp.unshift(barge.batchId);
+          if (srcParentId && pp.indexOf(srcParentId) < 0) pp.unshift(srcParentId);
           return pp;
         })(),
         cageLabels: (prov.cageLabels || []).slice(),
@@ -8399,31 +8762,55 @@ function fillFromBarge(cageIds){
     });
     cage.batch = child;
     farm.batches.push(child);
-    cage.events.push(newEvent('filled', child.id, { count: share }));
+    // CHART ANCHOR: a `filled` event that CARRIES the size, so this size lands a dot on the per-cage
+    // growth chart AND a timeline row reading "Filled from tub" (not "Filled"/fresh-seed). growthPoints
+    // + latestSize now count `filled` events with a numeric sizeMm; old count-only filled events (no
+    // sizeMm) stay ignored, so this is back-compatible. srcSize null → sizeMm null (ignored as a point).
+    cage.events.push(newEvent('filled', child.id, {
+      date: todayISO(), sizeMm: (typeof srcSize === 'number' ? srcSize : null), count: share, note: null
+    }));
     cage.workDue = null;
     made.push({ cageId:cage.id, batch:child });
   });
 
-  // decrement the pile; fully drained → empty
+  // decrement the source
   var distributed = 0;
   if (total != null){ shares.forEach(function(s){ if (typeof s === 'number') distributed += s; }); }
-  if (total == null){
-    // uncounted pile → the whole working pile was just distributed into the selected cages, so it's
-    // gone (H1: prevents minting unlimited child batches from a pile that's physically empty).
-    barge.state = 'empty'; barge.batchId = null; barge.count = null;
-    barge.sizeMm = null; barge.grade = null; barge.origin = null; barge.events = [];
+
+  if (fromSplit){
+    var depleted = false;
+    if (total == null){
+      depleted = true;                             // uncounted split → one fill empties it
+    } else {
+      source.count = total - distributed;
+      if (source.count <= 0) depleted = true;
+    }
+    if (depleted){
+      var si = barge.splits.indexOf(source);
+      if (si >= 0) barge.splits.splice(si, 1);
+      if (activeFillSplitId === splitId) activeFillSplitId = null;
+    }
   } else {
-    barge.count = total - distributed;
-    if (barge.count <= 0){
+    if (total == null){
+      // uncounted pool → the whole working pile was just distributed, so it's gone (H1)
       barge.state = 'empty'; barge.batchId = null; barge.count = null;
-      barge.sizeMm = null; barge.grade = null; barge.origin = null; barge.events = [];
+      barge.sizeMm = null; barge.grade = null; barge.origin = null; barge.ploidy = null; barge.hatchery = ''; barge.events = [];
+    } else {
+      barge.count = total - distributed;
+      if (barge.count <= 0){
+        barge.state = 'empty'; barge.batchId = null; barge.count = null;
+        barge.sizeMm = null; barge.grade = null; barge.origin = null; barge.ploidy = null; barge.hatchery = ''; barge.events = [];
+      }
     }
   }
+
+  // tub fully empty (remainder gone AND no splits left) → reset to a clean fresh barge
+  if (!bargeHasContent(barge)) farm.barge = freshBarge();
 
   clearSelection();
   commit();
   var msg = 'Filled ' + made.length + (made.length === 1 ? ' cage from the tub' : ' cages from the tub');
-  if (shortfall) msg = 'Only ' + snapBarge.count + ' oysters — filled ' + made.length + (made.length === 1 ? ' cage' : ' cages');
+  if (shortfall && typeof total === 'number') msg = 'Only ' + total + ' oysters — filled ' + made.length + (made.length === 1 ? ' cage' : ' cages');
   undoable(msg, function(){
     var f = getFarm();
     f.barge = snapBarge;
@@ -8682,9 +9069,11 @@ function harvestFromBarge(count, note, photoIds){
 // farmer discards). Undoable. (C2: uncounted piles get a non-destructive-by-default empty path.)
 function clearBarge(){
   var farm = getFarm(); if (!farm) return;
-  if (farm.barge.state !== 'pile'){ toast('Tub is already empty'); return; }
+  // BATCH-SPLIT: a tub with no remainder pile but sorted batches still has content — clear those too.
+  if (!bargeHasContent(farm.barge)){ toast('Tub is already empty'); return; }
   var snapBarge = JSON.parse(JSON.stringify(farm.barge));
-  farm.barge = freshBarge();
+  farm.barge = freshBarge();              // wipes the remainder, splits, AND events
+  activeFillSplitId = null;               // any chosen batch is gone now
   closeSheet();
   commit();
   undoable('Tub cleared', function(){ getFarm().barge = snapBarge; commit(); });
@@ -8695,55 +9084,190 @@ function clearBarge(){
 var HARVEST_HERO_SVG =
 '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 150" width="320" height="150" class="harvestHeroSvg"><defs><linearGradient id="tubh_bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FBF7EF"/><stop offset="1" stop-color="#EFE7D6"/></linearGradient><linearGradient id="tubh_en" x1="0" y1="0" x2="1" y2="0.4"><stop offset="0" stop-color="#FDFCF9"/><stop offset="0.5" stop-color="#EEEBE3"/><stop offset="1" stop-color="#D4D0C5"/></linearGradient><radialGradient id="tubh_bas" cx="0.5" cy="0.3" r="0.8"><stop offset="0" stop-color="#cfcabd"/><stop offset="1" stop-color="#a8a192"/></radialGradient><linearGradient id="tubh_cl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EBBA62"/><stop offset="0.5" stop-color="#CE8C2E"/><stop offset="1" stop-color="#A0641A"/></linearGradient><linearGradient id="tubh_ft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#90805F"/><stop offset="1" stop-color="#544632"/></linearGradient></defs><rect x="0" y="0" width="320" height="150" fill="url(#tubh_bg)"/><!-- table cloth, fully draped + fringe --><path d="M 14 99 Q 160 101 306 99 L 300 146 Q 160 153 20 146 Z" fill="url(#tubh_cl)"/><path d="M 18 100 Q 160 102 302 100" fill="none" stroke="#F4CE7E" stroke-width="1.6" opacity="0.6"/><g stroke="#8C5616" stroke-width="1" opacity="0.4" fill="none"><path d="M 70 104 Q 68 124 66 142"/><path d="M 120 105 Q 119 125 118 144"/><path d="M 200 105 Q 201 125 202 144"/><path d="M 250 104 Q 252 124 254 142"/></g><rect x="22" y="139" width="276" height="4" fill="#E8C074" opacity="0.5"/><g stroke="#8C5616" stroke-width="1.2" stroke-linecap="round" opacity="0.85"><line x1="30" y1="143" x2="29" y2="150"/><line x1="44" y1="143.6" x2="43.6" y2="150.6"/><line x1="58" y1="144" x2="58" y2="151"/><line x1="72" y1="144.4" x2="72" y2="151.4"/><line x1="86" y1="144.7" x2="86.2" y2="151.7"/><line x1="100" y1="145" x2="100" y2="152"/><line x1="114" y1="145.2" x2="114" y2="152.2"/><line x1="128" y1="145.3" x2="128" y2="152.3"/><line x1="142" y1="145.4" x2="142" y2="152.4"/><line x1="156" y1="145.5" x2="156" y2="152.5"/><line x1="170" y1="145.5" x2="170" y2="152.5"/><line x1="184" y1="145.4" x2="184" y2="152.4"/><line x1="198" y1="145.3" x2="198" y2="152.3"/><line x1="212" y1="145.2" x2="212.2" y2="152.2"/><line x1="226" y1="145" x2="226.2" y2="152"/><line x1="240" y1="144.7" x2="240.4" y2="151.7"/><line x1="254" y1="144.4" x2="254.4" y2="151.4"/><line x1="268" y1="144" x2="268.4" y2="151"/><line x1="282" y1="143.6" x2="282.6" y2="150.6"/><line x1="292" y1="143" x2="293" y2="150"/></g><!-- contact shadow on cloth --><ellipse cx="160" cy="122" rx="78" ry="7" fill="#000000" opacity="0.14"/><!-- ornate ball-and-claw feet (behind body) --><g><g fill="#443824"><ellipse cx="112" cy="116" rx="5" ry="5.6"/><ellipse cx="208" cy="116" rx="5" ry="5.6"/></g><!-- front-left --><path d="M 92 110 C 80 116 78 130 87 135 L 109 135 C 101 126 105 112 113 108 Z" fill="url(#tubh_ft)"/><path d="M 94 112 C 85 118 84 128 90 133" fill="none" stroke="#A8997F" stroke-width="1.3" opacity="0.55"/><ellipse cx="96" cy="138" rx="10.5" ry="8.5" fill="url(#tubh_ft)"/><ellipse cx="91" cy="134" rx="3.4" ry="2.2" fill="#AC9D82" opacity="0.7"/><path d="M 87 130 Q 84 138 88 143" fill="none" stroke="#352B1D" stroke-width="3.2" stroke-linecap="round"/><path d="M 96 129 Q 96 138 96 144" fill="none" stroke="#352B1D" stroke-width="3.2" stroke-linecap="round"/><path d="M 105 130 Q 108 138 104 143" fill="none" stroke="#352B1D" stroke-width="3.2" stroke-linecap="round"/><!-- front-right --><path d="M 228 110 C 240 116 242 130 233 135 L 211 135 C 219 126 215 112 207 108 Z" fill="url(#tubh_ft)"/><path d="M 226 112 C 235 118 236 128 230 133" fill="none" stroke="#A8997F" stroke-width="1.3" opacity="0.55"/><ellipse cx="224" cy="138" rx="10.5" ry="8.5" fill="url(#tubh_ft)"/><ellipse cx="219" cy="134" rx="3.4" ry="2.2" fill="#AC9D82" opacity="0.7"/><path d="M 215 130 Q 212 138 216 143" fill="none" stroke="#352B1D" stroke-width="3.2" stroke-linecap="round"/><path d="M 224 129 Q 224 138 224 144" fill="none" stroke="#352B1D" stroke-width="3.2" stroke-linecap="round"/><path d="M 233 130 Q 236 138 232 143" fill="none" stroke="#352B1D" stroke-width="3.2" stroke-linecap="round"/></g><!-- tub body (deeper, flatter belly, lifted on the legs) --><path d="M 92 54 C 84 80 96 110 118 116 Q 160 121 202 116 C 224 110 236 80 228 54 A 68 16 0 0 1 92 54 Z" fill="url(#tubh_en)"/><path d="M 100 62 C 92 84 98 106 118 113 L 130 111 C 108 104 104 84 110 64 Z" fill="#FFFFFF" opacity="0.30"/><path d="M 220 62 C 228 84 222 106 202 113 L 190 111 C 212 104 216 84 210 64 Z" fill="#9C958A" opacity="0.28"/><path d="M 118 116 Q 160 120 202 116" fill="none" stroke="#B7B0A2" stroke-width="1.1" opacity="0.5"/><circle cx="100" cy="92" r="1.8" fill="#8a8478"/><circle cx="222" cy="86" r="1.5" fill="#7e786c"/><circle cx="150" cy="111" r="1.2" fill="#8a8478"/><path d="M 198 66 Q 202 88 198 108" fill="none" stroke="#bdb7ab" stroke-width="0.6" opacity="0.5"/><!-- rolled rim --><ellipse cx="160" cy="54" rx="68" ry="16" fill="#F5F3ED" stroke="#C9C3B4" stroke-width="1.4"/><ellipse cx="160" cy="52" rx="64" ry="13.5" fill="none" stroke="#FFFFFF" stroke-width="1.2" opacity="0.7"/><ellipse cx="160" cy="55.5" rx="56" ry="12.5" fill="url(#tubh_bas)"/><ellipse cx="160" cy="55.5" rx="56" ry="12.5" fill="none" stroke="#A39C8C" stroke-width="1.1"/><path d="M 108 53 Q 160 42 212 53 Q 160 63 108 53 Z" fill="#968E7E" opacity="0.5"/><!-- a wire shucking basket resting in the tub (back-left) --><g transform="translate(124 50)" opacity="0.9"><ellipse cx="0" cy="0" rx="16" ry="6" fill="#cfd6d2" opacity="0.5" stroke="#7d8a86" stroke-width="0.8"/><g stroke="#7d8a86" stroke-width="0.5" opacity="0.7" fill="none"><line x1="-12" y1="-2.5" x2="-12" y2="4"/><line x1="-6" y1="-4" x2="-6" y2="5.5"/><line x1="0" y1="-4.5" x2="0" y2="6"/><line x1="6" y1="-4" x2="6" y2="5.5"/><line x1="12" y1="-2.5" x2="12" y2="4"/><path d="M -15 0 Q 0 4 15 0"/><path d="M -13 3 Q 0 7 13 3"/></g></g><!-- oyster pile heaped in the tub (natural shell, static) --><g id="oysterPile"><g class="pileBack"><ellipse cx="140" cy="50" rx="11" ry="5" fill="#a99e8a" transform="rotate(-13 140 50)"/><ellipse cx="158" cy="46" rx="12" ry="5.2" fill="#c8bda8" transform="rotate(6 158 46)"/><ellipse cx="176" cy="49" rx="11" ry="5" fill="#b7ac97" transform="rotate(-9 176 49)"/><ellipse cx="150" cy="53" rx="11" ry="5" fill="#beb39e" transform="rotate(10 150 53)"/><ellipse cx="168" cy="53" rx="10.4" ry="4.8" fill="#a99e8a" transform="rotate(-6 168 53)"/><path d="M 146 48 Q 158 45 170 48" fill="none" stroke="#ece3d0" stroke-width="1" opacity="0.7"/></g><g class="pileMid"><ellipse cx="128" cy="60" rx="11.6" ry="5.4" fill="#b7ac97" transform="rotate(-18 128 60)"/><ellipse cx="146" cy="56" rx="12.4" ry="5.6" fill="#d3c9b4" transform="rotate(7 146 56)"/><ellipse cx="164" cy="56" rx="12" ry="5.4" fill="#c8bda8" transform="rotate(-5 164 56)"/><ellipse cx="182" cy="60" rx="11" ry="5.2" fill="#a99e8a" transform="rotate(15 182 60)"/><ellipse cx="158" cy="62" rx="12.6" ry="5.6" fill="#cabfa9" transform="rotate(3 158 62)"/><ellipse cx="136" cy="63" rx="10" ry="4.8" fill="#b0a591" transform="rotate(-22 136 63)"/><path d="M 134 56.6 Q 146 53.6 158 56.4" fill="none" stroke="#ece3d0" stroke-width="1.1" opacity="0.65"/><path d="M 134 58.4 Q 144 61 154 58.4" fill="none" stroke="#6f6757" stroke-width="0.7" opacity="0.4"/></g><g class="pileFront"><ellipse cx="120" cy="70" rx="11" ry="5.4" fill="#cabfa9" transform="rotate(-22 120 70)"/><ellipse cx="138" cy="66" rx="12.8" ry="6" fill="#d3c9b4" transform="rotate(8 138 66)"/><ellipse cx="160" cy="64" rx="13.4" ry="6.2" fill="#e0d6c0" transform="rotate(-4 160 64)"/><ellipse cx="182" cy="66" rx="12.4" ry="6" fill="#cabfa9" transform="rotate(14 182 66)"/><ellipse cx="200" cy="70" rx="10.4" ry="5.2" fill="#b7ac97" transform="rotate(-16 200 70)"/><ellipse cx="128" cy="74" rx="9" ry="4.4" fill="#beb39e" transform="rotate(-12 128 74)"/><ellipse cx="146" cy="76" rx="9.4" ry="4.6" fill="#d3c9b4" transform="rotate(8 146 76)"/><ellipse cx="166" cy="76" rx="9.4" ry="4.6" fill="#c8bda8" transform="rotate(-6 166 76)"/><ellipse cx="186" cy="74" rx="8.4" ry="4.2" fill="#a99e8a" transform="rotate(18 186 74)"/><path d="M 124 68 Q 138 65 152 67" fill="none" stroke="#efe6d2" stroke-width="1.2" opacity="0.75"/><path d="M 162 63 Q 176 61 190 64" fill="none" stroke="#efe6d2" stroke-width="1.1" opacity="0.6"/><path d="M 128 67 Q 134 70 140 67" fill="none" stroke="#6f6757" stroke-width="0.6" opacity="0.45"/><path d="M 108 77 Q 160 81 212 77" fill="none" stroke="#6f6757" stroke-width="0.8" opacity="0.32"/></g></g><path d="M 100 58 Q 160 74 220 58" fill="none" stroke="#EFEDE6" stroke-width="2" opacity="0.85"/><!-- still-life props on the cloth --><!-- halved lemon, front-left --><g transform="translate(56 124)"><ellipse cx="0" cy="0" rx="9" ry="7.5" fill="#F2D24E"/><ellipse cx="0" cy="-0.5" rx="7" ry="5.8" fill="#FBEC9A"/><g stroke="#E8D26A" stroke-width="0.7" opacity="0.8"><line x1="0" y1="-5" x2="0" y2="5"/><line x1="-5" y1="-3" x2="5" y2="3"/><line x1="-5" y1="3" x2="5" y2="-3"/></g><ellipse cx="0" cy="0" rx="2" ry="1.6" fill="#FFFBE0"/><ellipse cx="3" cy="6.5" rx="9" ry="2.2" fill="#000000" opacity="0.1"/></g><!-- oyster knife, front-right --><g transform="translate(232 128) rotate(-18)"><rect x="0" y="-2.6" width="20" height="5.2" rx="2.4" fill="#7A5A3A"/><rect x="1.5" y="-1.6" width="16" height="1" rx="0.5" fill="#9A7A52" opacity="0.7"/><path d="M 20 -2 L 36 -1 Q 39 0 36 1 L 20 2 Z" fill="#C8CDD2"/><path d="M 20 -1.4 L 35 -0.6" stroke="#EEF1F4" stroke-width="0.7" opacity="0.8"/><ellipse cx="20" cy="6" rx="20" ry="2.4" fill="#000000" opacity="0.1"/></g><!-- a couple of loose shucked shells --><g transform="translate(96 132)"><ellipse cx="0" cy="0" rx="7" ry="4" fill="#d3c9b4" transform="rotate(-14)"/><ellipse cx="0" cy="-0.4" rx="4.6" ry="2.4" fill="#bdb09a" transform="rotate(-14)"/><path d="M -5 0.5 Q 0 2 5 0.5" fill="none" stroke="#6f6757" stroke-width="0.5" opacity="0.5"/></g><g transform="translate(204 134)"><ellipse cx="0" cy="0" rx="6.4" ry="3.6" fill="#c8bda8" transform="rotate(12)"/><ellipse cx="0" cy="-0.3" rx="4" ry="2.1" fill="#b0a591" transform="rotate(12)"/></g></svg>';
 
+// splitChipName(split, index) — a sensible display name for a sorted batch chip: explicit label, else its
+// size ("≈55 mm"), else a positional "Batch N". Used by the chip face AND the fill toast so they agree.
+function splitChipName(s, index){
+  if (s.label) return s.label;
+  if (typeof s.sizeMm === 'number' && isFinite(s.sizeMm)) return '≈' + s.sizeMm + ' mm';
+  return 'Batch ' + (index + 1);
+}
 function buildHarvestSheet(farm){
   farm = farm || getFarm();
   var kids = sheetHead('Harvest');
   kids.push(h('div', { class:'harvestHero', html: HARVEST_HERO_SVG }));
   var b = farm.barge;
-  if (b.state !== 'pile'){
+  var hasRemainder = (b.state === 'pile');
+  var hasSplits = (Array.isArray(b.splits) && b.splits.length > 0);
+
+  // BATCH-SPLIT: truly empty tub → the only dead-end note. Otherwise fall through and render whatever the
+  // tub holds (remainder card, sorted-batch chips, and the split editor when a remainder exists).
+  if (!bargeHasContent(b)){
     kids.push(h('div', { class:'emptyNote' }, 'Nothing in the tub yet —\nPull some cages first.'));
     return kids;
   }
-  var pill = (b.count == null) ? 'uncounted' : ('~' + fmtCompact(b.count) + ' oysters');
-  var card = h('div', { class:'card' },
-    h('div', { class:'eyebrow' }, 'In the tub'),
-    h('div', { class:'hero num' }, pill),
-    b.sizeMm != null ? h('div', { class:'kv' }, h('span', { class:'k' }, 'Last size'), h('span', { class:'v' }, b.sizeMm + ' mm')) : null,
-    b.grade ? h('div', { class:'kv' }, h('span', { class:'k' }, 'Grade'), h('span', { class:'v' }, b.grade)) : null,
-    bargeOriginText(b) ? h('div', { class:'kv' }, h('span', { class:'k' }, 'From'), h('span', { class:'v' }, bargeOriginText(b))) : null);
-  kids.push(card);
 
-  // history of the oysters on the barge (barge.events + origin)
-  var hist = bargeHistoryRows(b);
-  if (hist.length){
-    var tl = h('div', { class:'timeline' });
-    hist.forEach(function(r){ tl.appendChild(r); });
-    kids.push(h('section', null, h('label', null, 'Tub history'), tl));
+  // 2. Remainder pool card — only when an unsorted remainder still sits in the tub.
+  if (hasRemainder){
+    var pill = (b.count == null) ? 'uncounted' : ('~' + fmtCompact(b.count) + ' oysters');
+    var card = h('div', { class:'card' },
+      h('div', { class:'eyebrow' }, 'In the tub'),
+      h('div', { class:'hero num' }, pill),
+      b.sizeMm != null ? h('div', { class:'kv' }, h('span', { class:'k' }, 'Last size'), h('span', { class:'v' }, b.sizeMm + ' mm')) : null,
+      b.grade ? h('div', { class:'kv' }, h('span', { class:'k' }, 'Grade'), h('span', { class:'v' }, b.grade)) : null,
+      bargeOriginText(b) ? h('div', { class:'kv' }, h('span', { class:'k' }, 'From'), h('span', { class:'v' }, bargeOriginText(b))) : null);
+    kids.push(card);
+
+    // history of the oysters on the barge (barge.events + origin)
+    var hist = bargeHistoryRows(b);
+    if (hist.length){
+      var tl = h('div', { class:'timeline' });
+      hist.forEach(function(r){ tl.appendChild(r); });
+      kids.push(h('section', null, h('label', null, 'Tub history'), tl));
+    }
   }
 
-  var countIn = h('input', { type:'number', inputmode:'numeric', min:'1',
-    value: (b.count != null ? b.count : ''),
-    max: (b.count != null ? b.count : null), placeholder:'How many' });
-  kids.push(field('How many harvested', countIn, b.count != null ? ('Up to ' + fmtCompact(b.count) + ' in the tub.') : 'The pile is uncounted.'));
+  // 3. Sorted batches — tappable chips; tapping arms a batch then closes so the farmer picks empty cages.
+  if (hasSplits){
+    var chips = h('div', { class:'chips' });
+    b.splits.forEach(function(s, ix){
+      var name = splitChipName(s, ix);
+      var sub = [];
+      if (s.count != null) sub.push(fmtCompact(s.count));
+      if (s.grade) sub.push(s.grade);
+      var on = (s.id === activeFillSplitId);
+      var chip = h('button', { class:'chip batchChip' + (on ? ' on' : ''), type:'button',
+        onclick:(function(id, nm){ return function(){
+          setActiveFillSplit(id);
+          closeSheet();
+          toast('Pick the empty cages to fill with ' + nm);
+        }; })(s.id, name) },
+        h('span', { class:'bc-name' }, name),
+        sub.length ? h('span', { class:'bc-sub' }, sub.join(' · ')) : null);
+      chips.appendChild(chip);
+    });
+    kids.push(h('section', null, h('label', null, 'Sorted batches'),
+      h('div', { class:'fieldHint', style:{ marginBottom:'8px' } }, 'Tap a batch, then select empty cages to fill it.'),
+      chips));
+  }
 
-  var noteIn = h('textarea', { placeholder:'Optional note' });
-  kids.push(field('Note', noteIn));
+  // 4. Split into batches — only when a COUNTED remainder exists to carve (an uncounted pile has no
+  //    denominator to divide; splitBarge rejects it, so don't offer the editor). Collapsed behind a pill.
+  if (hasRemainder && b.count != null){
+    var editorSlot = h('div', { id:'splitEditorSlot' });
+    var openBtn = h('button', { class:'chip add batchAdd', type:'button' }, '＋ Split into batches');
+    openBtn.addEventListener('click', function(){
+      openBtn.style.display = 'none';
+      editorSlot.appendChild(buildSplitEditor(b));
+    });
+    kids.push(h('section', null, h('label', null, 'Split the tub'),
+      h('div', { class:'fieldHint', style:{ marginBottom:'8px' } }, 'Sort the unsorted pile into named batches.'),
+      openBtn, editorSlot));
+  }
 
-  // optional photoField → ids ride onto the HarvestEntry
-  var harvestPhotoSlot = h('div', { id:'harvestPhotoSlot' });
-  var photos = photoField([]);
-  harvestPhotoSlot.appendChild(photos.el);
-  kids.push(harvestPhotoSlot);
+  // 5. Harvest count field + Cancel/Harvest — remainder pool only.
+  if (hasRemainder){
+    var countIn = h('input', { type:'number', inputmode:'numeric', min:'1',
+      value: (b.count != null ? b.count : ''),
+      max: (b.count != null ? b.count : null), placeholder:'How many' });
+    kids.push(field('How many harvested', countIn, b.count != null ? ('Up to ' + fmtCompact(b.count) + ' in the tub.') : 'The pile is uncounted.'));
 
-  kids.push(h('div', { class:'btnRow' },
-    h('button', { class:'btn btn-quiet', onclick:closeSheet }, 'Cancel'),
-    h('button', { class:'btn btn-barge', onclick:function(){
-      if (photos.busy()){ toast('Photo still saving…'); return; }
-      harvestFromBarge(countIn.value, noteIn.value, photos.ids());
-    } }, 'Harvest')));
-  // explicit empty path — uncounted piles never auto-empty on harvest (C2)
+    var noteIn = h('textarea', { placeholder:'Optional note' });
+    kids.push(field('Note', noteIn));
+
+    // optional photoField → ids ride onto the HarvestEntry
+    var harvestPhotoSlot = h('div', { id:'harvestPhotoSlot' });
+    var photos = photoField([]);
+    harvestPhotoSlot.appendChild(photos.el);
+    kids.push(harvestPhotoSlot);
+
+    kids.push(h('div', { class:'btnRow' },
+      h('button', { class:'btn btn-quiet', onclick:closeSheet }, 'Cancel'),
+      h('button', { class:'btn btn-barge', onclick:function(){
+        if (photos.busy()){ toast('Photo still saving…'); return; }
+        harvestFromBarge(countIn.value, noteIn.value, photos.ids());
+      } }, 'Harvest')));
+  }
+
+  // 6. Clear the tub — always available while the tub holds anything (explicit empty path; C2).
   kids.push(h('button', { class:'btn btn-block', style:{ marginTop:'10px', color:'var(--danger)', background:'var(--surface)', border:'1.5px solid var(--hair-strong)' }, onclick:clearBarge }, 'Clear the tub'));
   return kids;
+}
+// buildSplitEditor(barge) — the dynamic row editor that gathers rows and hands them to splitBarge().
+// Returns ONE DOM node (mounted into the collapsed editor slot). Live "Remaining" readout off b.count.
+function buildSplitEditor(b){
+  var farm = getFarm();
+  var wrap = h('div', { class:'splitEditor' });
+  var rowsWrap = h('div', { id:'splitRows' });
+  var counted = (b.count != null);
+  var remainEl = h('div', { class:'splitRemain' });
+  var saveBtn = h('button', { class:'btn btn-barge', style:{ marginTop:'12px', width:'100%' } }, 'Save batches');
+
+  // each row keeps its own input refs so we can read them on Save and tally on input
+  var rows = [];
+  function recompute(){
+    if (!counted){ remainEl.textContent = 'Pile is uncounted — splits won’t carry a number.'; remainEl.classList.remove('over'); saveBtn.removeAttribute('disabled'); return; }
+    var sum = 0, i;
+    for (i=0; i<rows.length; i++){ var v = parseInt(rows[i].count.value, 10); if (!isNaN(v)) sum += v; }
+    var left = b.count - sum;
+    remainEl.textContent = 'Remaining: ' + fmtCompact(left);
+    if (left < 0){ remainEl.classList.add('over'); saveBtn.setAttribute('disabled', ''); }
+    else { remainEl.classList.remove('over'); saveBtn.removeAttribute('disabled'); }
+  }
+  function cell(cap, input){ return h('div', { class:'sr-cell' }, h('span', { class:'sr-cap' }, cap), input); }
+  function addRow(){
+    var countIn = h('input', { class:'sr-count', type:'number', inputmode:'numeric', min:'1', placeholder:'count' });
+    countIn.addEventListener('input', recompute);
+    var sizeIn = h('input', { class:'sr-size', type:'number', inputmode:'decimal', min:'0', step:'0.1', placeholder:'mm' });
+    var gradeSel = h('select', { class:'sr-grade' }, h('option', { value:'' }, '—'));
+    (farm.grades || []).forEach(function(g){ gradeSel.appendChild(h('option', { value:g }, g)); });
+    var labelIn = h('input', { class:'sr-label', type:'text', placeholder:'Label (optional)' });
+    var rec = { count:countIn, size:sizeIn, grade:gradeSel, label:labelIn };
+    var rmBtn = h('button', { class:'sr-x', type:'button', 'aria-label':'Remove batch' }, '✕');
+    var row = h('div', { class:'splitRow' },
+      cell('Count', countIn), cell('Size', sizeIn), cell('Grade', gradeSel), rmBtn,
+      labelIn);
+    rmBtn.addEventListener('click', function(){
+      var ix = rows.indexOf(rec); if (ix >= 0) rows.splice(ix, 1);
+      rowsWrap.removeChild(row);
+      if (!rows.length) addRow();   // never leave the editor with zero rows
+      recompute();
+    });
+    rows.push(rec);
+    rowsWrap.appendChild(row);
+    recompute();
+  }
+  addRow();   // seed one empty row
+
+  var addBtn = h('button', { class:'chip add batchAdd', type:'button', style:{ marginTop:'10px' } }, '＋ Add batch');
+  addBtn.addEventListener('click', addRow);
+
+  saveBtn.addEventListener('click', function(){
+    var out = [];
+    rows.forEach(function(r){
+      var cRaw = r.count.value, sRaw = r.size.value, gRaw = r.grade.value, lRaw = r.label.value;
+      var cTrim = (cRaw == null ? '' : String(cRaw)).replace(/\s/g, '');
+      var sTrim = (sRaw == null ? '' : String(sRaw)).replace(/\s/g, '');
+      var lTrim = (lRaw == null ? '' : String(lRaw)).replace(/^\s+|\s+$/g, '');
+      // drop fully-empty rows
+      if (!cTrim && !sTrim && !gRaw && !lTrim) return;
+      var cNum = cTrim === '' ? null : Number(cTrim);
+      var sNum = sTrim === '' ? null : Number(sTrim);
+      out.push({
+        count:  (cNum != null && isFinite(cNum)) ? cNum : null,
+        sizeMm: (sNum != null && isFinite(sNum)) ? sNum : null,
+        grade:  (gRaw || null),
+        label:  (lTrim || null)
+      });
+    });
+    splitBarge(out);     // splitBarge validates + toasts; refresh so new chips + remainder appear
+    refreshSheet();
+  });
+
+  wrap.appendChild(rowsWrap);
+  wrap.appendChild(addBtn);
+  wrap.appendChild(remainEl);
+  wrap.appendChild(saveBtn);
+  return wrap;
 }
 // bargeHistoryRows — timeline rows describing what's piled (origin summary + barge events)
 function bargeHistoryRows(b){
@@ -8779,8 +9303,12 @@ function cageActionBar(cage){
     bar.appendChild(btn('Photo', 'camera', '',        function(){ var c = cageById(id); if (c) openSheet(function(){ return buildCagePhotoSheet(c); }); }));
   } else {
     bar.appendChild(btn('Fill', 'plus', 'ca-fill', function(){
-      if (getFarm().barge.state === 'pile'){ closeSheet(); fillFromBarge([id]); }   // distribute the pile
-      else openSheet(function(){ return buildFillSeedForm([id]); });                 // new seed
+      var b = getFarm().barge;
+      // BATCH-SPLIT: active tub batch → remainder pool → pick-a-batch → new seed
+      if (activeFillSplitId && bargeSplitById(b, activeFillSplitId)){ closeSheet(); fillFromBarge([id], activeFillSplitId); }
+      else if (b.state === 'pile'){ closeSheet(); fillFromBarge([id]); }                 // distribute the pile
+      else if (b.splits.length){ toast('Pick a batch in the tub first'); openSheet(function(){ return buildHarvestSheet(getFarm()); }); }
+      else openSheet(function(){ return buildFillSeedForm([id]); });                      // new seed
     }));
     bar.appendChild(btn('Remove', 'trash', 'ca-rm', function(){ closeSheet(); removeCages([id]); }));
   }
@@ -9182,7 +9710,7 @@ function growthPoints(cage){
   if (!cage || !cage.events) return [];
   var pts = [];
   cage.events.forEach(function(ev){
-    if ((ev.type === 'growth' || ev.type === 'stocked') && typeof ev.sizeMm === 'number'){
+    if ((ev.type === 'growth' || ev.type === 'stocked' || ev.type === 'filled') && typeof ev.sizeMm === 'number'){
       pts.push({ ms:isoToMs(ev.date), date:ev.date, size:ev.sizeMm });
     }
   });
