@@ -155,7 +155,11 @@ button{ font-family:inherit; cursor:pointer; background:none; border:none; color
 
 /* ── DASHBOARD CARD (overview-only money + readiness HUD) ─────────────
    Token-only, dark; sits above the canvas on the unscoped overview. */
-.dashcard{ margin:10px 12px 0; padding:14px 16px 12px;
+/* WP-UX: the dashcard owns its own stacking context (position:relative + z-index)
+   and an opaque surface, so the recent-activity feed always paints ABOVE the plot
+   canvas behind it — on a longer-line plot the last feed row can't be clipped
+   mid-word by the SVG. The bottom margin keeps the feed clear of the canvas edge. */
+.dashcard{ position:relative; z-index:2; margin:10px 12px 12px; padding:14px 16px 12px;
   background:var(--surface); border:1px solid var(--hair); border-radius:14px;
   display:flex; flex-direction:column; gap:11px; }
 /* headline row: crop value · sale-ready, split by a hairline rule */
@@ -244,9 +248,12 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
    hull, so when parked at the list end nothing important sits under the barge; mid-scroll a corner
    tuck is acceptable HUD behavior (Phase 2 makes the barge a true canvas HUD anyway). Desktop, with
    room to spare, keeps the clean right gutter. */
+/* WP-UX: bottom pad sized so the last line + the docked origin caption fully clear
+   the fixed tub hull when scrolled to the end (caption gained a backing chip; hull
+   carries its --barge-wake scrim for separation). 160 -> 184px. */
 .mapwell{ padding-right:calc(12px + env(safe-area-inset-right));
-  padding-bottom:calc(160px + env(safe-area-inset-bottom)); }
-.mapwell::after{ height:calc(160px + env(safe-area-inset-bottom)); }
+  padding-bottom:calc(184px + env(safe-area-inset-bottom)); }
+.mapwell::after{ height:calc(184px + env(safe-area-inset-bottom)); }
 @media(min-width:768px){ .mapwell{ padding-right:172px; } }
 
 /* ── FARM LAYOUT EDITOR (LAYOUT §3/§5) ────────────────────────────── */
@@ -516,7 +523,12 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .barge .barge-pill{ background:var(--surface); border:1.5px solid var(--barge-amber); color:var(--barge-amber-ink);
   border-radius:var(--radius-pill); padding:3px 11px; font:800 13px/1 var(--font-num); white-space:nowrap;
   box-shadow:0 1px 3px rgba(0,0,0,.5); }
-.barge .barge-origin{ font:500 11px/1.25 var(--font-ui); color:var(--ink-2); text-align:center; max-width:112px; }
+/* WP-UX: dock the origin caption on a surface chip (same vocabulary as .barge-pill /
+   .barge-empty-cap / .lp-crumb) so "from Line 2 · 2-3, 2-5" reads as map chrome
+   pinned above the tub HUD, not a stray label floating over the cages behind it. */
+.barge .barge-origin{ font:500 11px/1.25 var(--font-ui); color:var(--ink-2); text-align:center; max-width:118px;
+  background:var(--surface); border:1px solid var(--hair); border-radius:var(--radius-pill);
+  padding:3px 10px; box-shadow:0 1px 3px rgba(0,0,0,.4); }
 .barge .barge-empty-cap{ font:600 11px/1.2 var(--font-ui); color:var(--ink-3); text-align:center;
   background:var(--surface); border:1px solid var(--hair); border-radius:var(--radius-pill);
   padding:2px 10px; }
