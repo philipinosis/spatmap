@@ -7915,6 +7915,8 @@ function buildMenu(){
   var wqn = (typeof workQueueItems === 'function') ? workQueueItems(farm).length : 0;
   list.appendChild(item('wrench', 'Needs work', wqn ? (wqn + (wqn === 1 ? ' cage past due' : ' cages past due')) : 'Nothing overdue', function(){ openSheet(buildWorkQueue); }));
   list.appendChild(item('grade', 'Harvest forecast', 'When oysters ripen + inventory by grade', function(){ openSheet(buildForecast); }));
+  var loss = (typeof farmLossStats === 'function') ? farmLossStats(farm) : null;
+  list.appendChild(item('wrench', 'Stock health', loss && loss.totalLost ? (loss.survivalPct + '% survival · ' + fmtCompact(loss.totalLost) + ' lost') : 'Survival + losses by cause', function(){ openSheet(buildStockHealth); }));
   list.appendChild(item('log', 'Harvest Log', (farm.harvestLog.length || 'No') + ' harvests', function(){ openSheet(buildHarvestLog); }));
   list.appendChild(item('grade', 'Grades', farm.grades.length ? farm.grades.join(', ') : 'None yet', function(){ openSheet(buildGrades); }));
   list.appendChild(item('gear', 'Settings', 'Cage types & mesh, market size, alerts', function(){ openSheet(buildSettings); }));
@@ -9605,6 +9607,75 @@ function buildCagePhotoSheet(cage){
   return kids;
 }
 
+// cageSurvival(cage) — for the CURRENT batch: alive count, total lost to mortality, % survival, by cause.
+function cageSurvival(cage){
+  if (!cage || !cage.batch) return null;
+  var bid = cage.batch.id, alive = (typeof cage.batch.count === 'number') ? cage.batch.count : null;
+  var lost = 0, hasLoss = false, causes = {};
+  (cage.events || []).forEach(function(ev){
+    if (ev.type === 'mortality' && ev.batchId === bid && typeof ev.count === 'number' && ev.count > 0){
+      lost += ev.count; hasLoss = true;
+      var r = ev.reason || 'Other'; causes[r] = (causes[r] || 0) + ev.count;
+    }
+  });
+  var stocked = (alive != null) ? alive + lost : null;
+  var pct = (stocked && stocked > 0) ? Math.round(alive / stocked * 100) : null;
+  return { hasLoss:hasLoss, lost:lost, alive:alive, stocked:stocked, pct:pct, causes:causes };
+}
+
+// farmLossStats(farm) — every recorded loss across the farm: total, by cause, standing survival proxy.
+function farmLossStats(farm){
+  var totalLost = 0, alive = 0, cagesWithLoss = 0, causes = {};
+  (farm.lines || []).forEach(function(l){ (l.cages || []).forEach(function(c){
+    if (c.batch && typeof c.batch.count === 'number') alive += c.batch.count;
+    var hadLoss = false;
+    (c.events || []).forEach(function(ev){
+      if (ev.type === 'mortality' && typeof ev.count === 'number' && ev.count > 0){
+        totalLost += ev.count; hadLoss = true;
+        var r = ev.reason || 'Other'; causes[r] = (causes[r] || 0) + ev.count;
+      }
+    });
+    if (hadLoss) cagesWithLoss++;
+  }); });
+  var pct = (alive + totalLost > 0) ? Math.round(alive / (alive + totalLost) * 100) : null;
+  return { totalLost:totalLost, alive:alive, survivalPct:pct, causes:causes, cagesWithLoss:cagesWithLoss };
+}
+
+// buildStockHealth() — farm-wide inventory health: survival, total lost, losses by cause. (menu → Stock health)
+function buildStockHealth(){
+  var farm = getFarm();
+  var s = farmLossStats(farm);
+  var kids = sheetHead('Stock health', 'Survival + where you are losing oysters.');
+  if (!s.totalLost){
+    kids.push(h('div', { class:'emptyNote', style:{marginTop:'14px'} }, 'No losses logged yet.\nLog a loss from a cage’s Work sheet (heat, predation, storm…) and it shows up here, and nets your $ on the water.'));
+    return kids;
+  }
+  function row(label, val, hot){
+    return h('div', { class:'kv', style:{fontSize:'14px'} },
+      h('span', { class:'k' }, label),
+      h('span', { class:'v', style: hot ? {color:'var(--c-work)'} : null }, val));
+  }
+  var card = h('div', { class:'card' });
+  card.appendChild(h('div', { class:'hero num' }, (s.survivalPct != null ? s.survivalPct + '%' : '—')));
+  card.appendChild(h('div', { style:{textAlign:'center', color:'var(--ink-2)', fontSize:'12px', marginBottom:'8px'} }, 'standing survival'));
+  card.appendChild(row('Alive now', fmtCompact(s.alive) + ' oysters'));
+  card.appendChild(row('Total lost', fmtCompact(s.totalLost) + ' oysters', true));
+  card.appendChild(row('Cages with losses', '' + s.cagesWithLoss));
+  kids.push(card);
+  // by cause, biggest first
+  var causeKeys = Object.keys(s.causes).sort(function(a,b){ return s.causes[b] - s.causes[a]; });
+  if (causeKeys.length){
+    var cc = h('div', { class:'card' });
+    cc.appendChild(h('div', { class:'eyebrow' }, 'Where they went'));
+    causeKeys.forEach(function(k){
+      var pctOfLoss = Math.round(s.causes[k] / s.totalLost * 100);
+      cc.appendChild(row(k, fmtCompact(s.causes[k]) + ' · ' + pctOfLoss + '%'));
+    });
+    kids.push(cc);
+  }
+  return kids;
+}
+
 function buildCageDetail(cage){
   var farm = getFarm();
   var t = cageType(farm, cage.typeId);
@@ -9625,6 +9696,12 @@ function buildCageDetail(cage){
     card.appendChild(h('div', { class:'hero num' }, (size != null ? size + ' mm' : '— mm')));
     if (st.ready) card.appendChild(h('div', { class:'ready-badge', style:{marginTop:'4px'} }, h('span', { html:icon('check', 14) }), 'Market-ready'));
     card.appendChild(h('div', { class:'kv' }, h('span', { class:'k' }, 'Count'), h('span', { class:'v' }, cage.batch.count != null ? fmtCompact(cage.batch.count) : 'uncounted')));
+    var surv = cageSurvival(cage);
+    if (surv && surv.hasLoss){
+      var causeStr = Object.keys(surv.causes).map(function(k){ return k + ' ' + fmtCompact(surv.causes[k]); }).join(', ');
+      card.appendChild(h('div', { class:'kv' }, h('span', { class:'k' }, 'Survival'),
+        h('span', { class:'v', style:{color:'var(--c-work)'} }, (surv.pct != null ? surv.pct + '% · ' : '') + 'lost ' + fmtCompact(surv.lost) + (causeStr ? ' (' + causeStr + ')' : ''))));
+    }
     card.appendChild(h('div', { class:'kv' }, h('span', { class:'k' }, 'Ploidy'), h('span', { class:'v' }, cage.batch.ploidy ? cap(cage.batch.ploidy) : '—')));
     card.appendChild(h('div', { class:'kv' }, h('span', { class:'k' }, 'Hatchery'), h('span', { class:'v' }, cage.batch.hatchery || '—')));
     if (cage.batch.grade) card.appendChild(h('div', { class:'kv' }, h('span', { class:'k' }, 'Grade'), h('span', { class:'v' }, cage.batch.grade)));
