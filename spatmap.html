@@ -2081,7 +2081,13 @@ function getFarm(){
 }
 
 // commit() — the mutate→save→render loop; bumps commit.seq for seq-guarded undo
-function commit(){ commit.seq = (commit.seq || 0) + 1; save(); render(); }
+function commit(){
+  commit.seq = (commit.seq || 0) + 1;
+  // A mutation may have added/removed a growth check → drop every farm's cached fitted season curve so the
+  // next projection pass refits. Derived + lazy: clearing here also keeps it out of the saved JSON below.
+  if (state && Array.isArray(state.farms)) state.farms.forEach(function(f){ if (f) delete f._seasonMult; });
+  save(); render();
+}
 commit.seq = 0;
 
 /* ─────────────────────────────────────────────────────────────────
@@ -4279,6 +4285,10 @@ function condHistChart(points, opts){
 function buildCondHistory(){
   var site = condGetSite();
   var kids = sheetHead('Water conditions', site ? (site.name + (site.state ? ' · ' + site.state : '')) : 'No gauge picked');
+  // Growth-calendar transparency card — renders synchronously (no USGS dependency) so the farmer always sees
+  // the fitted-vs-default seasonal shape that drives every projection, and watches it sharpen with each check.
+  var ghFarm = getFarm();
+  if (ghFarm) kids.push(buildGrowthCalendarCard(ghFarm));
   if (!site){
     kids.push(h('div', { class:'emptyNote', style:{marginTop:'14px'} }, 'No USGS gauge selected.\nTap the conditions bar on the overview to pick the gauge nearest your farm, then come back.'));
     return kids;
@@ -10144,10 +10154,134 @@ function growthDamp(size, market){
   var f = (lmax - size) / (lmax - start);
   return f < GROWTH_DAMP_FLOOR ? GROWTH_DAMP_FLOOR : (f > 1 ? 1 : f);
 }
+// SEASON_FIT_MIN_INTERVALS — below this many growth-check intervals across the whole farm, the fit is too
+// thin to trust at all; we return SEASON_MULT untouched (a young farm grows on the default Gulf calendar).
+var SEASON_FIT_MIN_INTERVALS = 6;
+// SEASON_FIT_MIN_N — per-month confidence floor: a month needs this many cage-intervals touching it before
+// its fitted shape is allowed to override the default at all.
+var SEASON_FIT_MIN_N = 3;
+
+// fittedSeasonMult(farm) — derive the 12-month seasonal SHAPE from the farm's OWN growth checks instead of
+// the hardcoded national Gulf curve. PURE: no DOM, no mutation, no cache. Returns a fresh 12-element array.
+//
+// For each cage, each consecutive pair of growth/stocked size points gives a rate (mm/day); we attribute that
+// rate to the calendar months the interval spans, weighted by how many of its days fall in each month. Then
+//   monthMult[m] = mean(rate in month m) / mean(rate across all attributed months)
+// — the seasonal SHAPE only. We NORMALIZE so the returned array averages ~1.0: the per-cage OLS baseline rate
+// already carries growth MAGNITUDE, so the curve must not also scale it (that would double-count). Each month
+// is confidence-gated: with n cage-intervals touching it, blend out[m] = α·fitted[m] + (1−α)·SEASON_MULT[m],
+// α = min(1, n/8); thin/empty months fall back toward the default so a young farm never gets a jagged curve.
+// Honesty: every divide is guarded; with < SEASON_FIT_MIN_INTERVALS total intervals we return SEASON_MULT.
+function fittedSeasonMult(farm){
+  var DEFAULT = SEASON_MULT.slice();
+  if (!farm || !Array.isArray(farm.lines)) return DEFAULT;
+  var sumRate = [0,0,0,0,0,0,0,0,0,0,0,0];   // Σ (rate × dayWeight) per month
+  var sumW    = [0,0,0,0,0,0,0,0,0,0,0,0];   // Σ dayWeight per month  (rate is per-day, so weight by days)
+  var nInt    = [0,0,0,0,0,0,0,0,0,0,0,0];   // # cage-intervals that touch this month (confidence gate)
+  var totalIntervals = 0;
+
+  farm.lines.forEach(function(line){
+    if (!line || !Array.isArray(line.cages)) return;
+    line.cages.forEach(function(cage){
+      var pts = growthPoints(cage);          // already sorted by ms; growth/stocked/filled with a sizeMm
+      for (var i = 1; i < pts.length; i++){
+        var a = pts[i-1], b = pts[i];
+        var days = (b.ms - a.ms) / 86400000;
+        if (!(days > 0)) continue;                       // same-day or out-of-order → skip (no divide-by-zero)
+        var rate = (b.size - a.size) / days;
+        if (!isFinite(rate) || rate < 0) continue;        // oysters don't shrink; ignore noise/negatives
+        totalIntervals++;
+        var touched = {};                                 // months this interval contributes one count to
+        // walk the interval day by calendar month, weighting each month by the days the interval spends in it
+        var cursor = a.ms;
+        while (cursor < b.ms){
+          var d = new Date(cursor);
+          var m = d.getUTCMonth();
+          // end of THIS calendar month (UTC): first day of next month, 00:00
+          var nextMonth = Date.UTC(d.getUTCFullYear(), m + 1, 1);
+          var segEnd = Math.min(nextMonth, b.ms);
+          var wDays = (segEnd - cursor) / 86400000;
+          if (wDays > 0){
+            sumRate[m] += rate * wDays;
+            sumW[m]    += wDays;
+            touched[m] = true;
+          }
+          cursor = segEnd;
+        }
+        for (var mm in touched){ nInt[+mm]++; }
+      }
+    });
+  });
+
+  if (totalIntervals < SEASON_FIT_MIN_INTERVALS) return DEFAULT;   // too thin to trust at all
+
+  // per-month mean rate, then the grand mean across months that actually have data (for normalization)
+  var meanRate = [], grandSum = 0, grandW = 0, m;
+  for (m = 0; m < 12; m++){
+    meanRate[m] = (sumW[m] > 0) ? (sumRate[m] / sumW[m]) : null;
+    if (sumW[m] > 0){ grandSum += sumRate[m]; grandW += sumW[m]; }
+  }
+  var grandMean = (grandW > 0) ? (grandSum / grandW) : 0;
+  if (!(grandMean > 0)) return DEFAULT;                            // no positive growth observed anywhere
+
+  // raw shape = month mean / grand mean (so it averages ~1 by construction over data months)
+  var out = [];
+  for (m = 0; m < 12; m++){
+    var fitted = (meanRate[m] != null) ? (meanRate[m] / grandMean) : DEFAULT[m];
+    var n = nInt[m];
+    if (meanRate[m] == null || n < SEASON_FIT_MIN_N){
+      out[m] = DEFAULT[m];                                         // no/low data → default, no override
+    } else {
+      var alpha = Math.min(1, n / 8);
+      out[m] = alpha * fitted + (1 - alpha) * DEFAULT[m];
+    }
+    if (!isFinite(out[m]) || out[m] < 0) out[m] = DEFAULT[m];      // belt-and-suspenders: never leak NaN/neg
+  }
+
+  // NORMALIZE to average ~1.0 — redistribute SHAPE only; magnitude stays with the per-cage OLS rate.
+  var avg = 0; for (m = 0; m < 12; m++) avg += out[m]; avg /= 12;
+  if (avg > 0){ for (m = 0; m < 12; m++) out[m] = out[m] / avg; }
+  else return DEFAULT;
+  return out;
+}
+
+// farmSeasonMult(farm) — the season curve a projection should use for THIS farm: its fitted curve when the
+// farm has enough checks, else the default. Cached lazily on farm._seasonMult so a projection pass (which
+// runs growthDayDelta thousands of times in a loop) computes it ONCE, not per day. Invalidated in commit()
+// (which clears every farm._seasonMult) so logging a growth check refits. Never persisted (derived field).
+function farmSeasonMult(farm){
+  if (!farm) return SEASON_MULT;
+  if (!Array.isArray(farm._seasonMult) || farm._seasonMult.length !== 12){
+    farm._seasonMult = fittedSeasonMult(farm);
+  }
+  return farm._seasonMult;
+}
+
+// countGrowthIntervals(farm) — # of usable consecutive size-point pairs across the farm (the same intervals
+// fittedSeasonMult counts). Drives the transparency card's "Fitted to your N growth checks" vs not-enough copy.
+function countGrowthIntervals(farm){
+  if (!farm || !Array.isArray(farm.lines)) return 0;
+  var total = 0;
+  farm.lines.forEach(function(line){
+    if (!line || !Array.isArray(line.cages)) return;
+    line.cages.forEach(function(cage){
+      var pts = growthPoints(cage);
+      for (var i = 1; i < pts.length; i++){
+        var days = (pts[i].ms - pts[i-1].ms) / 86400000;
+        var rate = days > 0 ? (pts[i].size - pts[i-1].size) / days : NaN;
+        if (days > 0 && isFinite(rate) && rate >= 0) total++;
+      }
+    });
+  });
+  return total;
+}
+
 // growthDayDelta — ONE source of truth for a single day's mm gain (season × near-market damping).
-// Both integrateGrowth and the growth chart's projection curve use this, so they can never disagree.
-function growthDayDelta(size, ms, ratePerDay, market){
-  return ratePerDay * SEASON_MULT[new Date(ms).getUTCMonth()] * growthDamp(size, market);
+// Both integrateGrowth and the growth chart's projection curve use this, so they can never disagree. The
+// season curve is passed in (a farm's fitted curve, or SEASON_MULT) so both callers read the SAME shape.
+function growthDayDelta(size, ms, ratePerDay, market, seasonArr){
+  var sm = (Array.isArray(seasonArr) && seasonArr.length === 12) ? seasonArr : SEASON_MULT;
+  return ratePerDay * sm[new Date(ms).getUTCMonth()] * growthDamp(size, market);
 }
 
 // growthPoints(cage) — growth/stocked events with a sizeMm, sorted by date
@@ -10165,11 +10299,11 @@ function growthPoints(cage){
 
 // integrateGrowth — seasonal forward-integration with the near-market slowdown (§4.3).
 // `market` anchors the sigmoid damping; pass it so the finish-line flatten is applied.
-function integrateGrowth(fromMs, size, ratePerDay, targetSize, maxDays, market){
+function integrateGrowth(fromMs, size, ratePerDay, targetSize, maxDays, market, seasonArr){
   var ms = fromMs, days = 0;
   while (size < targetSize && days < maxDays){
     ms += 86400000; days++;
-    size += growthDayDelta(size, ms, ratePerDay, market);
+    size += growthDayDelta(size, ms, ratePerDay, market, seasonArr);
   }
   return { ms:ms, size:size, days:days, reached: size >= targetSize };
 }
@@ -10177,12 +10311,16 @@ function integrateGrowth(fromMs, size, ratePerDay, targetSize, maxDays, market){
 // growthModel(cage, farm) — rate selection + estimate today + projection + confidence (§4.2–4.4)
 function growthModel(cage, farm){
   var market = farm.settings.marketSizeMm;
+  // Season curve for THIS projection pass — the farm's fitted curve when it has enough checks, else the
+  // default. Resolved ONCE here (cached on farm._seasonMult) and threaded through every integrateGrowth call
+  // below AND stashed on model so the growth chart's projectionCurve reads the SAME shape (invariant).
+  var seasonArr = farmSeasonMult(farm);
   var pts = growthPoints(cage);
   var model = {
     ok:false, points:pts, rateMmPerDay:DEFAULT_GROWTH_MM_DAY, rateMmPerMonth:DEFAULT_GROWTH_MM_DAY*30.4375,
     rateSource:'prior', noisy:false, estTodayMm:null, readyNow:false, daysToMarket:null,
     projectedDate:null, projectionCapped:false, confidence:'low',
-    lastMeasuredSizeMm:null, lastMeasuredDate:null, isStale:false
+    lastMeasuredSizeMm:null, lastMeasuredDate:null, isStale:false, _seasonMult:seasonArr
   };
   if (!cage || !cage.batch) return model;
 
@@ -10217,14 +10355,14 @@ function growthModel(cage, farm){
     model.lastMeasuredSizeMm = lastPt.size; model.lastMeasuredDate = lastPt.date;
     var ds = daysSince(lastPt.date); model.isStale = (ds != null && ds > 90);
     if (lastPt.ms < todayMs){
-      var est = integrateGrowth(lastPt.ms, lastPt.size, rate, Infinity, Math.min(MAX_PROJECTION_DAYS, Math.max(0, Math.round((todayMs-lastPt.ms)/86400000))), market); // clamp (H3)
+      var est = integrateGrowth(lastPt.ms, lastPt.size, rate, Infinity, Math.min(MAX_PROJECTION_DAYS, Math.max(0, Math.round((todayMs-lastPt.ms)/86400000))), market, seasonArr); // clamp (H3)
       model.estTodayMm = est.size;
     } else model.estTodayMm = lastPt.size;
   } else {
     // no points → estimate from stockedDate using the prior
     var sd = cage.batch.stockedDate, base = (typeof cage.batch.sizeMm === 'number') ? cage.batch.sizeMm : 15;
     if (isValidISO(sd) && isoToMs(sd) < todayMs){
-      var est0 = integrateGrowth(isoToMs(sd), base, rate, Infinity, Math.min(MAX_PROJECTION_DAYS, Math.round((todayMs-isoToMs(sd))/86400000)), market); // clamp (H3)
+      var est0 = integrateGrowth(isoToMs(sd), base, rate, Infinity, Math.min(MAX_PROJECTION_DAYS, Math.round((todayMs-isoToMs(sd))/86400000)), market, seasonArr); // clamp (H3)
       model.estTodayMm = est0.size;
     } else model.estTodayMm = base;
   }
@@ -10235,7 +10373,7 @@ function growthModel(cage, farm){
 
   // projection: integrate today → market, capped
   if (!model.readyNow){
-    var proj = integrateGrowth(todayMs, model.estTodayMm != null ? model.estTodayMm : 15, rate, market, MAX_PROJECTION_DAYS, market);
+    var proj = integrateGrowth(todayMs, model.estTodayMm != null ? model.estTodayMm : 15, rate, market, MAX_PROJECTION_DAYS, market, seasonArr);
     model.daysToMarket = proj.days;
     if (proj.reached && rate >= MIN_GROWTH_MM_DAY){
       var pd = new Date(proj.ms);
@@ -10284,7 +10422,7 @@ function confidenceHint(model){
       market line; dashed market threshold labeled "market N mm". ─────── */
 // projectionCurve — sample the forward growth trajectory (last point → endMs) into ~24 points so the
 // chart can draw a flattening curve. Uses growthDayDelta, the same per-day math as integrateGrowth.
-function projectionCurve(fromMs, size, rate, market, endMs){
+function projectionCurve(fromMs, size, rate, market, endMs, seasonArr){
   var out = [{ ms:fromMs, size:size }];
   if (!(endMs > fromMs)) return out;
   var totalDays = Math.round((endMs - fromMs) / 86400000);
@@ -10292,7 +10430,7 @@ function projectionCurve(fromMs, size, rate, market, endMs){
   var stepDays = Math.max(1, Math.round(totalDays / 24)), ms = fromMs, sz = size, day = 0;
   while (ms < endMs && day < MAX_PROJECTION_DAYS){
     var nextMs = Math.min(endMs, ms + stepDays * 86400000);
-    while (ms < nextMs && day < MAX_PROJECTION_DAYS){ ms += 86400000; day++; sz += growthDayDelta(sz, ms, rate, market); }
+    while (ms < nextMs && day < MAX_PROJECTION_DAYS){ ms += 86400000; day++; sz += growthDayDelta(sz, ms, rate, market, seasonArr); }
     out.push({ ms:ms, size:sz });
   }
   return out;
@@ -10333,7 +10471,8 @@ function growthChartSVG(cage, marketMm, model){
     var lp = pts[pts.length-1];
     var rate = (model && model.rateMmPerDay) || DEFAULT_GROWTH_MM_DAY;
     var endProjMs = (model && model.projectedDate) ? isoToMs(model.projectedDate) : todayMs;
-    var curve = projectionCurve(lp.ms, lp.size, rate, marketMm, endProjMs);
+    // SAME season curve growthModel used (invariant): chart and integrateGrowth must never disagree.
+    var curve = projectionCurve(lp.ms, lp.size, rate, marketMm, endProjMs, model && model._seasonMult);
     if (curve.length > 1){
       svg += '<polyline points="' + curve.map(function(q){ return X(q.ms).toFixed(1) + ',' + Y(q.size).toFixed(1); }).join(' ') + '" fill="none" stroke="#0E7C8B" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round" stroke-linecap="round" opacity="0.55"/>';
     }
@@ -10355,6 +10494,54 @@ function growthChartSVG(cage, marketMm, model){
 }
 // toISOfromMs — UTC ms → ISO yyyy-mm-dd (chart axis labels)
 function toISOfromMs(ms){ var d = new Date(ms); return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth()+1) + '-' + pad2(d.getUTCDate()); }
+
+// seasonShapeSparkline(fitted, isFitted) — a tiny 12-bar SVG of the monthly growth SHAPE. Fitted months are
+// teal; months still riding the default Gulf curve are grey (so the farmer sees which months have data).
+function seasonShapeSparkline(fitted, isFitted){
+  var W = 320, H = 64, padB = 14, padT = 6, n = 12;
+  var bw = (W - 8) / n, max = 0, i;
+  for (i = 0; i < n; i++){ if (fitted[i] > max) max = fitted[i]; }
+  if (!(max > 0)) max = 1;
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMidYMid meet" aria-hidden="true">';
+  // baseline at average (~1.0) so above/below the seasonal mean reads at a glance
+  var avgY = H - padB - (1 / max) * (H - padT - padB);
+  svg += '<line x1="4" y1="' + avgY.toFixed(1) + '" x2="' + (W-4) + '" y2="' + avgY.toFixed(1) + '" stroke="#CBD9DB" stroke-width="1" stroke-dasharray="3 3"/>';
+  for (i = 0; i < n; i++){
+    var v = fitted[i] > 0 ? fitted[i] : 0;
+    var bh = (v / max) * (H - padT - padB);
+    var x = 4 + i * bw, y = H - padB - bh;
+    var fill = (isFitted && isFitted[i]) ? '#0E7C8B' : '#B9C7CA';
+    svg += '<rect x="' + (x+1).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (bw-2).toFixed(1) + '" height="' + Math.max(0.5, bh).toFixed(1) + '" rx="1.5" fill="' + fill + '"/>';
+    svg += '<text x="' + (x + bw/2).toFixed(1) + '" y="' + (H-3) + '" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="7" fill="#8A99A0">' + MONTHS[i].charAt(0) + '</text>';
+  }
+  svg += '</svg>';
+  return svg;
+}
+
+// buildGrowthCalendarCard(farm) — the transparency card: shows the farm's fitted seasonal SHAPE vs the
+// default, so the projection is never a silent swap and the farmer watches it sharpen as they log checks.
+function buildGrowthCalendarCard(farm){
+  var card = h('div', { style:{margin:'14px 0 4px'} });
+  card.appendChild(h('div', { style:{fontWeight:'600', fontSize:'13px', marginBottom:'2px'} }, 'Your growth calendar'));
+  var intervals = countGrowthIntervals(farm);
+  var fitted = farmSeasonMult(farm);
+  var isFitted = null, legend;
+  if (intervals < SEASON_FIT_MIN_INTERVALS){
+    isFitted = [false,false,false,false,false,false,false,false,false,false,false,false];
+    legend = 'Not enough checks yet — using the default Gulf curve. Log growth checks across the seasons and this calendar fits to YOUR water.';
+    // show the DEFAULT shape so the card is never blank (it's what projections use right now)
+    fitted = SEASON_MULT.slice();
+  } else {
+    // a month is "fitted" (teal) when it differs from the default — i.e. it had enough data to override
+    isFitted = [];
+    var def = SEASON_MULT;
+    for (var m = 0; m < 12; m++){ isFitted[m] = Math.abs(fitted[m] - def[m]) > 0.001 ? true : false; }
+    legend = 'Fitted to your ' + intervals + ' growth ' + (intervals === 1 ? 'interval' : 'intervals') + '. Teal months use your own pace; grey months still ride the default until you log more checks.';
+  }
+  card.appendChild(h('div', { html:seasonShapeSparkline(fitted, isFitted) }));
+  card.appendChild(h('div', { style:{fontSize:'10px', color:'#8A99A0', marginTop:'2px'} }, legend));
+  return card;
+}
 
 /* ══════════════════════════════════════════════════════════════════
    PHOTOS — IndexedDB blobs + capture/compress + widgets + viewer + sweep
