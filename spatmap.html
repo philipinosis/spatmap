@@ -2306,7 +2306,9 @@ function eventLabel(ev){
     case 'filled':    return 'Filled from tub';
     case 'pulled':    return 'Pulled';
     case 'harvested': return 'Harvested';
-    case 'mortality': return (typeof ev.count === 'number') ? ('Lost ' + fmtCompact(ev.count) + (ev.reason ? ' · ' + ev.reason : '')) : 'Loss logged';
+    case 'mortality':
+      if (typeof ev.pct === 'number') return 'Lost ~' + ev.pct + '%' + (typeof ev.count === 'number' ? ' (' + fmtCompact(ev.count) + ')' : '') + (ev.reason ? ' · ' + ev.reason : '');
+      return (typeof ev.count === 'number') ? ('Lost ' + fmtCompact(ev.count) + (ev.reason ? ' · ' + ev.reason : '')) : 'Loss logged';
     case 'note':      return 'Note';
   }
   return '';
@@ -8688,6 +8690,7 @@ function newEvent(type, batchId, fields){
     method: (fields.method != null ? fields.method : null),
     sizeMm: (fields.sizeMm != null ? fields.sizeMm : null),
     count:  (fields.count  != null ? fields.count  : null),
+    pct:    (fields.pct    != null ? fields.pct    : null),
     reason: (fields.reason != null ? fields.reason : null),
     note:   (fields.note   != null ? fields.note   : null),
     photoIds: Array.isArray(fields.photoIds) ? fields.photoIds.slice() : []
@@ -9091,8 +9094,17 @@ function workCages(cageIds, opts){
   var verb;
   targets.forEach(function(cage, i){
     var ev = null;
-    if (typeof opts.lossCount === 'number' && opts.lossCount > 0){
-      // MORTALITY — decrement the LIVING count and log a real loss event in lineage (per-cage, capped at what it holds)
+    if (typeof opts.lossPct === 'number' && opts.lossPct > 0){
+      // MORTALITY by ESTIMATE — farmers don't headcount the dead, they eyeball a % of the batch.
+      // Apply the % to THIS cage's living count (per-cage, so a selection works), decrement, log it.
+      var pctL = Math.min(100, opts.lossPct);
+      var hadP = (typeof cage.batch.count === 'number') ? cage.batch.count : null;
+      var lostP = (hadP != null) ? Math.min(Math.round(hadP * pctL / 100), hadP) : null;   // null count → record the %, can't decrement
+      ev = newEvent('mortality', cage.batch.id, { count:lostP, pct:pctL, reason:opts.lossReason || null, date:date, note:opts.note || null, photoIds:opts.photoIds });
+      cage.events.push(ev);
+      if (hadP != null && lostP != null) cage.batch.count = Math.max(0, hadP - lostP);
+    } else if (typeof opts.lossCount === 'number' && opts.lossCount > 0){
+      // MORTALITY by exact count (kept for the rare case a farmer does count)
       var had = (typeof cage.batch.count === 'number') ? cage.batch.count : null;
       var lost = (had != null) ? Math.min(Math.floor(opts.lossCount), had) : Math.floor(opts.lossCount);
       ev = newEvent('mortality', cage.batch.id, { count:lost, reason:opts.lossReason || null, date:date, note:opts.note || null, photoIds:opts.photoIds });
@@ -9114,7 +9126,7 @@ function workCages(cageIds, opts){
     if ('workDue' in opts) cage.workDue = opts.workDue || null;
     else if (opts.method || typeof opts.sizeMm === 'number') cage.workDue = null;  // a real work clears an old reminder
   });
-  var isLoss = (typeof opts.lossCount === 'number' && opts.lossCount > 0);
+  var isLoss = (typeof opts.lossPct === 'number' && opts.lossPct > 0) || (typeof opts.lossCount === 'number' && opts.lossCount > 0);
   verb = isLoss ? 'Logged loss on' : opts.method ? cap(opts.method) : (typeof opts.sizeMm === 'number' ? 'Logged growth on' : 'Noted');
 
   var nC = targets.length + (targets.length === 1 ? ' cage' : ' cages');
@@ -9185,9 +9197,20 @@ function buildWorkSheet(cageIds){
     h('div', { style:{display:'flex', gap:'10px'} },
       h('div', { style:{flex:'1'} }, growthIn), growthBtn)));
 
-  // Log loss / mortality — decrements the LIVING count so $ on the water + sale-ready stay honest
-  var lossReason = null;
-  var lossIn = h('input', { type:'number', inputmode:'numeric', min:'1', step:'1', placeholder:'e.g. 200' });
+  // Log loss / mortality — farmers ESTIMATE a % dead, they don't headcount (owner: "i get a general
+  // estimate, maybe % dead"). Pick a % of the batch → it nets the living count so $ + sale-ready stay honest.
+  var lossReason = null, lossPct = null;
+  var pctChips = h('div', { class:'chips' });
+  var pctIn = h('input', { type:'number', inputmode:'numeric', min:'1', max:'100', step:'1', placeholder:'or type %' });
+  [5,10,25,50].forEach(function(p){
+    var chip = h('button', { class:'chip', type:'button', onclick:function(){
+      lossPct = (lossPct === p) ? null : p;
+      var all = pctChips.querySelectorAll('.chip'); for (var i=0;i<all.length;i++) all[i].classList.remove('on');
+      if (lossPct != null){ chip.classList.add('on'); pctIn.value = ''; }
+    } }, p + '%');
+    pctChips.appendChild(chip);
+  });
+  pctIn.addEventListener('input', function(){ lossPct = null; var all = pctChips.querySelectorAll('.chip'); for (var i=0;i<all.length;i++) all[i].classList.remove('on'); });
   var reasonChips = h('div', { class:'chips', style:{marginTop:'8px'} });
   ['Heat','Predation','Storm','Handling','Disease','Other'].forEach(function(r){
     var chip = h('button', { class:'chip', type:'button', onclick:function(){
@@ -9198,13 +9221,14 @@ function buildWorkSheet(cageIds){
     reasonChips.appendChild(chip);
   });
   var lossBtn = h('button', { class:'btn btn-quiet', onclick:function(){
-    var v = parseNum(lossIn.value);
-    if (v == null || v <= 0){ toast('Enter how many were lost'); return; }
+    var p = (lossPct != null) ? lossPct : parseNum(pctIn.value);
+    if (p == null || p <= 0 || p > 100){ toast('Pick or type an estimated % dead (1–100)'); return; }
     if (photos.busy()){ toast('Photo still saving…'); return; }
-    workCages(cageIds, { lossCount:v, lossReason:lossReason, note:(noteIn.value || '').trim(), workDue:reminderDue, photoIds:photos.ids() });
+    workCages(cageIds, { lossPct:p, lossReason:lossReason, note:(noteIn.value || '').trim(), workDue:reminderDue, photoIds:photos.ids() });
   } }, 'Log loss');
-  kids.push(h('section', null, h('label', null, bulk ? 'Log loss (each cage)' : 'Log loss'),
-    h('div', { style:{display:'flex', gap:'10px'} }, h('div', { style:{flex:'1'} }, lossIn), lossBtn),
+  kids.push(h('section', null, h('label', null, bulk ? 'Log loss — est. % dead (each cage)' : 'Log loss — est. % dead'),
+    pctChips,
+    h('div', { style:{display:'flex', gap:'10px', marginTop:'8px'} }, h('div', { style:{flex:'1'} }, pctIn), lossBtn),
     reasonChips));
 
   // optional note (read by the buttons above)
