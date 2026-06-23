@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>SpatMap v3</title>
+<title>SpatMap v4</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230A2E38'/%3E%3Cellipse cx='16' cy='18' rx='9' ry='6.5' fill='%23EAF1F2'/%3E%3Cpath d='M7.5 18 Q16 8 24.5 18' fill='none' stroke='%230E7C8B' stroke-width='2.2'/%3E%3C/svg%3E">
 <style>
 /* ══════════════════════════════════════════════════════════════════
@@ -763,9 +763,11 @@ label{ display:block; font:700 12px/1 var(--font-ui); letter-spacing:.06em; text
 .photoThumbWrap{ position:relative; width:64px; height:64px; }
 .photoThumbWrap img{ width:64px; height:64px; border-radius:12px; object-fit:cover;
   border:1px solid var(--hair); display:block; background:var(--surface-sink); }
-.photoThumbWrap .rmph{ position:absolute; top:-6px; right:-6px; width:22px; height:22px;
+.photoThumbWrap .rmph{ position:absolute; top:-6px; right:-6px; width:24px; height:24px;
   border-radius:50%; background:var(--toast-bg); color:#fff; font-size:14px; line-height:1;
   display:flex; align-items:center; justify-content:center; }
+/* invisible hit-halo so the small ✕ is a ~42px touch target on a phone (audit: tap-target) */
+.photoThumbWrap .rmph::before{ content:''; position:absolute; inset:-9px; border-radius:50%; }
 .photoStrip{ display:flex; gap:8px; overflow-x:auto; padding:4px 0; -webkit-overflow-scrolling:touch; }
 .thumb{ width:64px; height:64px; border-radius:12px; object-fit:cover; flex:0 0 auto;
   border:1px solid var(--hair); background:var(--surface-sink); }
@@ -2738,9 +2740,13 @@ function harvestForecast(farm){
       var model = growthModel(cage, farm);
       var pd = (model && model.projectedDate) ? isoToMs(model.projectedDate) : NaN;
       if (isNaN(pd) || (model && model.projectionCapped) || pd > horizonMs){ out.later.cages++; out.later.oysters += cnt; return; }
-      if (pd <= todayMs){ out.readyNow.cages++; out.readyNow.oysters += cnt; return; }
-      var key = monthYear(model.projectedDate);
-      if (!byMonth[key]){ byMonth[key] = { label:key, cages:0, oysters:0, ms:pd }; order.push(key); }
+      // Projected-ready (estimated, not measured) is bucketed by month — NOT counted as "Ready now".
+      // "Ready now" stays MEASURED-only so this sheet's headline matches the dashboard's sale-ready stat.
+      // If the estimate says a cage is already due, clamp it to this month rather than the past.
+      var key, kms;
+      if (pd <= todayMs){ kms = todayMs; key = monthYear(todayISO()); }
+      else { kms = pd; key = monthYear(model.projectedDate); }
+      if (!byMonth[key]){ byMonth[key] = { label:key, cages:0, oysters:0, ms:kms }; order.push(key); }
       byMonth[key].cages++; byMonth[key].oysters += cnt;
     });
   });
@@ -4025,7 +4031,7 @@ function condSetSalinity(ppt){
    site's own lat/lng, so there is still only ONE site to pick. */
 var COND_K_SITE      = 'spatmapUsgsSite';     // chosen USGS site: {id,name,state,lat,lng}
 var COND_K_USGS_SITES = 'usgsSalinitySites';  // per-state cached site lists: { LA:{ts,list[]}, ... }
-var COND_USGS_PARAMS = '00010,00065,00095,00480,00035,00036';   // temp · gage ht · spec cond · salinity · wind spd · wind dir
+var COND_USGS_PARAMS = '00010,00065,00480,00035,00036';   // temp · gage ht · salinity · wind spd · wind dir (00095 spec-cond was requested but never read)
 var COND_USGS_SUGGESTED = { id:'07380249', name:'Caminada Pass NW of Grand Isle, LA', state:'LA', lat:29.2313611, lng:-90.0485278 };
 function condGetSite(){
   var s = condLSget(COND_K_SITE);
@@ -4248,6 +4254,7 @@ function condRefresh(site, mySeq){
   }
   var now = Date.now();
   var usgsJob = condFetchUsgs(site.id).then(function(u){
+    if (mySeq !== condReqSeq) return { ok:false };   // a newer render superseded us — don't overwrite the cache with stale data
     function wr(prod, val, atStr){ var ms = condParseT(atStr); condWriteCache(site.id, prod, { value:val, observedAt:(ms ? ms.getTime() : now), fetchedAt:now }); }
     var p = u.params;
     if (p['00010']) wr('u_temp', { c:p['00010'].v }, p['00010'].at);
@@ -4260,6 +4267,7 @@ function condRefresh(site, mySeq){
     return { ok:true };
   }, function(){ return { ok:false }; });
   var wxJob = condFetchWeather(site.lat, site.lng).then(function(res){
+    if (mySeq !== condReqSeq) return { ok:false };   // superseded — don't overwrite the cache with stale data
     condWriteCache(site.id, 'weather', { value:res.value, observedAt:res.observedAt, fetchedAt:Date.now() });
     return { ok:true };
   }, function(){ return { ok:false }; });   // swallow — cached value (if any) stays good
@@ -7973,6 +7981,9 @@ function exportData(){
 function csvCell(v){
   if (v == null) return '';
   var s = String(v);
+  // Neutralize spreadsheet formula injection: a value starting with = + - @ (or tab/CR) is treated
+  // as a formula by Excel/Sheets/Numbers. These records go to buyers/inspectors — prefix a quote.
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function csvText(rows){ return rows.map(function(r){ return r.map(csvCell).join(','); }).join('\r\n'); }
@@ -8017,7 +8028,7 @@ function exportHarvestCSV(){
   var log = farm.harvestLog || [];
   if (!log.length){ toast('No harvests to export yet'); return; }
   var rows = [['Date','Count','Grade','Size (mm)','From lines','Note']];
-  log.slice().sort(function(a,b){ return isoToMs(a.date) - isoToMs(b.date); }).forEach(function(e){
+  log.slice().sort(function(a,b){ return (isoToMs(a.date)||0) - (isoToMs(b.date)||0); }).forEach(function(e){
     var lines = (e.origin && e.origin.lineNames && e.origin.lineNames.length) ? e.origin.lineNames.join('; ') : '';
     rows.push([ e.date || '', (e.count != null ? e.count : ''), e.grade || '',
       (typeof e.sizeMm === 'number' ? e.sizeMm : ''), lines, e.note || '' ]);
@@ -8355,6 +8366,7 @@ function renderPopup(farm){
       var ids = selectedIds();
       var b = getFarm().barge;
       if (activeFillSplitId && bargeSplitById(b, activeFillSplitId)) fillFromBarge(ids, activeFillSplitId);
+      else if (activeFillSplitId){ setActiveFillSplit(null); toast('That batch is gone — pick again'); openSheet(function(){ return buildHarvestSheet(getFarm()); }); }   // armed split vanished (undo/clear) — don't silently fill remainder
       else if (b.state === 'pile') fillFromBarge(ids);
       else if (b.splits.length){ toast('Pick a batch in the tub first'); openSheet(function(){ return buildHarvestSheet(getFarm()); }); }
       else openSheet(function(){ return buildFillSeedForm(ids); });
@@ -9297,8 +9309,9 @@ function cageActionBar(cage){
   } else {
     bar.appendChild(btn('Fill', 'plus', 'ca-fill', function(){
       var b = getFarm().barge;
-      // BATCH-SPLIT: active tub batch → remainder pool → pick-a-batch → new seed
+      // BATCH-SPLIT: active tub batch → (armed-but-gone guard) → remainder pool → pick-a-batch → new seed
       if (activeFillSplitId && bargeSplitById(b, activeFillSplitId)){ closeSheet(); fillFromBarge([id], activeFillSplitId); }
+      else if (activeFillSplitId){ setActiveFillSplit(null); toast('That batch is gone — pick again'); openSheet(function(){ return buildHarvestSheet(getFarm()); }); }  // armed split vanished — don't silently fill remainder
       else if (b.state === 'pile'){ closeSheet(); fillFromBarge([id]); }                 // distribute the pile
       else if (b.splits.length){ toast('Pick a batch in the tub first'); openSheet(function(){ return buildHarvestSheet(getFarm()); }); }
       else openSheet(function(){ return buildFillSeedForm([id]); });                      // new seed
@@ -10141,12 +10154,14 @@ function photoStrip(photoIds, caption){
 //   keydown handler defers when #photoViewer has a child). Revokes its own URL on nav/close.
 var _pvURL = null;
 var _pvSeq = 0;               // sequence token so a fast nav/close can't strand an in-flight blob URL (audit F13/H3)
+var _pvTeardown = null;       // teardown of the live viewer, so re-opening can't leak its URL + capture-phase keydown handler
 function openPhotoViewer(photoIds, start, caption){
   var list = (photoIds || []).filter(function(p){ return typeof p === 'string'; });
   if (!list.length) return;
   var idx = Math.max(0, Math.min(start || 0, list.length - 1));
   var host = document.getElementById('photoViewer');
   if (!host){ host = h('div', { id:'photoViewer' }); document.body.appendChild(host); }
+  if (_pvTeardown){ try { _pvTeardown(); } catch (e) {} }   // re-entry: kill the previous viewer first (revoke URL + unbind keydown/touch)
   host.className = 'viewer';                           // apply the full-screen overlay styling while open
   host.innerHTML = '';
 
@@ -10159,6 +10174,7 @@ function openPhotoViewer(photoIds, start, caption){
     host.removeEventListener('touchend', onTouchEnd);
     host.innerHTML = '';                              // empties firstChild → Escape returns to the sheet
     host.className = '';                              // drop .viewer so the empty div stops covering the screen
+    _pvTeardown = null;
   }
 
   var img = h('img', { alt:'photo' });
@@ -10213,6 +10229,7 @@ function openPhotoViewer(photoIds, start, caption){
   }
   host.addEventListener('touchstart', onTouchStart, { passive:true });
   host.addEventListener('touchend', onTouchEnd, { passive:true });
+  _pvTeardown = close;                                 // mark this viewer live so a re-open tears it down first
 
   show(idx);
 }
@@ -10296,8 +10313,12 @@ function restoreImportedPhotos(photos){
     }).catch(function(){ return false; });
   })).then(function(results){
     var n = results.filter(function(ok){ return ok; }).length;
+    var total = photos.length;
     sweepPhotos();
-    toast('Backup imported · ' + n + (n === 1 ? ' photo restored' : ' photos restored'));
+    // Tell the truth on a partial restore — quota/IDB-unavailable drops photos while the metadata still
+    // references them. Claiming full success here is how a farmer ends up with silently-broken thumbnails.
+    if (n === total) toast('Backup imported · ' + n + (n === 1 ? ' photo restored' : ' photos restored'));
+    else toast('Backup imported · restored ' + n + ' of ' + total + ' photos — the rest could not be saved (storage full or unavailable)');
   });
 }
 
