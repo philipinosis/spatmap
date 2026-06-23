@@ -9705,11 +9705,32 @@ function lineageEvents(batch, farm){
 /* ═══════════════════════════════════════════════════════════════════
    GROWTH + SEASONAL PROJECTION (§4 — exact constants + honest copy)
    ═══════════════════════════════════════════════════════════════════ */
-var DEFAULT_GROWTH_MM_DAY = 0.18;   // Gulf triploid prior: ~15mm seed → ~76mm in ~1yr
+var DEFAULT_GROWTH_MM_DAY = 0.18;   // Gulf triploid JUVENILE prior (fast phase). With the seasonal curve +
+                                    // the near-market slowdown below, a spring seed nets ~13–14 mo to market.
 var MIN_GROWTH_MM_DAY = 0.02;       // below this, projected date is "unknown", not 50yr out
 var STALE_DAYS = 30;
 var MAX_PROJECTION_DAYS = 730;
-var SEASON_MULT = [0.35,0.45,0.8,1.2,1.35,1.35,1.05,1.0,1.2,1.3,0.8,0.45]; // Jan..Dec Gulf seasonality
+// Jan..Dec Gulf seasonality. Winter (Dec–Feb) is a near-stall: below ~12 °C oyster SHELL LENGTH growth
+// almost halts even though the animal lives. Hardened from the old soft 0.35/0.45 winters.
+var SEASON_MULT = [0.20,0.25,0.65,1.15,1.35,1.35,1.10,1.05,1.20,1.25,0.55,0.22];
+// Sigmoid finish: oyster length growth is NOT linear — it flattens hard near market as energy shifts to
+// cup depth/meat/shell. Model it von-Bertalanffy style: the daily increment is damped toward an asymptote.
+var GROWTH_ASYMPTOTE_MULT = 1.35;   // L∞ ≈ 1.35 × market (length keeps creeping past market, very slowly)
+var GROWTH_DAMP_START     = 0.60;   // full juvenile rate below 0.6 × market; ramps down above it
+var GROWTH_DAMP_FLOOR     = 0.15;   // never fully stall (keeps a projection from running to infinity)
+// growthDamp(size, market) → 1 in the juvenile phase, → GROWTH_DAMP_FLOOR as size approaches L∞.
+function growthDamp(size, market){
+  if (!(market > 0)) return 1;
+  var lmax = market * GROWTH_ASYMPTOTE_MULT, start = market * GROWTH_DAMP_START;
+  if (size <= start) return 1;
+  var f = (lmax - size) / (lmax - start);
+  return f < GROWTH_DAMP_FLOOR ? GROWTH_DAMP_FLOOR : (f > 1 ? 1 : f);
+}
+// growthDayDelta — ONE source of truth for a single day's mm gain (season × near-market damping).
+// Both integrateGrowth and the growth chart's projection curve use this, so they can never disagree.
+function growthDayDelta(size, ms, ratePerDay, market){
+  return ratePerDay * SEASON_MULT[new Date(ms).getUTCMonth()] * growthDamp(size, market);
+}
 
 // growthPoints(cage) — growth/stocked events with a sizeMm, sorted by date
 function growthPoints(cage){
@@ -9724,12 +9745,13 @@ function growthPoints(cage){
   return pts;
 }
 
-// integrateGrowth — seasonal forward-integration (§4.3, verbatim)
-function integrateGrowth(fromMs, size, ratePerDay, targetSize, maxDays){
+// integrateGrowth — seasonal forward-integration with the near-market slowdown (§4.3).
+// `market` anchors the sigmoid damping; pass it so the finish-line flatten is applied.
+function integrateGrowth(fromMs, size, ratePerDay, targetSize, maxDays, market){
   var ms = fromMs, days = 0;
   while (size < targetSize && days < maxDays){
     ms += 86400000; days++;
-    size += ratePerDay * SEASON_MULT[new Date(ms).getUTCMonth()];
+    size += growthDayDelta(size, ms, ratePerDay, market);
   }
   return { ms:ms, size:size, days:days, reached: size >= targetSize };
 }
@@ -9777,14 +9799,14 @@ function growthModel(cage, farm){
     model.lastMeasuredSizeMm = lastPt.size; model.lastMeasuredDate = lastPt.date;
     var ds = daysSince(lastPt.date); model.isStale = (ds != null && ds > 90);
     if (lastPt.ms < todayMs){
-      var est = integrateGrowth(lastPt.ms, lastPt.size, rate, Infinity, Math.min(MAX_PROJECTION_DAYS, Math.max(0, Math.round((todayMs-lastPt.ms)/86400000)))); // clamp (H3)
+      var est = integrateGrowth(lastPt.ms, lastPt.size, rate, Infinity, Math.min(MAX_PROJECTION_DAYS, Math.max(0, Math.round((todayMs-lastPt.ms)/86400000))), market); // clamp (H3)
       model.estTodayMm = est.size;
     } else model.estTodayMm = lastPt.size;
   } else {
     // no points → estimate from stockedDate using the prior
     var sd = cage.batch.stockedDate, base = (typeof cage.batch.sizeMm === 'number') ? cage.batch.sizeMm : 15;
     if (isValidISO(sd) && isoToMs(sd) < todayMs){
-      var est0 = integrateGrowth(isoToMs(sd), base, rate, Infinity, Math.min(MAX_PROJECTION_DAYS, Math.round((todayMs-isoToMs(sd))/86400000))); // clamp (H3)
+      var est0 = integrateGrowth(isoToMs(sd), base, rate, Infinity, Math.min(MAX_PROJECTION_DAYS, Math.round((todayMs-isoToMs(sd))/86400000)), market); // clamp (H3)
       model.estTodayMm = est0.size;
     } else model.estTodayMm = base;
   }
@@ -9795,7 +9817,7 @@ function growthModel(cage, farm){
 
   // projection: integrate today → market, capped
   if (!model.readyNow){
-    var proj = integrateGrowth(todayMs, model.estTodayMm != null ? model.estTodayMm : 15, rate, market, MAX_PROJECTION_DAYS);
+    var proj = integrateGrowth(todayMs, model.estTodayMm != null ? model.estTodayMm : 15, rate, market, MAX_PROJECTION_DAYS, market);
     model.daysToMarket = proj.days;
     if (proj.reached && rate >= MIN_GROWTH_MM_DAY){
       var pd = new Date(proj.ms);
@@ -9842,6 +9864,21 @@ function confidenceHint(model){
 /* ── growthChartSVG(cage, marketMm, model) — inline SVG (§4.6).
       Solid teal polyline through measurements; dashed projection to the
       market line; dashed market threshold labeled "market N mm". ─────── */
+// projectionCurve — sample the forward growth trajectory (last point → endMs) into ~24 points so the
+// chart can draw a flattening curve. Uses growthDayDelta, the same per-day math as integrateGrowth.
+function projectionCurve(fromMs, size, rate, market, endMs){
+  var out = [{ ms:fromMs, size:size }];
+  if (!(endMs > fromMs)) return out;
+  var totalDays = Math.round((endMs - fromMs) / 86400000);
+  if (totalDays < 1) return out;
+  var stepDays = Math.max(1, Math.round(totalDays / 24)), ms = fromMs, sz = size, day = 0;
+  while (ms < endMs && day < MAX_PROJECTION_DAYS){
+    var nextMs = Math.min(endMs, ms + stepDays * 86400000);
+    while (ms < nextMs && day < MAX_PROJECTION_DAYS){ ms += 86400000; day++; sz += growthDayDelta(sz, ms, rate, market); }
+    out.push({ ms:ms, size:sz });
+  }
+  return out;
+}
 function growthChartSVG(cage, marketMm, model){
   var pts = (model && model.points) ? model.points : growthPoints(cage);
   var W = 320, H = 150, padL = 8, padR = 10, padT = 12, padB = 18;
@@ -9873,13 +9910,14 @@ function growthChartSVG(cage, marketMm, model){
     var d = '';
     pts.forEach(function(p, i){ d += (i ? ' L' : 'M') + X(p.ms).toFixed(1) + ' ' + Y(p.size).toFixed(1); });
     svg += '<polyline points="' + pts.map(function(p){ return X(p.ms).toFixed(1) + ',' + Y(p.size).toFixed(1); }).join(' ') + '" fill="none" stroke="#0E7C8B" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
-    // projection segment: last real point → (projectedDate, market) or (today, est)
+    // projection CURVE: integrate last measured point forward with the SAME season+sigmoid model,
+    // so the dashed line FLATTENS toward market instead of shooting straight through it.
     var lp = pts[pts.length-1];
-    var px, py;
-    if (model && model.projectedDate){ px = X(isoToMs(model.projectedDate)); py = Y(marketMm); }
-    else if (model && typeof model.estTodayMm === 'number'){ px = X(todayMs); py = Y(model.estTodayMm); }
-    if (px != null){
-      svg += '<line x1="' + X(lp.ms).toFixed(1) + '" y1="' + Y(lp.size).toFixed(1) + '" x2="' + px.toFixed(1) + '" y2="' + py.toFixed(1) + '" stroke="#0E7C8B" stroke-width="2" stroke-dasharray="5 4" opacity="0.55"/>';
+    var rate = (model && model.rateMmPerDay) || DEFAULT_GROWTH_MM_DAY;
+    var endProjMs = (model && model.projectedDate) ? isoToMs(model.projectedDate) : todayMs;
+    var curve = projectionCurve(lp.ms, lp.size, rate, marketMm, endProjMs);
+    if (curve.length > 1){
+      svg += '<polyline points="' + curve.map(function(q){ return X(q.ms).toFixed(1) + ',' + Y(q.size).toFixed(1); }).join(' ') + '" fill="none" stroke="#0E7C8B" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round" stroke-linecap="round" opacity="0.55"/>';
     }
     pts.forEach(function(p){ svg += '<circle cx="' + X(p.ms).toFixed(1) + '" cy="' + Y(p.size).toFixed(1) + '" r="3.2" fill="#0E7C8B"/>'; });
   } else {
