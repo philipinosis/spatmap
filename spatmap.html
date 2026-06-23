@@ -8051,6 +8051,7 @@ function buildMenu(){
   if (watch && watch.flagged.length){
     list.appendChild(item('wrench', 'Watch list', watch.flagged.length + (watch.flagged.length === 1 ? ' cage losing faster than peers' : ' cages losing faster than peers'), function(){ openSheet(buildMortalityWatch); }));
   }
+  list.appendChild(item('grade', 'Seed source scorecard', 'Which hatchery performs — survival, time, $ per cage', function(){ openSheet(buildCohortScorecard); }));
   list.appendChild(item('log', 'Harvest Log', (farm.harvestLog.length || 'No') + ' harvests', function(){ openSheet(buildHarvestLog); }));
   list.appendChild(item('grade', 'Grades', farm.grades.length ? farm.grades.join(', ') : 'None yet', function(){ openSheet(buildGrades); }));
   list.appendChild(item('gear', 'Settings', 'Cage types & mesh, market size, alerts', function(){ openSheet(buildSettings); }));
@@ -10378,6 +10379,194 @@ function lineageEvents(batch, farm){
   }
   out.sort(function(a,b){ return isoToMs(b.date) - isoToMs(a.date); });
   return out;
+}
+
+/* ── cohortStats(farm) — "which seed source actually performs?" — grouped by hatchery (and by
+   seedCohortId where stamped). Built from the loop's exhaust (cages + harvestLog), NOT a daily view.
+
+   Honesty rules baked in:
+   • Survival/lost come ONLY from currently-stocked cages (cageSurvival scoping) — real standing numbers.
+   • Harvest count + revenue join a cohort ONLY when a harvest entry's origin.parentBatchIds resolves to a
+     batch we know the hatchery of. Harvests we can't attribute (e.g. legacy/hand-entered with no batch
+     link) go to a separate "unattributed" tally and NEVER inflate a cohort's yield.
+   • Days-to-market uses the durable record: a harvest entry's date minus the seed stockedDate of the batch
+     it came from (the 'harvested' EVENT is wiped when the barge empties, so the harvestLog is the truth).
+   • A cohort with stocked cages but no attributed harvest is flagged inProgress — we do NOT fabricate a
+     final yield or survival for it.
+   • Groups under MIN_COHORT_CAGES are returned with thin:true so the UI shows counts, not a ranking. */
+var MIN_COHORT_CAGES = 3;   // below this we don't rank a cohort — too few cages to mean anything
+function cohortStats(farm){
+  if (!farm || !farm.lines) return { groups:[], unattributed:null };
+  // batchId → hatchery, from the ledger (every stocked/ledgered batch carries its hatchery)
+  var batchHatch = {}, batchSeed = {}, batchStocked = {};
+  (farm.batches || []).forEach(function(b){
+    if (!b || !b.id) return;
+    batchHatch[b.id] = (b.hatchery || '').trim();
+    if (b.seedCohortId) batchSeed[b.id] = b.seedCohortId;
+    if (isValidISO(b.stockedDate)) batchStocked[b.id] = b.stockedDate;
+  });
+
+  var groups = {};   // key → accumulator
+  function keyFor(hatchery, seed){
+    var h = (hatchery || '').trim() || 'Unknown source';
+    return seed ? (h + ' · ' + seed) : h;
+  }
+  function grp(hatchery, seed){
+    var k = keyFor(hatchery, seed);
+    if (!groups[k]){
+      groups[k] = { key:k, hatchery:(hatchery || '').trim() || 'Unknown source', seedCohortId:seed || null,
+        cages:0, alive:0, lost:0, stocked:0, causes:{},
+        harvested:0, revenue:0, revenueKnown:false, daysToMarket:[], lineNames:{} };
+    }
+    return groups[k];
+  }
+
+  // 1) walk currently-stocked cages → survival side of the ledger
+  farm.lines.forEach(function(line){ (line.cages || []).forEach(function(cage){
+    if (!cage.batch) return;
+    var b = cage.batch;
+    var g = grp(b.hatchery, b.seedCohortId);
+    var surv = cageSurvival(cage);   // count-scoped to THIS batch
+    g.cages++;
+    if (line && line.name) g.lineNames[line.name] = true;
+    if (surv){
+      if (surv.alive != null) g.alive += surv.alive;
+      g.lost += surv.lost;
+      if (surv.stocked != null) g.stocked += surv.stocked;
+      Object.keys(surv.causes).forEach(function(c){ g.causes[c] = (g.causes[c] || 0) + surv.causes[c]; });
+    }
+  }); });
+
+  // 2) walk harvest log → harvested count, revenue, days-to-market — ATTRIBUTED only
+  var unatt = { harvested:0, revenue:0, revenueKnown:false, entries:0 };
+  (farm.harvestLog || []).forEach(function(e){
+    var pids = (e.origin && Array.isArray(e.origin.parentBatchIds)) ? e.origin.parentBatchIds : [];
+    // resolve to a single hatchery: the entry attributes cleanly only if every linked batch we know
+    // shares one hatchery (mixed-source pulls are honestly left unattributed)
+    var hatch = null, seed = null, resolved = false, ambiguous = false, seedAds = {};
+    pids.forEach(function(pid){
+      if (!(pid in batchHatch)) return;
+      var h = batchHatch[pid];
+      if (!resolved){ hatch = h; resolved = true; }
+      else if (h !== hatch){ ambiguous = true; }
+      if (batchSeed[pid]) seedAds[batchSeed[pid]] = true;
+    });
+    var seedKeys = Object.keys(seedAds);
+    if (resolved && seedKeys.length === 1) seed = seedKeys[0];
+    var cnt = (typeof e.count === 'number' && e.count > 0) ? e.count : 0;
+    var rev = (typeof e.revenue === 'number' && e.revenue >= 0) ? e.revenue : null;
+    if (!resolved || ambiguous){
+      // can't honestly assign — keep it visible but separate
+      unatt.entries++; unatt.harvested += cnt;
+      if (rev != null){ unatt.revenue += rev; unatt.revenueKnown = true; }
+      return;
+    }
+    var g = grp(hatch, seed);
+    g.harvested += cnt;
+    if (rev != null){ g.revenue += rev; g.revenueKnown = true; }
+    // days-to-market: harvest date − earliest seed stockedDate among the linked batches we know
+    var seedMs = null;
+    pids.forEach(function(pid){ var sd = batchStocked[pid]; if (sd){ var ms = isoToMs(sd); if (seedMs == null || ms < seedMs) seedMs = ms; } });
+    if (seedMs != null && isValidISO(e.date)){
+      var d = daysBetween(seedMs, isoToMs(e.date));
+      if (d != null && d >= 0) g.daysToMarket.push(d);
+    }
+  });
+
+  // 3) finalize each group
+  function median(arr){
+    if (!arr.length) return null;
+    var a = arr.slice().sort(function(x,y){ return x - y; }), n = a.length;
+    return (n % 2) ? a[(n-1)/2] : Math.round((a[n/2 - 1] + a[n/2]) / 2);
+  }
+  var out = Object.keys(groups).map(function(k){
+    var g = groups[k];
+    g.survivalPct = (g.alive + g.lost > 0) ? Math.round(g.alive / (g.alive + g.lost) * 100) : null;
+    g.medianDaysToMarket = median(g.daysToMarket);
+    g.revenuePerCage = (g.revenueKnown && g.cages > 0) ? Math.round(g.revenue / g.cages) : null;
+    g.inProgress = (g.harvested === 0);          // nothing attributed-harvested yet → don't claim a yield
+    g.thin = (g.cages < MIN_COHORT_CAGES);        // too few cages to rank
+    g.lines = Object.keys(g.lineNames);
+    delete g.lineNames;
+    return g;
+  });
+  // rank: most cages first, then best survival (thin/in-progress sink via cage count)
+  out.sort(function(a,b){
+    if (b.cages !== a.cages) return b.cages - a.cages;
+    return (b.survivalPct || 0) - (a.survivalPct || 0);
+  });
+  var unattOut = (unatt.entries > 0) ? unatt : null;
+  return { groups:out, unattributed:unattOut };
+}
+
+// buildCohortScorecard() — occasional report (menu → Stock health area), built from the loop's exhaust.
+// Answers "which seed source actually performs": survival × time-to-market × revenue per cage, by hatchery.
+function buildCohortScorecard(){
+  var farm = getFarm();
+  var cs = cohortStats(farm);
+  var kids = sheetHead('Seed source scorecard', 'How each hatchery’s stock actually performs on your water.');
+  if (!cs.groups.length){
+    kids.push(h('div', { class:'emptyNote', style:{marginTop:'14px'} }, 'No stocked cohorts yet.\nFill some cages with seed (and tag the hatchery) and this builds itself from your daily log.'));
+    return kids;
+  }
+  kids.push(h('div', { class:'hint', style:{margin:'2px 0 10px'} },
+    'Built from your cages + harvest log. Survival is standing stock; revenue joins a source only when a harvest links back to it.'));
+
+  function row(label, val, hot){
+    return h('div', { class:'kv', style:{fontSize:'14px'} },
+      h('span', { class:'k' }, label),
+      h('span', { class:'v', style: hot ? {color:'var(--c-work)'} : null }, val));
+  }
+  cs.groups.forEach(function(g){
+    var card = h('div', { class:'card' });
+    var title = g.seedCohortId ? (g.hatchery + ' · ' + g.seedCohortId) : g.hatchery;
+    card.appendChild(h('div', { class:'eyebrow' }, title));
+    // status chip: in-progress vs harvested; thin gets a "counts only" note
+    var statusBits = [];
+    if (g.inProgress) statusBits.push('in progress');
+    if (g.thin) statusBits.push('too few cages to rank');
+    if (statusBits.length){
+      card.appendChild(h('div', { style:{color:'var(--ink-2)', fontSize:'12px', marginBottom:'6px'} }, statusBits.join(' · ')));
+    }
+    card.appendChild(row('Cages', '' + g.cages + (g.lines.length ? ' · ' + g.lines.join(', ') : '')));
+    if (g.thin){
+      // counts only — no ranking math on a tiny cohort
+      if (g.stocked > 0) card.appendChild(row('Stocked', fmtCompact(g.stocked) + ' oysters'));
+      if (g.alive > 0) card.appendChild(row('Alive now', fmtCompact(g.alive) + ' oysters'));
+      if (g.lost > 0) card.appendChild(row('Lost', fmtCompact(g.lost) + ' oysters', true));
+      kids.push(card);
+      return;
+    }
+    if (g.survivalPct != null) card.appendChild(row('Survival', g.survivalPct + '%' + (g.stocked ? ' · ' + fmtCompact(g.alive) + ' of ' + fmtCompact(g.stocked) : '')));
+    else card.appendChild(row('Survival', '—'));
+    if (g.lost > 0) card.appendChild(row('Lost', fmtCompact(g.lost) + ' oysters', true));
+    if (g.inProgress){
+      card.appendChild(row('Harvested', 'not yet — still on the water'));
+    } else {
+      card.appendChild(row('Harvested', fmtCompact(g.harvested) + ' oysters'));
+      if (g.revenueKnown) card.appendChild(row('Revenue', '$' + fmtCompact(g.revenue) + (g.revenuePerCage != null ? ' · $' + fmtCompact(g.revenuePerCage) + '/cage' : '')));
+      if (g.medianDaysToMarket != null) card.appendChild(row('Days to market', '~' + g.medianDaysToMarket + ' days (median)'));
+    }
+    // top loss cause, if any
+    var causeKeys = Object.keys(g.causes).sort(function(a,b){ return g.causes[b] - g.causes[a]; });
+    if (causeKeys.length){
+      card.appendChild(row('Mostly lost to', causeKeys[0] + ' (' + fmtCompact(g.causes[causeKeys[0]]) + ')'));
+    }
+    kids.push(card);
+  });
+
+  // unattributed harvests — honest footnote, never folded into a cohort
+  if (cs.unattributed){
+    var u = cs.unattributed;
+    var uc = h('div', { class:'card' });
+    uc.appendChild(h('div', { class:'eyebrow' }, 'Unlinked harvests'));
+    uc.appendChild(h('div', { style:{color:'var(--ink-2)', fontSize:'12px', marginBottom:'6px'} },
+      u.entries + (u.entries === 1 ? ' harvest' : ' harvests') + ' couldn’t be traced to a seed source — shown here, not blamed on any hatchery.'));
+    uc.appendChild(row('Harvested', fmtCompact(u.harvested) + ' oysters'));
+    if (u.revenueKnown) uc.appendChild(row('Revenue', '$' + fmtCompact(u.revenue)));
+    kids.push(uc);
+  }
+  return kids;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
