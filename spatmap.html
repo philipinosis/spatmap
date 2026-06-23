@@ -2059,7 +2059,8 @@ function showSaveError(){
   var btn = document.createElement('button');
   btn.textContent = 'Export';
   btn.style.cssText = 'flex:0 0 auto;padding:7px 14px;border:0;border-radius:8px;background:#fff;color:#8a1f1f;font-weight:700;font-size:13px;';
-  btn.onclick = function(){ try { exportData(); } catch (e){} };
+  // full-fidelity backup (with photos) — a storage-full scare must not silently drop cage photos
+  btn.onclick = function(){ try { (typeof exportDataWithPhotos === 'function' ? exportDataWithPhotos : exportData)(); } catch (e){} };
   el.appendChild(msg); el.appendChild(btn);
   el.style.display = 'flex';
 }
@@ -8179,16 +8180,16 @@ function buildPriceEditor(farm){
 function buildDataMenu(){
   var kids = sheetHead('Data', 'Back up or restore your farm. Photos are handled separately.');
   var list = h('div', { class:'menuList' });
-  list.appendChild(h('button', { class:'menuItem', onclick:exportData },
-    h('span', { class:'mi-ic', html:icon('data', 24) }),
-    h('span', { class:'mi-t' }, 'Export backup', h('div', { class:'mi-sub' }, 'JSON file (no photos)')),
-    h('span', { class:'mi-chev', html:icon('chevron', 18) })));
-  // Export + photos lives here but is implemented by Builder 3.
+  // Full backup (with photos) leads — it's the one a farmer wants in a crisis; data-only is below it.
   list.appendChild(h('button', { class:'menuItem', onclick:function(){
       if (typeof exportDataWithPhotos === 'function') exportDataWithPhotos();
       else toast('Photo export not available yet'); } },
     h('span', { class:'mi-ic', html:icon('camera', 24) }),
-    h('span', { class:'mi-t' }, 'Export + photos', h('div', { class:'mi-sub' }, 'Larger file, includes images')),
+    h('span', { class:'mi-t' }, 'Full backup (with photos)', h('div', { class:'mi-sub' }, 'Everything — farm data + cage images')),
+    h('span', { class:'mi-chev', html:icon('chevron', 18) })));
+  list.appendChild(h('button', { class:'menuItem', onclick:exportData },
+    h('span', { class:'mi-ic', html:icon('data', 24) }),
+    h('span', { class:'mi-t' }, 'Export data (no photos)', h('div', { class:'mi-sub' }, 'Smaller JSON file — drops cage images')),
     h('span', { class:'mi-chev', html:icon('chevron', 18) })));
   list.appendChild(h('button', { class:'menuItem', onclick:triggerImport },
     h('span', { class:'mi-ic', html:icon('back', 24) }),
@@ -10874,6 +10875,10 @@ function bootFallback(err){
   bExport.textContent = 'Export my data';
   bExport.style.cssText = 'display:block;width:100%;margin:0 0 10px;padding:13px;border-radius:10px;border:0;background:#0E7C8B;color:#fff;font-weight:700;font-size:15px;';
   bExport.onclick = function(){
+    // Prefer the full-fidelity backup (inlines cage photos from IDB) when state is intact,
+    // so a recovery export doesn't silently drop photos. Fall back to the raw-localStorage
+    // blob if state never parsed — that path is the bulletproof last resort and needs no state.
+    try { if (typeof exportDataWithPhotos === 'function' && state && state.farms){ exportDataWithPhotos(); return; } } catch (e0){}
     try {
       var blob = new Blob([raw || JSON.stringify(state || {})], { type:'application/json' });
       var url = URL.createObjectURL(blob);
