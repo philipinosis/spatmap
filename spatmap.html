@@ -202,6 +202,10 @@ button{ font-family:inherit; cursor:pointer; background:none; border:none; color
 .dc-work .dc-wn{ font-family:var(--font-num); font-weight:800; }
 .dc-work .dc-wlbl{ flex:1 1 auto; }
 .dc-work .dc-chev{ color:var(--ink-3); font-size:16px; }
+/* mortality watch list — guidance, not alarm: a calm amber lean, never the harsh loss-red */
+.dc-watch{ margin-top:7px; }
+.dc-watch .dc-wflag{ color:var(--barge-amber); }
+.dc-watch .dc-wlbl{ color:var(--ink-2); }
 /* dc-ready is now a tappable button (→ harvest forecast) — strip the native button chrome */
 button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; cursor:pointer; }
 /* harvest-forecast sheet rows */
@@ -2364,8 +2368,11 @@ function lastResettingDate(cage){
 }
 
 // needsWork(cage, farm) — §2.6. workDue honored; else neglectIntervalDays; never on a bare note; empty never.
+// Also rings when the cage is on the mortality watch list (losing faster than its peers) so it gets a visit.
 function needsWork(cage, farm){
   if (!cage || !cage.batch) return false;                        // empty cages never need work
+  // mortality watch list — a cage losing faster than its peers earns a visit even if not time-overdue.
+  if (typeof mortalityWatchSet === 'function' && mortalityWatchSet(farm)[cage.id]) return true;
   if (isValidISO(cage.workDue)) return todayISO() > cage.workDue;// past due rings; future = no early ring
   var lr = lastResettingDate(cage);
   if (!isValidISO(lr)) return false;
@@ -2691,6 +2698,17 @@ function renderDashboardCard(farm){
       h('span', { class:'dc-wflag' }, '⚑'),
       h('span', { class:'dc-wn' }, '' + wq.length),
       h('span', { class:'dc-wlbl' }, wq.length === 1 ? ' cage needs work' : ' cages need work'),
+      h('span', { class:'dc-chev' }, '›')));
+  }
+
+  // ── mortality watch list → cages losing faster than their peers (only when the gate passes & flags exist) ──
+  var mo = (typeof mortalityOutliers === 'function') ? mortalityOutliers(farm) : null;
+  if (mo && mo.flagged.length){
+    var n = mo.flagged.length;
+    card.appendChild(h('button', { class:'dc-work dc-watch', type:'button', onclick:function(){ openSheet(buildMortalityWatch); } },
+      h('span', { class:'dc-wflag' }, '◎'),
+      h('span', { class:'dc-wn' }, '' + n),
+      h('span', { class:'dc-wlbl' }, (n === 1 ? ' cage losing faster than your others' : ' cages losing faster than your others')),
       h('span', { class:'dc-chev' }, '›')));
   }
 
@@ -7958,6 +7976,10 @@ function buildMenu(){
   list.appendChild(item('grade', 'Harvest forecast', 'When oysters ripen + inventory by grade', function(){ openSheet(buildForecast); }));
   var loss = (typeof farmLossStats === 'function') ? farmLossStats(farm) : null;
   list.appendChild(item('wrench', 'Stock health', loss && loss.totalLost ? (loss.survivalPct + '% survival · ' + fmtCompact(loss.totalLost) + ' lost') : 'Survival + losses by cause', function(){ openSheet(buildStockHealth); }));
+  var watch = (typeof mortalityOutliers === 'function') ? mortalityOutliers(farm) : null;
+  if (watch && watch.flagged.length){
+    list.appendChild(item('wrench', 'Watch list', watch.flagged.length + (watch.flagged.length === 1 ? ' cage losing faster than peers' : ' cages losing faster than peers'), function(){ openSheet(buildMortalityWatch); }));
+  }
   list.appendChild(item('log', 'Harvest Log', (farm.harvestLog.length || 'No') + ' harvests', function(){ openSheet(buildHarvestLog); }));
   list.appendChild(item('grade', 'Grades', farm.grades.length ? farm.grades.join(', ') : 'None yet', function(){ openSheet(buildGrades); }));
   list.appendChild(item('gear', 'Settings', 'Cage types & mesh, market size, alerts', function(){ openSheet(buildSettings); }));
@@ -9736,6 +9758,74 @@ function farmLossStats(farm){
   return { totalLost:totalLost, alive:alive, survivalPct:pct, causes:causes, cagesWithLoss:cagesWithLoss };
 }
 
+/* ── mortalityOutliers(farm) — robust "this cage is losing faster than your others" watch list.
+   Per cage we build ONE normalized loss rate (0..1):
+     • if we know the stocked count → lost / stocked  (a real survival deficit)
+     • else, if only % were logged  → capped sum of the mortality pct events / 100
+   We then take the farm MEDIAN and MAD (median absolute deviation — robust, no library), and flag a
+   cage only when lossRate > median + 2·MAD  AND  it logged ≥2 separate loss events (one bad day ≠ a trend).
+   HONESTY GATE: we return {} (no flags, no ranking) unless ≥6 cages have ≥1 loss event — never rank a
+   tiny sample. Everything here is descriptive guidance ("losing faster than your other cages"), not a verdict. */
+function mortalityOutliers(farm){
+  var empty = { flagged:[], flaggedIds:{}, median:null, mad:null, pop:0 };
+  if (!farm || !farm.lines) return empty;
+  var rows = [];   // one per cage that has ≥1 loss event: { cage, line, rate, events, lost, stocked, hatchery, ploidy, topCause }
+  farm.lines.forEach(function(line){ (line.cages || []).forEach(function(cage){
+    if (!cage.batch) return;
+    var bid = cage.batch.id, lost = 0, nEvents = 0, pctSum = 0, causes = {};
+    (cage.events || []).forEach(function(ev){
+      if (ev.type !== 'mortality' || ev.batchId !== bid) return;
+      var c = (typeof ev.count === 'number' && ev.count > 0) ? ev.count : 0;
+      var p = (typeof ev.pct === 'number' && ev.pct > 0) ? ev.pct : 0;
+      if (c <= 0 && p <= 0) return;                 // an empty/zero loss row is not a loss event
+      nEvents++; lost += c; pctSum += p;
+      var r = ev.reason || 'Other'; causes[r] = (causes[r] || 0) + (c || p);
+    });
+    if (nEvents < 1) return;
+    var alive = (typeof cage.batch.count === 'number') ? cage.batch.count : null;
+    var stocked = (alive != null) ? alive + lost : null;
+    var rate;
+    if (stocked && stocked > 0 && lost > 0){ rate = lost / stocked; }   // truest signal: a count-based deficit
+    else { rate = Math.min(pctSum, 100) / 100; }                        // fall back to logged % (capped, never >1)
+    var topCause = null, topN = -1;
+    Object.keys(causes).forEach(function(k){ if (causes[k] > topN){ topN = causes[k]; topCause = k; } });
+    rows.push({ cage:cage, line:line, rate:rate, events:nEvents, lost:lost, stocked:stocked,
+                hatchery:(cage.batch.hatchery || ''), ploidy:(cage.batch.ploidy || ''), topCause:topCause });
+  }); });
+  // HONESTY GATE: never rank a tiny farm.
+  if (rows.length < 6) return { flagged:[], flaggedIds:{}, median:null, mad:null, pop:rows.length };
+  var rates = rows.map(function(r){ return r.rate; });
+  function median(arr){
+    var a = arr.slice().sort(function(x,y){ return x - y; }), n = a.length;
+    if (!n) return null;
+    return (n % 2) ? a[(n-1)/2] : (a[n/2 - 1] + a[n/2]) / 2;
+  }
+  var med = median(rates);
+  var devs = rates.map(function(x){ return Math.abs(x - med); });
+  var mad = median(devs);
+  var thresh = med + 2 * mad;
+  var flagged = rows.filter(function(r){ return r.events >= 2 && r.rate > thresh; });
+  // worst first
+  flagged.sort(function(a,b){ return b.rate - a.rate; });
+  var ids = {};
+  flagged.forEach(function(r){ ids[r.cage.id] = true; });
+  return { flagged:flagged, flaggedIds:ids, median:med, mad:mad, pop:rows.length };
+}
+
+// mortalityWatchSet(farm) — memoized {cageId:true} of watch-listed cages, recomputed only when the farm
+// state actually changes (commit.seq / day / farm identity), mirroring _statusMemo so needsWork() can fold
+// the watch list in at O(1) per cage instead of re-running the farm-wide median every tile. (audit-perf)
+var _watchMemo = { seq:-1, day:'', farm:null, ids:{} };
+function mortalityWatchSet(farm){
+  if (!farm) return {};
+  var seq = commit.seq || 0, day = todayISO();
+  if (_watchMemo.seq !== seq || _watchMemo.day !== day || _watchMemo.farm !== farm){
+    _watchMemo.seq = seq; _watchMemo.day = day; _watchMemo.farm = farm;
+    _watchMemo.ids = mortalityOutliers(farm).flaggedIds;
+  }
+  return _watchMemo.ids;
+}
+
 // buildStockHealth() — farm-wide inventory health: survival, total lost, losses by cause. (menu → Stock health)
 function buildStockHealth(){
   var farm = getFarm();
@@ -9766,6 +9856,79 @@ function buildStockHealth(){
       var pctOfLoss = Math.round(s.causes[k] / s.totalLost * 100);
       cc.appendChild(row(k, fmtCompact(s.causes[k]) + ' · ' + pctOfLoss + '%'));
     });
+    kids.push(cc);
+  }
+  return kids;
+}
+
+// buildMortalityWatch() — the cages losing faster than their peers, worst first, plus a "what do they
+// share" second cut (by line, by hatchery, by cause). Pure guidance: never says "failing", just "check it".
+function buildMortalityWatch(){
+  var farm = getFarm();
+  var mo = mortalityOutliers(farm);
+  var kids = sheetHead('Watch list', 'Cages losing faster than your others — worth a look.');
+  if (!mo.flagged.length){
+    // Distinguish "gate not met" from "nothing stands out" — honest about WHY there's no list.
+    var why = (mo.pop < 6)
+      ? ('Not enough to compare yet — ' + mo.pop + (mo.pop === 1 ? ' cage has' : ' cages have') + ' logged a loss. Need 6 before ranking is fair.')
+      : 'No cage is losing meaningfully faster than the rest. Nothing stands out.';
+    kids.push(h('div', { class:'emptyNote', style:{marginTop:'14px'} }, why));
+    return kids;
+  }
+  // honesty framing up top
+  kids.push(h('div', { class:'hint', style:{margin:'2px 0 10px'} },
+    'These are above your own farm’s typical loss (median + 2×MAD). It’s a nudge to check them, not a verdict.'));
+
+  function pctStr(r){ return Math.round(r * 100) + '%'; }
+  var list = h('div', { class:'menuList' });
+  mo.flagged.forEach(function(r){
+    var cid = r.cage.id, lname = r.line ? r.line.name : '';
+    var sub = pctStr(r.rate) + ' lost' + (r.stocked ? ' of ' + fmtCompact(r.stocked) : '') +
+              ' · ' + r.events + ' loss ' + (r.events === 1 ? 'event' : 'events') +
+              (r.topCause ? ' · mostly ' + r.topCause : '');
+    list.appendChild(h('button', { class:'menuItem', onclick:function(){ var c = cageById(cid); if (c) openSheet(function(){ return buildCageDetail(c); }); } },
+      h('span', { class:'mi-ic', html:icon('wrench', 22) }),
+      h('span', { class:'mi-t' }, r.cage.label + (lname ? ' · ' + lname : ''), h('div', { class:'mi-sub' }, sub)),
+      h('span', { class:'mi-chev', html:icon('chevron', 18) })));
+  });
+  kids.push(list);
+
+  // ── second cut: what do the flagged cages share? (only when it actually concentrates) ──
+  function tally(keyFn){
+    var m = {};
+    mo.flagged.forEach(function(r){ var k = keyFn(r); if (!k) return; m[k] = (m[k] || 0) + 1; });
+    return m;
+  }
+  function topShare(m){
+    var best = null, n = -1;
+    Object.keys(m).forEach(function(k){ if (m[k] > n){ n = m[k]; best = k; } });
+    return best == null ? null : { key:best, n:n };
+  }
+  var total = mo.flagged.length;
+  var notes = [];
+  // group by line
+  var byLine = topShare(tally(function(r){ return r.line ? r.line.name : null; }));
+  if (byLine && byLine.n >= 2 && byLine.n >= Math.ceil(total / 2)){
+    notes.push(byLine.n + ' of ' + total + ' are on ' + byLine.key + '.');
+  }
+  // group by hatchery + ploidy (the "seed source" cut)
+  var byHatch = topShare(tally(function(r){
+    var hp = (r.hatchery || '').trim();
+    if (r.ploidy) hp += (hp ? ' ' : '') + r.ploidy + 's';
+    return hp || null;
+  }));
+  if (byHatch && byHatch.n >= 2 && byHatch.n >= Math.ceil(total / 2)){
+    notes.push(byHatch.n + ' of ' + total + ' are ' + byHatch.key + '.');
+  }
+  // group by cause
+  var byCause = topShare(tally(function(r){ return r.topCause || null; }));
+  if (byCause && byCause.n >= 2 && byCause.n >= Math.ceil(total / 2)){
+    notes.push(byCause.n + ' of ' + total + ' are mostly ' + byCause.key + '.');
+  }
+  if (notes.length){
+    var cc = h('div', { class:'card' });
+    cc.appendChild(h('div', { class:'eyebrow' }, 'What they share'));
+    notes.forEach(function(t){ cc.appendChild(h('div', { class:'kv', style:{fontSize:'14px'} }, h('span', { class:'k' }, t))); });
     kids.push(cc);
   }
   return kids;
