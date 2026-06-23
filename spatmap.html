@@ -7737,13 +7737,6 @@ function buildLineMenu(line){
   return kids;
 }
 
-function addCageToLine(line){
-  var farm = getFarm();
-  var typeId = line.cages.length ? line.cages[line.cages.length-1].typeId : farm.cageTypes[0].id;
-  line.cages.push(newCage(typeId, line.order, line.cages.length));
-  reindexLines(farm);
-  commit();
-}
 // setLineCageCount(farm, line, target) — BULK add/remove cages on ONE line (work view, owner ask).
 // Grow → append empty cages (the line's existing type). Shrink → remove EMPTY cages from the END only,
 // stopping at the first stocked cage from the end (those must be emptied first). One commit + one undo.
@@ -10307,10 +10300,6 @@ function restoreImportedPhotos(photos){
     toast('Backup imported · ' + n + (n === 1 ? ' photo restored' : ' photos restored'));
   });
 }
-
-// shared stub helpers
-function comingSoon(){ toast('Coming soon'); }
-function stubSheet(title){ return sheetHead(title).concat(h('div', { class:'fieldHint', style:{marginTop:'12px'} }, 'Coming soon.')); }
 
 /* ═══════════════════════════════════════════════════════════════════
    GLOBAL KEY HANDLING + BOOT
