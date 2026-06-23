@@ -402,7 +402,7 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .lineHead .lineMenu{ flex:0 0 auto; width:32px; height:32px; border-radius:8px; color:var(--ink-2);
   display:flex; align-items:center; justify-content:center; font-size:20px; line-height:1; }
 .lineHead .lineMenu:active{ background:var(--hair); }
-.lineBody{ display:flex; align-items:stretch; gap:2px; position:relative; }
+.lineBody{ display:flex; align-items:stretch; gap:5px; position:relative; }
 /* WP3: pilings are two firm bookend posts — 16px wide, full row height, a single
    bold post + cap with a darker fouling band near the waterline. The grain / mooring
    ring detail is dropped (it vanishes at this size). */
@@ -417,7 +417,7 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
    under every cage even when the strip is scrolled right (an absolute child would
    stop at the viewport edge). 4px tall, full opacity — the clearest horizontal
    element on the row; the cages hang FROM it. */
-.cageStrip{ flex:1 1 auto; display:flex; align-items:center; gap:4px; position:relative; min-width:0;
+.cageStrip{ flex:1 1 auto; display:flex; align-items:center; gap:6px; position:relative; min-width:0;
   padding:0 4px; overflow-x:auto; overflow-y:visible; scrollbar-width:none;
   -webkit-overflow-scrolling:touch;
   background-image:repeating-linear-gradient(115deg,
@@ -437,7 +437,7 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .cage{ position:relative; flex:0 0 auto; flex-basis:24px; min-width:18px; max-width:26px;
   padding:0; border-radius:3px; z-index:1; touch-action:pan-y; }
 /* per-shape footprint along the line (owner ask): FlipFarm narrow = more baskets fit; OyGro long-ways */
-.cage.cage-flip{ flex-basis:15px; min-width:12px; max-width:18px; }
+.cage.cage-flip{ flex-basis:15px; min-width:15px; max-width:18px; }
 .cage.cage-oygro{ flex-basis:34px; min-width:28px; max-width:40px; }
 .cage .cellfill{ position:relative; width:100%; height:28px; border-radius:3px;
   display:flex; align-items:center; justify-content:center;
@@ -465,8 +465,12 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .cage .workmark{ position:absolute; top:1px; right:1px; width:9px; height:9px; color:var(--c-work);
   pointer-events:none; }
 .cage .workmark svg{ width:9px; height:9px; display:block; }
-/* transparent ::after pads the tap target to 48px tall */
-.cage::after{ content:''; position:absolute; left:0; right:0; top:50%; transform:translateY(-50%);
+/* WP-UX: transparent ::after pads the tap target to 48px tall AND bleeds ~3px into
+   the inter-cage gap on each side, so a narrow FlipFarm cell (15px drawn) is hittable
+   well past --tap-min without touching the drawn glyph or the visual density. The
+   bleed meets the neighbour's pad at the gap midpoint, so a gloved finger in the gap
+   resolves to the nearer cage (and makes drag-select MORE forgiving). */
+.cage::after{ content:''; position:absolute; left:-3px; right:-3px; top:50%; transform:translateY(-50%);
   height:var(--tap); z-index:-1; }
 /* selection highlight — white inner outline + slight brighten */
 .cage.sel .cellfill{ outline:2.5px solid #fff; outline-offset:-2.5px;
