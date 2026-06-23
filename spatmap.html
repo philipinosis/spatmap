@@ -2538,11 +2538,9 @@ function renderStatStrip(farm){
   strip.appendChild(h('span', { class:'sep' }, '·'));
   strip.appendChild(stat('work', '⚑', work, 'work'));
   strip.appendChild(h('span', { class:'sep' }, '·'));
-  strip.appendChild(stat('quiet', '', counted ? fmtCompact(oysters) : '—', 'oysters'));
-  strip.appendChild(h('span', { class:'sep' }, '·'));
-  strip.appendChild(stat('quiet', '', filled, 'filled'));
-  strip.appendChild(h('span', { class:'sep' }, '·'));
-  strip.appendChild(stat('quiet', '', empty, 'empty'));
+  // Quiet totals as ONE inline run so they wrap together — no orphaned "20 empty" on its own line.
+  var quiet = (counted ? fmtCompact(oysters) : '—') + ' oysters · ' + filled + ' filled · ' + empty + ' empty';
+  strip.appendChild(h('span', { class:'st quiet' }, quiet));
   return strip;
 }
 
