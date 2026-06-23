@@ -1388,6 +1388,7 @@ var ICON_PATHS = {
   gear:    'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM4 12l-1.2.7M21.2 11.3 20 12M12 4l.7-1.2M11.3 21.2 12 20M5.6 5.6l-.8-.8M19.2 19.2l-.8-.8M5.6 18.4l-.8.8M19.2 4.8l-.8.8',
   data:    'M5 5h14v4H5zM5 10h14v4H5zM5 15h14v4H5zM8 7h.01M8 12h.01M8 17h.01',
   trash:   'M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13',
+  search:  'M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.5 15.5L21 21',
   dots:    'M5 12h.01M12 12h.01M19 12h.01'
 };
 function icon(name, size){
@@ -2718,6 +2719,51 @@ function buildWorkQueue(){
       h('span', { class:'mi-chev', html:icon('chevron', 18) })));
   });
   kids.push(list);
+  return kids;
+}
+
+// buildSearch() — find a cage fast on a big farm: live filter by cage label, line, grade, source, or ploidy.
+// Tap a result → its detail sheet (same jump the work queue uses). Keeps the daily loop seamless at 3000 cages.
+function buildSearch(){
+  var farm = getFarm();
+  var kids = sheetHead('Find a cage', 'Search by cage, line, grade, or source.');
+  var input = h('input', { type:'search', placeholder:'e.g. 6-3, Jumbo, Line 2…', autocomplete:'off', autocapitalize:'none' });
+  var results = h('div', { class:'menuList', style:{marginTop:'10px'} });
+  kids.push(input); kids.push(results);
+
+  // flat searchable index over every cage on the farm
+  var index = [], total = 0;
+  farm.lines.forEach(function(line){
+    (line.cages || []).forEach(function(cage){
+      total++;
+      var b = cage.batch;
+      var hay = [cage.label, line.name, b && b.grade, b && b.source, b && b.ploidy].filter(Boolean).join(' ').toLowerCase();
+      index.push({ cage:cage, line:line, hay:hay });
+    });
+  });
+
+  function paint(q){
+    results.innerHTML = '';
+    q = (q || '').trim().toLowerCase();
+    if (!q){ results.appendChild(h('div', { class:'fieldHint', style:{padding:'12px 2px'} }, total + (total === 1 ? ' cage' : ' cages') + ' on this farm. Type to find one.')); return; }
+    var matches = [];
+    for (var i = 0; i < index.length && matches.length < 60; i++){ if (index[i].hay.indexOf(q) >= 0) matches.push(index[i]); }
+    if (!matches.length){ results.appendChild(h('div', { class:'emptyNote', style:{marginTop:'8px'} }, 'No cage matches “' + q + '”.')); return; }
+    matches.forEach(function(m){
+      var b = m.cage.batch, sub = [];
+      if (m.line && m.line.name) sub.push(m.line.name);
+      if (b){ if (b.grade) sub.push(b.grade); if (typeof b.sizeMm === 'number') sub.push(b.sizeMm + ' mm'); if (typeof b.count === 'number') sub.push(fmtCompact(b.count) + ' oy'); }
+      else sub.push('empty');
+      var cid = m.cage.id;
+      results.appendChild(h('button', { class:'menuItem', onclick:function(){ var c = cageById(cid); if (c) openSheet(function(){ return buildCageDetail(c); }); } },
+        h('span', { class:'mi-ic', html:icon(b ? 'grade' : 'plus', 22) }),
+        h('span', { class:'mi-t' }, h('div', null, m.cage.label || 'Cage'), h('div', { class:'mi-sub' }, sub.join(' · '))),
+        h('span', { class:'mi-chev', html:icon('chevron', 18) })));
+    });
+  }
+  input.addEventListener('input', function(){ paint(input.value); });
+  paint('');
+  setTimeout(function(){ try { input.focus(); } catch (e) {} }, 60);
   return kids;
 }
 
@@ -7862,6 +7908,7 @@ function buildMenu(){
       h('span', { class:'mi-t' }, h('div', null, title), sub ? h('div', { class:'mi-sub' }, sub) : null),
       h('span', { class:'mi-chev', html:icon('chevron', 18) }));
   }
+  list.appendChild(item('search', 'Find a cage', 'Search by cage, line, grade, or source', function(){ openSheet(buildSearch); }));
   list.appendChild(item('layout', 'Farm Layout', 'Plots, areas, lines — design your water', function(){
     enterLayoutView();   // owns a {view:'layout'} history entry so Back exits the editor cleanly (Bug B1)
   }));
