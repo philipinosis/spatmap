@@ -9652,9 +9652,10 @@ function farmLossStats(farm){
   var totalLost = 0, alive = 0, cagesWithLoss = 0, causes = {};
   (farm.lines || []).forEach(function(l){ (l.cages || []).forEach(function(c){
     if (c.batch && typeof c.batch.count === 'number') alive += c.batch.count;
+    var bid = c.batch && c.batch.id;
     var hadLoss = false;
     (c.events || []).forEach(function(ev){
-      if (ev.type === 'mortality' && typeof ev.count === 'number' && ev.count > 0){
+      if (ev.type === 'mortality' && ev.batchId === bid && typeof ev.count === 'number' && ev.count > 0){
         totalLost += ev.count; hadLoss = true;
         var r = ev.reason || 'Other'; causes[r] = (causes[r] || 0) + ev.count;
       }
