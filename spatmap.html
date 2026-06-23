@@ -4098,6 +4098,191 @@ function condFetchUsgs(siteId){
   });
 }
 
+/* ════════════════ CONDITIONS HISTORY — water temp / salinity / level over time + oyster insight.
+   Pulls ~30 days of real USGS instantaneous values for the chosen site, charts them, and derives things
+   a farmer can ACT on (growing days, near-stall days, heat-stress/Vibrio watch, low-salinity events,
+   spawning window). Also passively logs each live reading locally so a record persists offline. ════════ */
+var COND_K_HIST = 'spatmapCondHist';   // { siteId: [{ms,t,s,g}] } local rolling log (one sample / ~hour)
+
+function condFetchUsgsHistory(siteId, period){
+  var u = 'https://waterservices.usgs.gov/nwis/iv/?format=json&sites=' + encodeURIComponent(siteId) +
+          '&parameterCd=' + COND_USGS_PARAMS + '&period=' + (period || 'P30D') + '&siteStatus=all';
+  return condGetJSON(u, 15000).then(function(d){
+    var ts = d && d.value && d.value.timeSeries;
+    if (!ts || !ts.length) throw new Error('no usgs history');
+    var series = {};
+    ts.forEach(function(s){
+      var code = s.variable && s.variable.variableCode && s.variable.variableCode[0] && s.variable.variableCode[0].value;
+      if (!code) return;
+      var vs = s.values && s.values[0] && s.values[0].value; if (!vs) return;
+      var pts = [];
+      for (var i = 0; i < vs.length; i++){
+        var v = parseFloat(vs[i].value);
+        if (isFinite(v) && v > -999990){ var ms = Date.parse(vs[i].dateTime); if (isFinite(ms)) pts.push({ ms:ms, v:v }); }
+      }
+      if (pts.length) series[code] = pts;
+    });
+    return series;
+  });
+}
+
+// passive local log — one sample per ~hour per site, capped. Called from condRefresh on a good fetch.
+function condLogSample(siteId, tempC, salPpt, gageFt){
+  if (!siteId) return;
+  try {
+    var all = condLSget(COND_K_HIST) || {}, arr = all[siteId] || [], now = Date.now();
+    if (arr.length && (now - arr[arr.length-1].ms) < 50*60000) return;   // ~hourly dedupe
+    function num(x){ return (typeof x === 'number' && isFinite(x)) ? x : null; }
+    arr.push({ ms:now, t:num(tempC), s:num(salPpt), g:num(gageFt) });
+    if (arr.length > 800) arr = arr.slice(arr.length - 800);
+    all[siteId] = arr; condLSset(COND_K_HIST, all);
+  } catch (e) {}
+}
+
+function cToF(c){ return c * 9/5 + 32; }
+
+// condDailyAgg(series) — group USGS points by UTC day → [{ms,meanT,minT,maxT,meanS,minS}] (temp °C, sal ppt)
+function condDailyAgg(series){
+  var days = {};
+  function bucket(pts, key){
+    (pts || []).forEach(function(p){
+      var d = new Date(p.ms), k = d.getUTCFullYear() + '-' + pad2(d.getUTCMonth()+1) + '-' + pad2(d.getUTCDate());
+      if (!days[k]) days[k] = { k:k, ms:Date.parse(k + 'T12:00:00Z'), ts:[], ss:[] };
+      days[k][key].push(p.v);
+    });
+  }
+  bucket(series['00010'], 'ts'); bucket(series['00480'], 'ss');
+  function mean(a){ return a.length ? a.reduce(function(s,x){ return s+x; }, 0) / a.length : null; }
+  var arr = Object.keys(days).map(function(k){ return days[k]; }).sort(function(a,b){ return a.ms - b.ms; });
+  arr.forEach(function(d){
+    d.meanT = mean(d.ts); d.minT = d.ts.length ? Math.min.apply(null, d.ts) : null; d.maxT = d.ts.length ? Math.max.apply(null, d.ts) : null;
+    d.meanS = mean(d.ss); d.minS = d.ss.length ? Math.min.apply(null, d.ss) : null;
+  });
+  return arr;
+}
+
+// condInsights(daily) — oyster-relevant flags. Thresholds are GUIDANCE (labeled as such in the UI).
+//   growth band 12–28 °C · near-stall <12 °C · heat stress >28 °C · Vibrio season avg >20 °C · spawn cue 25–27 °C
+//   low salinity <10 ppt (freshwater-intrusion stress / possible closures).
+function condInsights(daily){
+  var o = { days:daily.length, growDays:0, stallDays:0, heatDays:0, lowSalDays:0, spawnWatch:false,
+            minT:null, maxT:null, avgT:null, minS:null, maxS:null, avgS:null, vibrio:false };
+  var tsum=0, tn=0, ssum=0, sn=0;
+  daily.forEach(function(d){
+    if (d.meanT != null){
+      tsum += d.meanT; tn++;
+      if (d.meanT >= 12 && d.meanT <= 28) o.growDays++;
+      if (d.meanT < 12) o.stallDays++;
+      if (d.maxT != null && d.maxT > 28) o.heatDays++;
+      if (d.maxT != null && d.minT != null && d.maxT >= 25 && d.minT <= 27) o.spawnWatch = true;
+      if (o.minT == null || (d.minT != null && d.minT < o.minT)) o.minT = d.minT;
+      if (o.maxT == null || (d.maxT != null && d.maxT > o.maxT)) o.maxT = d.maxT;
+    }
+    if (d.meanS != null){ ssum += d.meanS; sn++;
+      if (o.minS == null || (d.minS != null && d.minS < o.minS)) o.minS = d.minS;
+      if (o.maxS == null || d.meanS > o.maxS) o.maxS = d.meanS;
+      if (d.minS != null && d.minS < 10) o.lowSalDays++;
+    }
+  });
+  o.avgT = tn ? tsum/tn : null; o.avgS = sn ? ssum/sn : null;
+  o.vibrio = (o.avgT != null && o.avgT > 20);
+  return o;
+}
+
+// condHistChart(points, opts) → SVG string. points=[{ms,v}]; opts:{unit,color,bands:[{lo,hi,fill}]}
+function condHistChart(points, opts){
+  opts = opts || {};
+  if (!points || !points.length) return '<div style="padding:8px 0;color:#6E878C;font-size:12px">No data in range.</div>';
+  var W=300, H=92, padL=4, padR=30, padT=8, padB=14;
+  var xs0 = points[0].ms, xs1 = points[points.length-1].ms; if (xs1 <= xs0) xs1 = xs0 + 86400000;
+  var lo=null, hi=null;
+  points.forEach(function(p){ if (lo==null||p.v<lo) lo=p.v; if (hi==null||p.v>hi) hi=p.v; });
+  var span = (hi - lo) || 1, padv = span*0.18; lo -= padv; hi += padv;
+  function X(ms){ return padL + (ms-xs0)/(xs1-xs0) * (W-padL-padR); }
+  function Y(v){ return H - padB - (v-lo)/(hi-lo) * (H-padT-padB); }
+  var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="100%" preserveAspectRatio="xMidYMid meet" aria-hidden="true">';
+  (opts.bands||[]).forEach(function(b){
+    var top = Y(Math.min(hi, b.hi==null?hi:b.hi)), bot = Y(Math.max(lo, b.lo==null?lo:b.lo));
+    if (bot > top) svg += '<rect x="'+padL+'" y="'+top.toFixed(1)+'" width="'+(W-padL-padR)+'" height="'+(bot-top).toFixed(1)+'" fill="'+b.fill+'" opacity="0.15"/>';
+  });
+  svg += '<polyline points="'+points.map(function(p){ return X(p.ms).toFixed(1)+','+Y(p.v).toFixed(1); }).join(' ')+'" fill="none" stroke="'+(opts.color||'#0E7C8B')+'" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>';
+  svg += '<text x="'+(W-padR+3)+'" y="'+(Y(hi-padv)+3).toFixed(1)+'" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#6E878C">'+Math.round(hi-padv)+(opts.unit||'')+'</text>';
+  svg += '<text x="'+(W-padR+3)+'" y="'+(Y(lo+padv)+3).toFixed(1)+'" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#6E878C">'+Math.round(lo+padv)+(opts.unit||'')+'</text>';
+  svg += '<text x="'+padL+'" y="'+(H-3)+'" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#6E878C">'+monthDay(toISOfromMs(xs0))+'</text>';
+  svg += '<text x="'+(W-padR)+'" y="'+(H-3)+'" text-anchor="end" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#6E878C">'+monthDay(toISOfromMs(xs1))+'</text>';
+  svg += '</svg>';
+  return svg;
+}
+
+// buildCondHistory() — the Settings → "Water conditions over time" sheet.
+function buildCondHistory(){
+  var site = condGetSite();
+  var kids = sheetHead('Water conditions', site ? (site.name + (site.state ? ' · ' + site.state : '')) : 'No gauge picked');
+  if (!site){
+    kids.push(h('div', { class:'emptyNote', style:{marginTop:'14px'} }, 'No USGS gauge selected.\nTap the conditions bar on the overview to pick the gauge nearest your farm, then come back.'));
+    return kids;
+  }
+  var body = h('div'); kids.push(body);
+  body.appendChild(h('div', { style:{padding:'10px 0', color:'#6E878C', fontSize:'13px'} }, 'Loading ~30 days from USGS ' + site.id + '…'));
+
+  function chartCard(title, svgStr, legend){
+    var card = h('div', { style:{margin:'14px 0 4px'} });
+    card.appendChild(h('div', { style:{fontWeight:'600', fontSize:'13px', marginBottom:'2px'} }, title));
+    card.appendChild(h('div', { html:svgStr }));
+    if (legend) card.appendChild(h('div', { style:{fontSize:'10px', color:'#6E878C', marginTop:'2px'} }, legend));
+    return card;
+  }
+  function statRow(label, val, hot){
+    return h('div', { style:{display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid #EDEAE2'} },
+      h('span', { style:{fontSize:'13px', color:'#42525A'} }, label),
+      h('span', { style:{fontSize:'13px', fontWeight:'600', color: hot ? '#B4541E' : '#1B2B30'} }, val));
+  }
+
+  function paintFromUsgs(series){
+    body.innerHTML = '';
+    var daily = condDailyAgg(series), ins = condInsights(daily);
+    var tempC = series['00010'] || [], sal = series['00480'] || [], gage = series['00065'] || [];
+    var tempF = tempC.map(function(p){ return { ms:p.ms, v:cToF(p.v) }; });
+
+    // ── INSIGHT card (the "didn't know you could track this" part) ──
+    var card = h('div', { style:{background:'#F7F5EF', borderRadius:'12px', padding:'10px 12px', marginTop:'6px'} });
+    card.appendChild(h('div', { style:{fontWeight:'700', fontSize:'13px', marginBottom:'4px', color:'#1B2B30'} }, 'Last ' + ins.days + ' days · what it means for your oysters'));
+    if (ins.avgT != null) card.appendChild(statRow('Water temp', Math.round(cToF(ins.minT)) + '–' + Math.round(cToF(ins.maxT)) + '°F (avg ' + Math.round(cToF(ins.avgT)) + ')'));
+    card.appendChild(statRow('Good growing days', ins.growDays + ' of ' + ins.days));
+    if (ins.stallDays) card.appendChild(statRow('Near-stall days (cold)', ins.stallDays + ' — growth slows', true));
+    if (ins.heatDays) card.appendChild(statRow('Heat-stress days >82°F', ins.heatDays + ' — chill harvest fast', true));
+    if (ins.vibrio) card.appendChild(statRow('Vibrio season', 'yes — short time-to-ice on harvest', true));
+    if (ins.spawnWatch) card.appendChild(statRow('Spawning window hit', '25–27°C — diploids may spawn'));
+    if (ins.avgS != null) card.appendChild(statRow('Salinity', Math.round(ins.minS) + '–' + Math.round(ins.maxS) + ' ppt (avg ' + Math.round(ins.avgS) + ')'));
+    if (ins.lowSalDays) card.appendChild(statRow('Low-salinity days <10 ppt', ins.lowSalDays + ' — freshwater stress', true));
+    card.appendChild(h('div', { style:{fontSize:'10px', color:'#8A99A0', marginTop:'6px'} }, 'Guidance from public USGS data — not a substitute for your shellfish-control authority.'));
+    body.appendChild(card);
+
+    // ── charts ──
+    if (tempF.length) body.appendChild(chartCard('Water temperature (°F)', condHistChart(tempF, { unit:'°', color:'#C77A2E',
+      bands:[ {lo:cToF(12), hi:cToF(28), fill:'#2E9C6A'}, {lo:cToF(28), hi:200, fill:'#C0392B'}, {lo:-50, hi:cToF(12), fill:'#3B7DB0'} ] }),
+      'green = growing 54–82°F · blue = cold stall · red = heat stress'));
+    if (sal.length) body.appendChild(chartCard('Salinity (ppt)', condHistChart(sal, { unit:'', color:'#2B7A8C',
+      bands:[ {lo:-5, hi:10, fill:'#3B7DB0'} ] }), 'blue band = below 10 ppt (freshwater-intrusion stress)'));
+    if (gage.length) body.appendChild(chartCard('Water level (ft)', condHistChart(gage, { unit:'', color:'#6E878C' })));
+    body.appendChild(h('div', { style:{fontSize:'11px', color:'#8A99A0', marginTop:'10px'} }, 'SpatMap also logs each live reading on your device, so this record keeps growing even where USGS history is thin.'));
+  }
+
+  function paintFromLog(){
+    body.innerHTML = '';
+    var all = condLSget(COND_K_HIST) || {}, log = all[site.id] || [];
+    if (!log.length){ body.appendChild(h('div', { class:'emptyNote', style:{marginTop:'14px'} }, 'Could not reach USGS, and no local readings logged yet.\nOpen the app on the water with signal to start building a record here.')); return; }
+    body.appendChild(h('div', { style:{padding:'6px 0', color:'#6E878C', fontSize:'12px'} }, 'Offline — showing ' + log.length + ' readings logged on this device.'));
+    var tF = log.filter(function(x){ return x.t != null; }).map(function(x){ return { ms:x.ms, v:cToF(x.t) }; });
+    var sP = log.filter(function(x){ return x.s != null; }).map(function(x){ return { ms:x.ms, v:x.s }; });
+    if (tF.length) body.appendChild(chartCard('Water temperature (°F)', condHistChart(tF, { unit:'°', color:'#C77A2E' })));
+    if (sP.length) body.appendChild(chartCard('Salinity (ppt)', condHistChart(sP, { unit:'', color:'#2B7A8C' })));
+  }
+
+  condFetchUsgsHistory(site.id, 'P30D').then(paintFromUsgs, paintFromLog);
+  return kids;
+}
+
 /* per-state active salinity (00480) IV site list — cached 30d, RDB parsed */
 function condLoadUsgsSites(state){
   state = String(state || 'LA').toUpperCase();
@@ -4264,6 +4449,7 @@ function condRefresh(site, mySeq){
       var wAt = (p['00035'] || p['00036']).at;
       wr('u_wind', { mph:(p['00035'] ? p['00035'].v : null), deg:(p['00036'] ? p['00036'].v : null) }, wAt);
     }
+    condLogSample(site.id, p['00010'] ? p['00010'].v : null, p['00480'] ? p['00480'].v : null, p['00065'] ? p['00065'].v : null);  // build the local conditions record
     return { ok:true };
   }, function(){ return { ok:false }; });
   var wxJob = condFetchWeather(site.lat, site.lng).then(function(res){
@@ -7893,6 +8079,11 @@ function buildSettings(){
   // ── PRICE PER OYSTER (DASHBOARD): one input per grade + a default for ungraded/unpriced cages. Drives
   // "$X on the water" on the overview. Empty clears the price (back to "no price"); persist() on input. ──
   kids.push(buildPriceEditor(farm));
+  // ── Water conditions over time (USGS history + oyster insight) ──
+  kids.push(h('button', { class:'menuItem', style:{marginTop:'14px'}, onclick:function(){ openSheet(buildCondHistory); } },
+    h('span', { class:'mi-ic', html:icon('data', 24) }),
+    h('span', { class:'mi-t' }, h('div', null, 'Water conditions over time'), h('div', { class:'mi-sub' }, 'Temp · salinity · level — 30-day trends + what they mean')),
+    h('span', { class:'mi-chev', html:icon('chevron', 18) })));
   kids.push(h('button', { class:'btn btn-primary btn-block', style:{marginTop:'18px'}, onclick:function(){ closeSheet(); render(); } }, 'Done'));
   return kids;
 }
@@ -7901,6 +8092,7 @@ function buildSettings(){
 // "default / ungraded" input. Reuses the field() idiom. Writes farm.settings.gradePrices[grade] (delete
 // on blank) and farm.settings.defaultPrice (null on blank); persist() on every input (no full re-render).
 function buildPriceEditor(farm){
+  if (!farm.settings.gradePrices) farm.settings.gradePrices = {};   // guard: an unpriced farm has no map yet (was crashing Settings)
   var wrap = h('div', { class:'priceEditor' });
   wrap.appendChild(h('div', { class:'priceEditor-lbl' }, 'Price per oyster'));
   function priceRow(label, getVal, setVal){
