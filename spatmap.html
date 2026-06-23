@@ -2082,6 +2082,9 @@ commit.seq = 0;
 /* ─────────────────────────────────────────────────────────────────
    TOAST + seq-guarded UNDO (HARVEST-KIT pattern, re-skinned)
    ───────────────────────────────────────────────────────────────── */
+// buzz(p) — haptic confirmation for gloved/wet boat use. Silent no-op on iOS Safari (no vibrate),
+// honors prefers-reduced-motion, and never throws. p is a duration or a vibrate pattern array.
+function buzz(p){ try{ if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return; navigator.vibrate && navigator.vibrate(p); } catch(e){} }
 // toast(msg, action)  action = {label, onAction}
 function toast(msg, action){
   var t = document.getElementById('toast');
@@ -8394,6 +8397,7 @@ function toggleCage(id, on){
   if (on) selCages[id] = true; else delete selCages[id];
   var el = document.querySelector('.cage[data-cage-id="' + id + '"]');
   if (el) el.classList.toggle('sel', !!on);
+  buzz(8);   // tactile tick on selection toggle (gloved/wet use)
 }
 
 /* ── denseRangeSelect(strip, line) — pointerdown→move→up drag-select.
@@ -8478,6 +8482,7 @@ function denseRangeSelect(strip, line){
       suppressNextClick();
       renderPopup(getFarm());
       if (typeof syncPopup === 'function') syncPopup();
+      buzz(8);   // drag-select landed (tap path buzzes via toggleCage)
     }
     // a non-moved pointer is a tap → handled by the click listener below
   }
@@ -8869,6 +8874,7 @@ function pullSelectedCages(cageIds){
 
   clearSelection();
   commit();
+  buzz([12,40,12]);   // Pull committed
   undoable('Pulled ' + sources.length + (sources.length === 1 ? ' cage to the tub' : ' cages to the tub'), function(){
     var f = getFarm();
     f.barge = snapBarge;
@@ -9066,6 +9072,7 @@ function fillFromBarge(cageIds, splitId){
 
   clearSelection();
   commit();
+  buzz([12,40,12]);   // Fill committed
   var msg = 'Filled ' + made.length + (made.length === 1 ? ' cage from the tub' : ' cages from the tub');
   if (shortfall && typeof total === 'number') msg = 'Only ' + total + ' oysters — filled ' + made.length + (made.length === 1 ? ' cage' : ' cages');
   undoable(msg, function(){
@@ -9142,6 +9149,7 @@ function workCages(cageIds, opts){
             : (typeof opts.sizeMm === 'number' ? ('Logged growth · ' + nC)
             : ('Noted ' + nC));
   commit();
+  buzz([12,40,12]);   // Work committed
   // Bug B1 (round-13): CLOSE the sheet on a successful commit instead of keeping it open. The old behavior
   // (refreshSheet → sheet stays open) left an un-pressed-looking chip that invited a re-tap, appending
   // duplicate events with no clear feedback. Dismissing updates the work map + cage status behind it and
@@ -9367,6 +9375,7 @@ function harvestFromBarge(count, note, photoIds){
 
   closeSheet();
   commit();
+  buzz([12,40,12]);   // Harvest committed
   undoable('Harvest logged · ' + fmtCompact(take), function(){
     var f = getFarm();
     var ei = f.harvestLog.indexOf(entry); if (ei >= 0) f.harvestLog.splice(ei, 1);
