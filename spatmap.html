@@ -206,6 +206,14 @@ button{ font-family:inherit; cursor:pointer; background:none; border:none; color
 .dc-watch{ margin-top:7px; }
 .dc-watch .dc-wflag{ color:var(--barge-amber); }
 .dc-watch .dc-wlbl{ color:var(--ink-2); }
+/* conditions advisory — one quiet guidance line from this device's own water log */
+.dc-advisory{ display:flex; align-items:center; gap:7px; width:100%; margin-top:9px; padding:8px 11px;
+  border-radius:10px; background:var(--surface-sink); border:1px solid var(--hair-strong);
+  font:600 13px/1.25 var(--font-ui); color:var(--ink-2); text-align:left; }
+.dc-advisory .dc-advisory-ic{ color:var(--barge-amber); flex:0 0 auto; font-size:14px; }
+.dc-advisory .dc-advisory-t{ flex:1 1 auto; }
+.dc-advisory-tap:active{ filter:brightness(1.08); }
+.dc-advisory-tap .dc-chev{ color:var(--ink-3); font-size:16px; flex:0 0 auto; }
 /* dc-ready is now a tappable button (→ harvest forecast) — strip the native button chrome */
 button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; cursor:pointer; }
 /* harvest-forecast sheet rows */
@@ -2691,6 +2699,29 @@ function renderDashboardCard(farm){
   strip.appendChild(ct('', d.empty, 'empty'));
   card.appendChild(strip);
 
+  // ── conditions advisory → ONE guidance line from this device's own water log (only when the gate passes) ──
+  var adv = (typeof stockAdvisory === 'function') ? stockAdvisory() : null;
+  if (adv){
+    var advText, advTap = false;
+    if (adv.kind === 'heat'){
+      advText = 'Heat watch: gauge ' + (adv.peakF != null ? adv.peakF + '°F+ ' : '') + 'this week — chill harvest fast';
+      // a heat-watch with sale-ready stock is actionable: tap → harvest forecast (existing nav)
+      if (d.readyOysters > 0) advTap = true;
+    } else {
+      advText = 'Low salinity: freshwater stress' + (adv.lowS != null ? ' (~' + adv.lowS + ' ppt)' : '') + ' — hold off pulling';
+    }
+    if (advTap){
+      card.appendChild(h('button', { class:'dc-advisory dc-advisory-tap', type:'button', onclick:function(){ openSheet(buildForecast); } },
+        h('span', { class:'dc-advisory-ic' }, '☀'),
+        h('span', { class:'dc-advisory-t' }, advText),
+        h('span', { class:'dc-chev' }, '›')));
+    } else {
+      card.appendChild(h('div', { class:'dc-advisory' },
+        h('span', { class:'dc-advisory-ic' }, adv.kind === 'heat' ? '☀' : '≈'),
+        h('span', { class:'dc-advisory-t' }, advText)));
+    }
+  }
+
   // ── tappable "needs work" row → the work queue (only when something is overdue) ──
   var wq = workQueueItems(farm);
   if (wq.length){
@@ -4288,6 +4319,46 @@ function condInsights(daily){
   o.avgT = tn ? tsum/tn : null; o.avgS = sn ? ssum/sn : null;
   o.vibrio = (o.avgT != null && o.avgT > 20);
   return o;
+}
+
+/* ── stockAdvisory() — ONE guidance line for the dashboard, from THIS device's own conditions log.
+   We bucket the on-device rolling log (COND_K_HIST for the active site) into days via condDailyAgg, look
+   at the LAST 6 logged days, and only raise an advisory when ≥3 of them crossed a threshold (heat: daily
+   MAX >28 °C ≈ 82 °F · low salinity: daily MIN <10 ppt). One flaky reading can never trip it. Returns null
+   when there's no site, too little history, or nothing crossed. Pure read — no fetch, no push. */
+var ADVISORY_WINDOW_DAYS = 6;   // M — look at the last 6 logged days
+var ADVISORY_MIN_DAYS    = 3;   // N — need at least 3 of them over threshold (a trend, not a blip)
+function stockAdvisory(){
+  try {
+    if (typeof condGetSite !== 'function') return null;
+    var site = condGetSite();
+    if (!site) return null;
+    var all = (typeof condLSget === 'function') ? (condLSget(COND_K_HIST) || {}) : {};
+    var log = all[site.id] || [];
+    if (!log.length) return null;
+    // reshape the on-device samples into the {param:[{ms,v}]} series condDailyAgg expects
+    var series = { '00010':[], '00480':[] };
+    log.forEach(function(x){
+      if (x.t != null) series['00010'].push({ ms:x.ms, v:x.t });
+      if (x.s != null) series['00480'].push({ ms:x.ms, v:x.s });
+    });
+    var daily = condDailyAgg(series);
+    if (daily.length < ADVISORY_MIN_DAYS) return null;   // not enough distinct days to claim a trend
+    var win = daily.slice(Math.max(0, daily.length - ADVISORY_WINDOW_DAYS));   // last M logged days
+    var heatDays = 0, lowSalDays = 0, heatDaysWithTemp = 0, salDaysWithSal = 0, peakF = null, lowS = null;
+    win.forEach(function(d){
+      if (d.maxT != null){ heatDaysWithTemp++; if (d.maxT > 28){ heatDays++; var f = cToF(d.maxT); if (peakF == null || f > peakF) peakF = f; } }
+      if (d.minS != null){ salDaysWithSal++; if (d.minS < 10){ lowSalDays++; if (lowS == null || d.minS < lowS) lowS = d.minS; } }
+    });
+    // heat takes precedence (acute, harvest-timing), then low salinity
+    if (heatDaysWithTemp >= ADVISORY_MIN_DAYS && heatDays >= ADVISORY_MIN_DAYS){
+      return { kind:'heat', days:heatDays, of:win.length, peakF:(peakF != null ? Math.round(peakF) : null) };
+    }
+    if (salDaysWithSal >= ADVISORY_MIN_DAYS && lowSalDays >= ADVISORY_MIN_DAYS){
+      return { kind:'lowsal', days:lowSalDays, of:win.length, lowS:(lowS != null ? Math.round(lowS) : null) };
+    }
+    return null;
+  } catch (e) { return null; }   // a bad/partial log must never break the dashboard
 }
 
 // condHistChart(points, opts) → SVG string. points=[{ms,v}]; opts:{unit,color,bands:[{lo,hi,fill}]}
