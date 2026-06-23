@@ -180,6 +180,7 @@ button{ font-family:inherit; cursor:pointer; background:none; border:none; color
 .dc-ct{ display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
 .dc-ct .dc-n{ font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:700; color:var(--ink-2); }
 .dc-sep{ color:var(--hair-strong); }
+.dc-tub{ color:var(--ink-3); white-space:nowrap; font-weight:600; }
 /* recent-activity feed — quiet, one row per event */
 .dc-feed{ display:flex; flex-direction:column; gap:1px; border-top:1px solid var(--hair); padding-top:9px; }
 .dc-row{ display:flex; align-items:baseline; flex-wrap:wrap; gap:5px;
@@ -2559,7 +2560,7 @@ function priceForGrade(farm, grade){
 //   recent[]    last 6 events across all cages, newest first: {label, cageLabel, lineName, date}
 function farmDashboard(farm){
   var out = { oysters:0, cropValue:0, valued:false, readyCages:0, readyOysters:0,
-    filled:0, empty:0, recent:[] };
+    filled:0, empty:0, tub:0, recent:[] };
   if (!farm || !Array.isArray(farm.lines)) return out;
   // valued = any price set anywhere (a per-grade entry OR the default)
   var gp = (farm.settings && farm.settings.gradePrices) || {};
@@ -2595,6 +2596,10 @@ function farmDashboard(farm){
       }
     });
   });
+  // tub (barge) stock counts toward oysters-on-the-water too — cages pulled to the tub
+  // moved their count to barge.count and would otherwise vanish from the dashboard total.
+  var bt = bargeTotalCount(farm.barge); if (bt != null) out.oysters += bt;
+  out.tub = (bt != null) ? bt : 0;
   // newest first; ties broken by later push order (mirrors lastEvent's "later in array wins" feel)
   evs.sort(function(a, b){ return b.ms - a.ms; });
   for (var k=0; k<evs.length && out.recent.length < 6; k++){
@@ -2643,6 +2648,7 @@ function renderDashboardCard(farm){
   }
   function sep(){ return h('span', { class:'dc-sep' }, '·'); }
   strip.appendChild(ct('', counted ? fmtCompact(d.oysters) : '—', 'oysters'));
+  if (d.tub > 0){ strip.appendChild(h('span', { class:'dc-tub' }, '+' + fmtCompact(d.tub) + ' in tub')); }
   strip.appendChild(sep());
   strip.appendChild(ct('', d.filled, 'filled'));
   strip.appendChild(sep());
