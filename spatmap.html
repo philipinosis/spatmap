@@ -1528,6 +1528,11 @@ function migrateFarm(f){
   // harvestLog: array
   if (!Array.isArray(f.harvestLog)) f.harvestLog = [];                      // harvestLog array
   f.harvestLog = f.harvestLog.filter(function(e){ return e && typeof e === 'object'; });
+  // REVENUE (additive): realized $/oyster + revenue per harvest. Old logs predate them → null, never faked.
+  f.harvestLog.forEach(function(e){
+    e.pricePerOyster = (typeof e.pricePerOyster === 'number' && isFinite(e.pricePerOyster) && e.pricePerOyster >= 0) ? e.pricePerOyster : null;
+    e.revenue        = (typeof e.revenue === 'number' && isFinite(e.revenue) && e.revenue >= 0) ? e.revenue : null;
+  });
 
   // barge: single object; fold a legacy unplaced batch into a pile (best-effort)
   if (!f.barge || typeof f.barge !== 'object' || ['empty','pile'].indexOf(f.barge.state) < 0){
@@ -8092,6 +8097,13 @@ function buildHarvestLog(){
     return kids;
   }
   var sorted = farm.harvestLog.slice().sort(function(a, b){ return isoToMs(b.date) - isoToMs(a.date); });
+  // REVENUE: season-to-date total across logged harvests (only entries that carry a known $). "—" when
+  // nothing is priced yet — never a fake $0. Mirrors the dashboard's "$ on the water" honesty.
+  var totalRev = null;
+  sorted.forEach(function(e){ if (typeof e.revenue === 'number'){ totalRev = (totalRev || 0) + e.revenue; } });
+  kids.push(h('div', { class:'card', style:{ display:'flex', justifyContent:'space-between', alignItems:'baseline' } },
+    h('span', { class:'eyebrow' }, 'Revenue to date'),
+    h('span', { class:'num', style:{ font:'700 20px/1 var(--font-ui)' } }, totalRev != null ? ('$' + fmtCompact(totalRev)) : '—')));
   var box = h('div', { class:'card' });
   sorted.forEach(function(e){
     var meta = [];
@@ -8107,6 +8119,8 @@ function buildHarvestLog(){
       h('div', { class:'logTop' },
         h('span', { class:'logCount num' }, fmtCompact(e.count) + ' oysters'),
         h('span', { class:'logDate num' }, monthDay(e.date))),
+      h('div', { class:'logMoney num', style:{ color:'var(--ink-2)', font:'600 13px/1 var(--font-ui)', marginTop:'2px' } },
+        (typeof e.revenue === 'number' ? '$' + fmtCompact(e.revenue) : '—')),
       meta.length ? h('div', { class:'logMeta' }, meta.join(' · ')) : null));
   });
   kids.push(box);
@@ -8278,11 +8292,13 @@ function exportHarvestCSV(){
   var farm = getFarm(); if (!farm){ toast('No farm'); return; }
   var log = farm.harvestLog || [];
   if (!log.length){ toast('No harvests to export yet'); return; }
-  var rows = [['Date','Count','Grade','Size (mm)','From lines','Note']];
+  var rows = [['Date','Count','Grade','Size (mm)','$/oyster','Revenue','From lines','Note']];
   log.slice().sort(function(a,b){ return (isoToMs(a.date)||0) - (isoToMs(b.date)||0); }).forEach(function(e){
     var lines = (e.origin && e.origin.lineNames && e.origin.lineNames.length) ? e.origin.lineNames.join('; ') : '';
+    var ppo = (typeof e.pricePerOyster === 'number') ? e.pricePerOyster.toFixed(2) : '';
+    var rev = (typeof e.revenue === 'number') ? e.revenue.toFixed(2) : '';
     rows.push([ e.date || '', (e.count != null ? e.count : ''), e.grade || '',
-      (typeof e.sizeMm === 'number' ? e.sizeMm : ''), lines, e.note || '' ]);
+      (typeof e.sizeMm === 'number' ? e.sizeMm : ''), ppo, rev, lines, e.note || '' ]);
   });
   downloadText('spatmap-harvests-' + exportDateStamp() + '.csv', csvText(rows), 'text/csv');
   toast('Harvest log exported');
@@ -9338,7 +9354,7 @@ function removeCages(cageIds){
 }
 
 /* ── §3.8 — Harvest from the barge pile. ───────────────────────────── */
-function harvestFromBarge(count, note, photoIds){
+function harvestFromBarge(count, note, photoIds, realizedPrice){
   var farm = getFarm(); if (!farm) return;
   var barge = farm.barge;
   if (barge.state !== 'pile'){ toast('Tub is empty'); return; }
@@ -9346,13 +9362,20 @@ function harvestFromBarge(count, note, photoIds){
   if (take == null || take <= 0){ toast('Enter how many you harvested'); return; }
   if (barge.count != null && take > barge.count) take = barge.count;     // cap at the pile
 
+  // REVENUE: the realized $/oyster — a sheet override (a wholesaler cut, a deal) when given, else the
+  // grade's standing price. Stays null when unknown (ungraded/unpriced) — never faked. revenue follows.
+  var price = (typeof realizedPrice === 'number' && isFinite(realizedPrice) && realizedPrice >= 0)
+    ? realizedPrice : priceForGrade(farm, barge.grade);
+  var revenue = (price != null) ? take * price : null;
+
   var snapBarge = JSON.parse(JSON.stringify(barge));
   var origin = barge.origin ? JSON.parse(JSON.stringify(barge.origin)) : null;
   var entry = {
     id: uid(), date: todayISO(), count: take, grade: barge.grade,
     sizeMm: (typeof barge.sizeMm === 'number' ? barge.sizeMm : null),
     origin: origin, note: (note && note.trim()) ? note.trim() : null,
-    photoIds: Array.isArray(photoIds) ? photoIds.slice() : []
+    photoIds: Array.isArray(photoIds) ? photoIds.slice() : [],
+    pricePerOyster: price, revenue: revenue
   };
   farm.harvestLog.push(entry);
 
@@ -9488,6 +9511,13 @@ function buildHarvestSheet(farm){
       max: (b.count != null ? b.count : null), placeholder:'How many' });
     kids.push(field('How many harvested', countIn, b.count != null ? ('Up to ' + fmtCompact(b.count) + ' in the tub.') : 'The pile is uncounted.'));
 
+    // REVENUE: realized $/oyster, pre-filled with the grade's standing price. The farmer overrides it for a
+    // wholesaler cut or a deal; blank falls back to the grade price inside harvestFromBarge. (Honest: no fake $.)
+    var stdPrice = priceForGrade(farm, b.grade);
+    var priceIn = h('input', { type:'number', inputmode:'decimal', min:'0', step:'0.01',
+      value: (stdPrice != null ? stdPrice : ''), placeholder:'$/oyster' });
+    kids.push(field('$/oyster (sold)', priceIn, 'What you got per oyster — overrides the grade price for this sale.'));
+
     var noteIn = h('textarea', { placeholder:'Optional note' });
     kids.push(field('Note', noteIn));
 
@@ -9501,7 +9531,7 @@ function buildHarvestSheet(farm){
       h('button', { class:'btn btn-quiet', onclick:closeSheet }, 'Cancel'),
       h('button', { class:'btn btn-barge', onclick:function(){
         if (photos.busy()){ toast('Photo still saving…'); return; }
-        harvestFromBarge(countIn.value, noteIn.value, photos.ids());
+        harvestFromBarge(countIn.value, noteIn.value, photos.ids(), parseNum(priceIn.value));
       } }, 'Harvest')));
   }
 
