@@ -13,7 +13,7 @@ farm so it opens to a working map, not a blank page.
 
 | File | Role |
 |------|------|
-| **`spatmap.html`** | **The current app.** This is the one to use, edit, and ship. (Internally "v3".) |
+| **`spatmap.html`** | **The current app.** This is the one to use, edit, and ship. (Internally "v4".) |
 | `index.html` | The build currently **live** at `philipinosis.github.io/spatmap/` (the older "v7"). Frozen until the owner swaps `spatmap.html` in. |
 | `supabase-setup.sql` | Postgres schema for **future** optional cloud sync/backup. Not wired up — the app is fully offline today. |
 | `docs/` | Documentation (below). |
@@ -36,16 +36,22 @@ Full walkthrough: **[docs/USER-GUIDE.md](docs/USER-GUIDE.md)**.
 
 ---
 
-## What the current build does (v3)
+## What the current build does (v4)
 
-- **Farm overview with money on it** — "$X on the water" (per-grade pricing), oysters sale-ready, what needs work today, recent activity.
+- **Farm overview with money on it** — "$X on the water" (per-grade pricing), oysters sale-ready, what needs work today, recent activity. Stock pulled to the tub still counts in the total (a "+N in tub" chip), so the crop number never drops just because you're working it.
 - **One pannable map** — every plot tiles into one world; pan from one plot straight into the next.
-- **Daily loop** — drag-select cages → Fill / Pull-to-barge / Work / Remove; the barge accumulates harvest; tap it to Harvest off.
+- **Daily loop** — drag-select cages → Fill / Pull-to-barge / Work / Remove; the barge accumulates harvest; tap it to Harvest off. Each commit gives a haptic tick for gloved, wet, boat-deck use.
 - **Tub batch-split** — split the barge into named sub-batches by size; each fill anchors its own growth curve, so different sizes project different market dates.
+- **Revenue tracking** — every harvest records what you got per oyster (the grade price, or a per-sale override you type in), so the harvest log carries a running revenue-to-date and the CSV gains $/oyster and Revenue columns. Unknown price shows "—", never a made-up number.
+- **Growth curve fitted to your water** — the seasonal growth shape starts on a default Gulf calendar, then bends toward what your own growth checks show, month by month, as you log them. A "Your growth calendar" card shows fitted-vs-default so you can watch it sharpen. A farm with few checks behaves exactly as before.
+- **Watch list** — flags cages losing oysters faster than their peers (median-and-MAD outlier math, only on farms with enough loss data to mean anything). Guidance, not a verdict.
+- **Conditions advisory** — a heat or low-salinity warning on the dashboard when several of your recent logged days cross the line, drawn from this device's own water log. Tap it to the harvest forecast. No backend.
+- **Seed source scorecard** — survival, time-to-market, and revenue-per-cage grouped by hatchery, built from the records you already keep. Harvests that can't be traced to one source are shown separately, never blamed on a hatchery.
 - **Live water conditions** — water level + rising/falling, temperature, and salinity from the nearest USGS gauge, plus the NWS forecast. Pick any gauge on the coast; manual salinity as the offline fallback.
 - **Records to hand a buyer or inspector** — CSV export of stock-on-hand and the harvest log.
 - **Work queue + harvest forecast** — what's overdue (tap to jump), and how many oysters hit market size month by month.
 - **Photos per cage** (IndexedDB), growth charts, market-ready outlook, durable offline storage.
+- **Full-fidelity backup** — the Data menu leads with "Full backup (with photos)", and the panic exports (storage-full banner, boot-failure recovery) use it too, so a backup taken in a crisis keeps the cage images.
 
 ---
 
@@ -79,5 +85,5 @@ Keep the JSON. Import restores it anywhere.
 
 - **[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** — full farmer walkthrough.
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — data model, storage, durability, conditions feed, how the file is organized.
-- **[docs/ROADMAP.md](docs/ROADMAP.md)** — what's next (cloud backup, NSSP harvest tags, crew sync) and the feature backlog.
-- **[docs/build-history/](docs/build-history/)** — the v7/v2/v3 build specs, design audits, and code reviews, kept for reference.
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — what shipped, what's deliberately deferred (cloud sync, NSSP tags) and why, and the remaining backlog.
+- **[docs/build-history/](docs/build-history/)** — the v7/v2/v3/v4 build specs, design audits, and code reviews, kept for reference.

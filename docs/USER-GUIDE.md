@@ -85,12 +85,51 @@ replaces the selection; tap toggles individual cages. The bottom bar acts on the
   as that cage's growth anchor, so different sizes project different market dates.
 - **Harvest** off the barge — logged with count, grade, and lineage to the harvest log.
 
+Every commit (Fill / Pull / Work / Harvest, and selecting cages) gives a short haptic buzz on phones
+that support it, so you get confirmation through gloves without looking. It stays silent if your phone
+has "reduce motion" on, or on iPhones (Safari doesn't vibrate).
+
+## Logging what you got paid
+
+The harvest sheet has a **$/oyster (sold)** field. Leave it blank and the app uses the grade's
+standing price; type a number to record the actual price for that sale (a wholesaler cut, a deal).
+Either way the harvest log stamps the price and the revenue for that entry. If the oysters were
+ungraded or had no price, it stays "—" — the app never invents a dollar figure.
+
+Open **Harvest Log** (from the menu) to see each harvest with its $ and a **revenue-to-date** total
+at the top. The harvest-log CSV gains **$/oyster** and **Revenue** columns for your own books.
+
 ## Records and exports
 
-- **CSV export** (Data menu): stock-on-hand (every cage + estimated $) and the harvest log —
-  the records to hand a buyer or an inspector.
+- **CSV export** (Data menu): stock-on-hand (every cage + estimated $) and the harvest log
+  ($/oyster + Revenue columns) — the records to hand a buyer or an inspector.
 - **Work queue**: "⚑ N cages need work ›" sorted most-overdue, tap to jump to the cage.
 - **Harvest forecast**: ready-now, month-by-month readiness, and inventory by market grade.
+- **Full backup**: the Data menu leads with **Full backup (with photos)** — the file to keep in a
+  crisis, since it carries the cage images, not just the numbers. (Data-only export is still below it.)
+
+## Reading the analytics (off the daily loop)
+
+These build themselves from records you already keep. None of them are part of the daily fill/work loop;
+look at them when you want to.
+
+- **Your growth calendar** (⚙ → Water conditions over time, at the top): the seasonal growth shape the
+  app uses to project market dates. It starts on a default Gulf curve, then bends toward what your own
+  growth checks show. Teal months use your pace; grey months still ride the default until you log more
+  checks. Watch it sharpen as you log across the seasons. Too few checks and it just shows the default.
+- **Conditions advisory** (dashboard, when it applies): a one-line heat or low-salinity warning, drawn
+  from this device's own water log. It only fires when several of your recent logged days actually crossed
+  the line (one flaky reading can't trip it). Tap it to jump to the harvest forecast when you have
+  sale-ready stock. Needs a gauge picked and a few days of log.
+- **Watch list** (Stock health menu): cages losing oysters faster than your other cages. It compares each
+  cage's loss rate against the farm's median and only appears once you have enough cages with loss logged
+  — it won't rank a tiny sample.
+  Watch-listed cages also pick up the needs-work ring on the map. It's guidance ("losing faster than your
+  others"), not a verdict.
+- **Seed source scorecard** (Stock health menu): each hatchery / seed cohort with its survival, median
+  days to market, and revenue per cage. Survival comes from your standing stock; revenue and days-to-market
+  join a source only when a harvest links back to it (an un-harvested cohort reads "in progress"). A harvest
+  that mixed sources or can't be traced is listed under **Unlinked harvests**, never blamed on a hatchery.
 
 ## Map colors
 
