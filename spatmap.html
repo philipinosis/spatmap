@@ -9284,7 +9284,7 @@ function isoDaysAhead(days){ var d = new Date(); d.setUTCDate(d.getUTCDate() + d
 // eventDetail — the secondary line for a timeline row
 function eventDetail(ev){
   var bits = [];
-  if (typeof ev.count === 'number') bits.push(fmtCompact(ev.count) + (ev.type === 'harvested' ? ' harvested' : (ev.type === 'pulled' ? ' pulled' : (ev.type === 'filled' ? ' placed' : ' oysters'))));
+  if (typeof ev.count === 'number') bits.push(fmtCompact(ev.count) + (ev.type === 'harvested' ? ' harvested' : (ev.type === 'pulled' ? ' pulled' : (ev.type === 'filled' ? ' placed' : (ev.type === 'mortality' ? ' lost' : ' oysters')))));
   if (typeof ev.sizeMm === 'number' && ev.type !== 'growth') bits.push(ev.sizeMm + ' mm');
   if (ev.note) bits.push(ev.note);
   return bits.join(' · ');
