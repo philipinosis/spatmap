@@ -854,13 +854,28 @@ label{ display:block; font:700 12px/1 var(--font-ui); letter-spacing:.06em; text
 /* onboarding centered scroll page (no farms yet) */
 .onboardWrap{ flex:1; overflow-y:auto; background:var(--paper);
   padding:max(20px, env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom)) 16px; }
-.onboardWrap .obTitle{ font:800 26px/1.15 var(--font-ui); margin-bottom:4px; }
-.onboardWrap .obSub{ font:500 14px/1.45 var(--font-ui); color:var(--ink-2); margin-bottom:18px; }
+/* de-scoped from .onboardWrap so the wizard's per-step titles also style inside the "+ New farm" sheet (#sheet, not .onboardWrap) */
+.obTitle{ font:800 26px/1.15 var(--font-ui); margin-bottom:4px; }
+.obSub{ font:500 14px/1.45 var(--font-ui); color:var(--ink-2); margin-bottom:18px; }
 .linkBtn{ background:none; color:var(--teal); font:650 15px/1.3 var(--font-ui); text-decoration:underline;
   min-height:var(--tap); padding:4px 8px; }
 .fieldGroup{ margin-top:18px; }
 .row2{ display:flex; gap:12px; }
 .row2 > div{ flex:1; }
+/* onboarding wizard (first-run) — additive */
+.obSteps{ display:flex; justify-content:space-between; align-items:baseline;
+  color:var(--ink-3); font:600 12px var(--font-ui); margin-bottom:10px; }
+.obDot{ display:inline-block; width:8px; height:8px; border-radius:50%;
+  background:var(--hair-strong); margin-right:6px; }
+.obDot.on{ background:var(--teal); }
+.obNav{ display:flex; gap:12px; padding-top:16px; }
+.obNav .btn-quiet{ flex:0 0 auto; }
+.obNav .btn-primary{ flex:1; }
+/* S4 review rows — caption/value hierarchy inside the .chartFrame card */
+.obReviewRow{ padding:9px 0; border-bottom:1px solid var(--hair); }
+.obReviewRow:last-child{ border-bottom:0; }
+.obReviewLabel{ font:600 11px/1.2 var(--font-ui); letter-spacing:.05em; color:var(--ink-3); margin-bottom:2px; }
+.obReviewVal{ font:500 15px/1.3 var(--font-ui); }
 /* −/value/+ stepper (Edit-area Lines control) */
 .stepper{ display:flex; align-items:stretch; gap:8px; }
 .stepper .stp-btn{ flex:0 0 var(--tap); width:var(--tap); min-height:var(--tap); border-radius:var(--radius-sm);
@@ -3467,11 +3482,177 @@ function removeLineFromFarm(farm, line, redraw){
 
 // buildOnboarding / buildFarmLayout — the two entry points (shared form).
 function buildOnboarding(){
-  var kids = [];
-  kids.push(h('h2', null, 'Set up your farm'));
-  kids.push(h('div', { class:'sheetSub' }, 'Design your farm in a minute. Cages are a.k.a. baskets.'));
-  return kids.concat(buildFarmForm('create', null));
+  // Sheet entry ("+ New farm"): mount the wizard in sheet chrome, starting at S1 (skip the S0
+  // welcome+demo, which is for first-run only). sheetHead gives the close-X on every step.
+  return sheetHead('New farm').concat([ buildOnboardWizard({ chrome:'sheet', startStep:1 }) ]);
 }
+// buildOnboardWizard — PASS A: the first-run, step-by-step new-farm flow (engine + 5 screens).
+//   Closure-only navigation: go(n) flips `step` and repaints the SAME persistent body element in place.
+//   ponytail: closure-only step nav, no per-step history; add pushView entries (see enterLayoutView)
+//   only if device-Back UX demands it.
+//   The working model mirrors createFarmFromModel's create-model defaults; grades/market/neglect are
+//   DEFERRED (never surfaced this pass) and ride their defaults through to Settings.
+function buildOnboardWizard(opts){
+  opts = opts || {};
+  var chrome = opts.chrome || 'page';                 // 'page' | 'sheet' (sheet wired in a later pass)
+  var step = (typeof opts.startStep === 'number') ? opts.startStep : 0;
+  var model = { name:'', linesCount:4, cagesPerLine:10, cageTypes:blankCageTypes(),
+                grades:[], marketSizeMm:76, neglectIntervalDays:56 };
+  var body = h('div', { class:'obBody' });
+  var nameInput = null;                               // captured on S1 so paint() can focus it
+
+  function go(n){ step = n; paint(); }
+
+  function paint(){
+    body.innerHTML = '';
+    appendKids(body, renderStep());
+    if (step === 1 && nameInput){
+      var el = nameInput;
+      setTimeout(function(){ try { el.focus(); } catch(e){} }, 0);
+    }
+  }
+
+  // steps 1..4 only: a dots row + 'Step N/4' label; null on step 0.
+  function renderDots(){
+    if (step < 1) return null;
+    var dots = [];
+    for (var i=1; i<=4; i++){
+      dots.push(h('span', { class:'obDot' + (i <= step ? ' on' : ''), 'aria-hidden':'true' }));
+    }
+    return h('div', { class:'obSteps' },
+      h('div', null, dots),
+      h('div', null, 'Step ' + step + '/4'));
+  }
+
+  // .obNav for the SIMPLE steps (S2,S3,S4): Back (quiet) + a primary (filled, flex:1).
+  function navRow(onBack, nextLabel, onNext){
+    return h('div', { class:'obNav' },
+      h('button', { class:'btn btn-quiet', onclick:onBack }, 'Back'),
+      h('button', { class:'btn btn-primary', onclick:onNext }, nextLabel));
+  }
+
+  function gearLabel(){
+    return model.cageTypes.map(function(t){
+      var nm = (t.name || '').trim() || 'Cage';
+      return (typeof t.meshMm === 'number' && t.meshMm > 0) ? (nm + ' ' + t.meshMm) : nm;
+    }).join(' · ');
+  }
+
+  function renderStep(){
+    switch (step){
+
+      // ── S0: welcome (no dots) ──
+      case 0: return [
+        h('div', { class:'obTitle' }, 'SpatMap'),
+        h('div', { class:'obSub' }, 'Design your oyster farm, then run your day on the water from it.'),
+        h('button', { class:'btn btn-primary btn-block', onclick:function(){ go(1); } }, 'Build my farm'),
+        h('button', { class:'btn btn-quiet btn-block', style:{marginTop:'10px'},
+          onclick:function(){ loadBrightsideFarm(); } }, 'Explore a demo first'),
+        h('div', { class:'fieldHint', style:{textAlign:'center'} },
+          'Loads Brightside Oyster Co. — a full farm you can poke at.')
+      ];
+
+      // ── S1: name (gated Next) ──
+      case 1: {
+        nameInput = h('input', { type:'text', value:model.name, placeholder:'e.g. Brightside Oyster Co.' });
+        var nextBtn = h('button', { class:'btn btn-primary', onclick:function(){ if (model.name.trim()) go(2); } }, 'Next');
+        nextBtn.disabled = model.name.trim() === '';
+        nameInput.oninput = function(){ model.name = this.value; nextBtn.disabled = this.value.trim() === ''; };
+        nameInput.onkeydown = function(e){ if (e.key === 'Enter' && this.value.trim()){ e.preventDefault(); go(2); } };
+        // Chrome-aware Back: in a sheet, Back cancels new-farm (closeSheet discards the draft);
+        // on the page, Back returns to S0 (welcome + demo). S2/S3/S4 Back is go(step-1) in both chromes.
+        var s1Back = (chrome === 'sheet') ? closeSheet : function(){ go(0); };
+        return [
+          renderDots(),
+          h('div', { class:'obTitle' }, 'Name your farm'),
+          h('div', { class:'obSub' }, 'You can rename it any time.'),
+          field('Farm name', nameInput),
+          h('div', { class:'obNav' },
+            h('button', { class:'btn btn-quiet', onclick:s1Back }, 'Back'),
+            nextBtn)
+        ];
+      }
+
+      // ── S2: gear (cage types editor) ──
+      case 2: {
+        var gearKids = [
+          renderDots(),
+          h('div', { class:'obTitle' }, 'What gear do you run?'),
+          h('div', { class:'obSub' }, 'Cage and basket types — shape and mesh. Add as many as you use.')
+        ];
+        gearKids.push(buildCageTypesEditor(model, true));
+        gearKids.push(navRow(function(){ go(1); }, 'Next', function(){
+          if (!model.cageTypes.length){ toast('Add at least one cage type'); return; }
+          go(3);
+        }));
+        return gearKids;
+      }
+
+      // ── S3: geometry (lines × cages, B11 clamp lifted verbatim) ──
+      case 3: {
+        var hintEl = h('div', { class:'fieldHint' });
+        function recomputeHint(){
+          var n = Math.max(1, Math.round(parseNum(model.linesCount) || 1)) *
+                  Math.max(1, Math.round(parseNum(model.cagesPerLine) || 1));
+          hintEl.textContent = "That's " + n.toLocaleString() + ' cages to start.';
+        }
+        // B11 clamp (lifted verbatim from buildFarmForm): oninput updates the MODEL only (transient
+        // empty/<1 allowed); the DISPLAYED value is normalised on change/blur. Prevents the "30 → 130" bug.
+        var normLineCount = function(){ var n = Math.max(1, Math.round(parseNum(this.value) || 1));
+          model.linesCount = n; this.value = n; recomputeHint(); };
+        var normCageCount = function(){ var n = Math.max(1, Math.round(parseNum(this.value) || 1));
+          model.cagesPerLine = n; this.value = n; recomputeHint(); };
+        var linesIn = h('input', { type:'number', inputmode:'numeric', min:'1', value:model.linesCount,
+          oninput:function(){ var n = parseNum(this.value); model.linesCount = (n != null && n >= 1) ? n : 1; recomputeHint(); },
+          onchange:normLineCount, onblur:normLineCount });
+        var cagesIn = h('input', { type:'number', inputmode:'numeric', min:'1', value:model.cagesPerLine,
+          oninput:function(){ var n = parseNum(this.value); model.cagesPerLine = (n != null && n >= 1) ? n : 1; recomputeHint(); },
+          onchange:normCageCount, onblur:normCageCount });
+        recomputeHint();
+        return [
+          renderDots(),
+          h('div', { class:'obTitle' }, 'How is it laid out?'),
+          h('div', { class:'obSub' }, 'Just a rough grid to start. You can design your real layout later.'),
+          h('div', { class:'row2' }, field('How many lines?', linesIn), field('Cages per line', cagesIn)),
+          hintEl,
+          navRow(function(){ go(2); }, 'Next', function(){ go(4); })
+        ];
+      }
+
+      // ── S4: review → create ──
+      default: {
+        var nLines = Math.max(1, Math.round(parseNum(model.linesCount) || 1));
+        var nCages = Math.max(1, Math.round(parseNum(model.cagesPerLine) || 1));
+        var total = nLines * nCages;
+        function reviewRow(label, value, jumpStep){
+          var row = h('div', { class:'obReviewRow', onclick:function(){ go(jumpStep); } },
+            h('div', { class:'obReviewLabel' }, label),
+            h('div', { class:'obReviewVal' }, value));
+          row.style.cursor = 'pointer';
+          return row;
+        }
+        var card = h('div', { class:'chartFrame' },
+          reviewRow('NAME', model.name || 'My farm', 1),
+          reviewRow('GEAR', gearLabel(), 2),
+          reviewRow('LAYOUT', nLines + ' lines × ' + nCages + ' cages = ' + total.toLocaleString() + ' cages', 3));
+        return [
+          renderDots(),
+          h('div', { class:'obTitle' }, 'Ready to build'),
+          h('div', { class:'obSub' }, 'Check it over, then create.'),
+          card,
+          h('div', { class:'fieldHint' }, 'Grades, market size, and alerts use defaults — set them in Settings.'),
+          h('div', { class:'obNav' },
+            h('button', { class:'btn btn-quiet', onclick:function(){ go(3); } }, 'Back'),
+            h('button', { class:'btn btn-primary', onclick:function(){ createFarmFromModel(model, null); } }, 'Create farm'))
+        ];
+      }
+    }
+  }
+
+  paint();
+  return body;                                         // PERSISTENT element; go() repaints in place.
+}
+
 function buildFarmLayout(){
   var farm = getFarm();
   return sheetHead('Farm Layout', 'Lines, cages, types, grades, and targets.')
@@ -7988,9 +8169,7 @@ function buildRemovePlotConfirm(plotId){
 // buildOnboardingPage — full-page onboarding (no farms yet); not a sheet.
 function buildOnboardingPage(){
   var page = h('div', { class:'onboardWrap' });
-  page.appendChild(h('div', { class:'obTitle' }, 'SpatMap'));
-  page.appendChild(h('div', { class:'obSub' }, 'Design your oyster farm, then run your day on the water from it.'));
-  appendKids(page, buildFarmForm('create', null));
+  page.appendChild(buildOnboardWizard({ chrome:'page', startStep:0 }));
   return page;
 }
 

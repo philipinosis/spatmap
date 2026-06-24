@@ -8,6 +8,30 @@ Running list of things to add or change. Drop raw thoughts in the Inbox; move th
 
 ---
 
+## ✅ Built 2026-06-24 (guided onboarding wizard — spatmap.html, v4)
+
+Replaced the single wall-of-fields new-farm form with a **step-by-step wizard**. Built via a
+propose→critique→execute subagent pass (two planners → critic resolves 5 kinks → UX sign-off → 2 QA-gated
+build passes → code review). Browser-verified end-to-end (35+ assertions + screenshots); `index.html` untouched.
+
+- **One builder, two mounts:** `buildOnboardWizard({chrome, startStep})`. First-run = `{page, 0}` (shows the
+  Welcome/demo fork); menu "+ New farm" = `{sheet, 1}` (skips the fork — existing users don't need the demo
+  re-offered). Closure holds `step` + the working `model`; `go(n)` repaints a persistent `body` (no
+  router/History API — `ponytail:` closure-only, upgrade path = `pushView` if device-Back UX ever demands it).
+- **Flow:** S0 Welcome (Build vs Explore-a-demo) → S1 Name (Next gated until non-blank, autofocus, Enter
+  advances) → S2 Gear (reuses `buildCageTypesEditor`) → S3 Geometry (lines×cages, seeded 4×10, live "That's N
+  cages" count, B11 clamp lifted) → S4 Review card (NAME/GEAR/LAYOUT, tappable rows) → `createFarmFromModel`.
+- **Bare-minimum collection:** only name + gear + geometry. grades/market/neglect default silently
+  (`[]`/76/56) and stay editable in Settings — the review screen says so.
+- New CSS: `.obSteps`/`.obDot`/`.obNav` + review-row hierarchy; `.obTitle`/`.obSub` **de-scoped** from
+  `.onboardWrap` so they also style inside the sheet (caught in code review — sheet flow was unstyled).
+
+**Deferred (follow-up):** `buildFarmForm('create', …)` is now **dead** — both entry points use the wizard, so
+only `buildFarmForm('edit', …)` is live (L3659/3666). The whole `isCreate` branch (create model, lines/cages
+inputs, the duplicate B11 clamp, create/demo buttons) is unreachable. Strip `buildFarmForm` to edit-only in a
+dedicated pass (re-QA the two edit sheets) so the B11 clamp has a single home. Not done here to keep the diff
+scoped and avoid touching the working edit sheets without their own QA.
+
 ## ✅ Built 2026-06-24 (in-app PM pass — 5 packages, all in spatmap.html, v4)
 
 The detailed notes below (Bugs & friction / Data safety / Design-UX / the Gear entry) are now IMPLEMENTED.
