@@ -327,6 +327,36 @@ reset it to empty. Data written by an older build must keep loading in every new
 
 ## Design / UX
 
+### RESEARCH — unify Work + Overview into one spatial plot (NEW 2026-06-24, from use)
+**The friction (Philip, in use):** the **Work tab** and the **Overview tab** are structured differently —
+the lines lay out differently between them, which is confusing/disorienting. They should be the *same* one
+spatial picture. What he wants:
+- **Tapping a cage on the map should bump you into that view** — tap a cage/area and land in the right place
+  in the other view (consistent drill, not two unrelated layouts).
+- **Pan/zoom around the plot and work fluidly between areas** — one zoomable plot canvas (builds on the
+  within-plot area pager already shipped 2026-06-24).
+- **Hypothesis to test:** the current model organizes lines *per area / as "different lines"*, and that split
+  may be the wrong call. Maybe lines should just be **drawn in the one shared plot** so both views render the
+  SAME geometry. "I had set this up to be able to do different lines but maybe this is wrong."
+
+**Why it happens (confirmed in `spatmap.html`):** there are two render paths over the same lines —
+- **Overview** (`viewMode==='overview' && !viewScope`, ~L2503; non-SVG replacement at ~L4105) draws the TRUE
+  spatial plot — real plot/area/line positions, owns `LAYOUT.svg` (the layout editor's geometry).
+- **Work map** (the scoped daily-work view; `renderLine` ~L2995, `drillIntoArea` ~L6592) lays the lines out
+  in its OWN arrangement (a list/flow), NOT the SVG positions. So the same farm reads as two different shapes.
+
+**Research questions for later (don't build yet):**
+1. Can the Work view render *from the same plot geometry* as Overview (one source of truth = the `LAYOUT.svg`
+   plot/area/line coordinates), just at a closer zoom, instead of its own list layout? That would make
+   tap→drill and pan-between-areas "just work" because there's one coordinate space.
+2. Is the per-area line split (areas owning their own `lineIds`, `reindexLines` area-relative labels) actually
+   needed, or can lines live directly in the plot with areas as zoom regions/overlays? Weigh against what the
+   area model currently buys (the `1A`/`2B` labels, area scoping, the area pager).
+3. Migration/data cost: lines already carry `plotId`/`areaId` + the spatial index (`ensureSpatialIndex`) — how
+   much of the unified view is a *render* change vs a *data-model* change? Prefer render-only if possible.
+Touchpoints to start from: `renderTopBar` view branches (~L2503/2535/2575), the overview vs work render split
+(~L4105), `renderLine` (~L2995), `drillIntoArea`/`doDrillSwap` (~L6592), `ensureSpatialIndex`, `LAYOUT.svg`.
+
 ### Map legend / key (NEW 2026-06-24)
 The map uses color + glyphs to encode cage state, but there's no key explaining them. Add a legend so a
 new user (or a buyer/inspector looking over a shoulder) can read the map. **What it must decode (the
