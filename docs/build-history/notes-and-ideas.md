@@ -8,6 +8,34 @@ Running list of things to add or change. Drop raw thoughts in the Inbox; move th
 
 ---
 
+## ✅ Built 2026-06-24 (in-app PM pass — 5 packages, all in spatmap.html, v4)
+
+The detailed notes below (Bugs & friction / Data safety / Design-UX / the Gear entry) are now IMPLEMENTED.
+Built via a propose→critique→execute subagent pass; full-file `node --check` clean, migration harness
+ALL PASS, `index.html` untouched.
+
+1. **Line naming → Row-first `1A`** — labels are now derived in `reindexLines` (kills the add-a-line
+   numbering jump), bare format `1A`/`2B-4`, row keeps its number across areas, area = uppercase letter;
+   user-renamed lines preserved via `l.auto`. (Replaces the a/b/c note + the numbering bug.)
+2. **Cage-first fill + multi-remove** — Fill on empty cages opens a batch picker (one batch auto-fills);
+   Remove now works on a multi-cage empty selection (`n===1` guard dropped).
+3. **Work-tab area switcher** — prev/next arrows in the scoped top bar (within-plot, disable at ends).
+4. **Data forward-compatibility** — `SCHEMA_VERSION` stamp + `writtenBy`, forward guard (newer blob →
+   snapshot to `:future` + boot warning, still migrates in place), offline conservation/idempotency test
+   harness at `_local/migration-test.html`. (`:safe` 3rd backup deferred; index.html collision = discipline.)
+5. **Gear tab + Map legend** — Settings→Gear surfaces the cage/gear-type editor (Settings de-duped);
+   "Map key" menu row decodes the cage colors (age-since-stocked bands), ready dot, needs-work ring, and
+   gear shapes — dynamic to the farm.
+
+Harness paste-sync DONE (2026-06-24, resume pass): `_local/migration-test.html`'s inlined `migrateFarm`
+now matches the real one (`l.name=''` + `l.auto` flag), and its `ensureSpatialIndex` calls a synced
+`reindexLines`/`segLetter` — so the harness exercises the SHIPPING line-naming, not stale code. Re-run
+headless: ALL PASS, 3 fixtures, oysters conserved (40000/5200/200), idempotent, unknown fields survive,
+labels derive to the new `1A`/`2A` scheme. (`ponytail:` comment marks the copy as drift-prone; upgrade
+path = extract the real fns at test time.)
+
+Still OPEN: onshore-gear inventory (deferred, speculative — not built).
+
 ## Inbox (unsorted — dump here)
 
 -
@@ -155,9 +183,141 @@ Right now every farm starts with the same 3 default cage types (Bag, Flip, OyGro
 ### Gear tab for onshore gear
 A Gear tab to track the gear sitting on shore (equipment inventory — not in the water). Heads up: the Farm hub already has a "Gear" tab, but today it manages *cage types*, not onshore equipment. Decide: rename/repurpose that tab, or split into "Cage types" vs "Gear on shore."
 
+### Make a dedicated "Gear" tab under Settings (NEW 2026-06-24)
+Re-requested in use. **State today (`spatmap.html` v4):** there is NO "Gear" tab — the Menu
+(`buildMenu`, L8031) has a **"Settings"** item (gear icon, subtitle "Cage types & mesh, market size,
+alerts") that opens `buildSettings` (L8260); cage types live in the farm create/edit sheet
+(`buildCageTypesEditor`, L3278), not in their own tab. Want a clear **"Gear"** entry under Settings.
+**Two readings to confirm at build (they could be one combined tab):**
+- (a) **Gear types** — promote cage-type/gear management out of the create/edit flow into its own
+  Settings → Gear tab (ties to the "Master gear catalog → farm picks what it has" note above and the
+  OysterGrow-float 4th-type note below).
+- (b) **Onshore gear inventory** — equipment sitting on the dock, not in the water (the "Gear tab for
+  onshore gear" note above).
+Code hooks: add a `list.appendChild(item('gear', 'Gear', …, function(){ openSheet(buildGear); }))` row
+in `buildMenu`; new `buildGear` sheet modeled on `buildSettings`/`buildGrades`. Confirm (a) vs (b) vs
+both before building.
+
 ## Bugs & friction
 
+### BUG — line numbering is off when adding lines via the area editor (NEW 2026-06-24, found in use)
+Editing an area and adding lines produces wrong/jumping line numbers.
+
+**Root cause (confirmed in `spatmap.html`):** new lines are appended to the END of the flat
+`farm.lines` array — `buildLinesForArea` (L1855) sets `baseOrder = farm.lines.length` and names each
+line `'Line ' + (globalIdx+1)` by **global append order**, not by its position inside the area. With
+more than one area, a line added to an *earlier* area lands physically inside that area on the map but
+gets a high global number (and its cage labels `N-c` use the global line index too). So Area 1 reads
+"Line 1, 2, 3, … 7" — the per-area sequence jumps. `reindexLines` (L3032) re-derives `l.order` and the
+cage `c.label` but **never updates `l.name`**, so the stored name drifts further from the line's actual
+position on every add/remove.
+
+**Fix direction:** insert new lines at the correct global slot *within their area* (splice, don't
+append), then re-derive `name` for ALL lines in `reindexLines` (currently it skips `name`) — or move to
+a per-area label scheme (see the a/b/c request below). Touches `buildLinesForArea`, `setAreaLineCount`
+(L1909), `reindexLines`.
+
+### FEATURE — a/b/c suffix on each line for cross-area row continuity (NEW 2026-06-24)
+The areas are interconnected: each physical row of the farm continues from one area into the next. Want
+to label lines so a single row that runs across areas reads as one row split into segments — e.g. Line
+**1a** in Area A continues as **1b** in Area B, **1c** in Area C. Lets you see at a glance that "1a /
+1b / 1c" are the same run of water. Pairs with the numbering fix: the label scheme should encode
+**row number + area-segment letter**, replacing the global append-order name. Decide at build: is the
+"row" the Nth line within each area (positional), or an explicit link the user draws between line ends?
+Positional (Nth line of each area = same row) is the cheap first pass.
+
+### FRICTION — can't switch areas inside the Work tab (NEW 2026-06-24, found in use)
+Once you drill into one area's work list (tap an area's **"Open ›"** chip on the map), there's no way
+to step to another area from inside that list. The only path back is the **Back** chip (top-left, shows
+"Plot · Area") → returns to the overview map → tap the next area's "Open ›". No direct area-to-area
+pager/swipe. **Fix direction:** add prev/next-area controls (or a small area switcher chip) to the
+scoped Work top bar so you can move between adjacent areas without backing all the way out. Code hooks:
+`renderTopBar` scoped branch (L2496), `viewScope`/`scopeNames` (L2534), `drillIntoArea` (the drill that
+sets scope), `linesInArea` for the adjacent-area lookup.
+
+### WORKFLOW — fill should be cage-first, then pick the batch (NEW 2026-06-24)
+After splitting the tub into batches, filling is backwards. Today you arm a split-batch chip *first*,
+then select cages. Flip it: **select the empty cages to fill, then the available batch(es) pop up** to
+choose which one drops into them. Make the whole split → fill loop seamless — the natural motion is
+"these cages, that batch," not "that batch, then hunt for cages." Decide at build: if only one batch is
+on the tub, skip the popup and fill directly; if several, the popup is a quick batch picker (count ·
+grade · origin per chip). Code hooks: the fill path (fill-from-barge / armed-split fill), the split-
+batch chips on the tub sheet, `workCages`. We'll get around to it.
+
+### BUG — multi-select loses the Remove button (NEW 2026-06-24, found in use)
+Selecting more than one cage removes the ability to Remove them. **Root cause (confirmed):** in
+`renderPopup` (`spatmap.html` L8763-8766) the **Remove** button is gated to `if (n === 1)` — it renders
+only when exactly ONE *empty* cage is selected (it lives in the `allEmpty` branch, so it never shows for
+filled cages either). Pick two cages and the button disappears. **Fix:** `removeCages` already takes an
+id array and is called with `selectedIds()`, so dropping the `n === 1` guard makes Remove work on a
+whole empty-selection as-is (near one-line). Decide: keep Remove empty-only (filled cages must be pulled
+first — the current safety), or add a guarded multi-remove for filled cages with a confirm, since
+removing a filled cage destroys its batch.
+
+## Data safety / forward-compatibility (PLAN — NEW 2026-06-24)
+
+**Goal:** updating the app (re-deploy, even with the version string still v4) must NEVER lose a farm or
+reset it to empty. Data written by an older build must keep loading in every newer build.
+
+### What's already protecting us (verified in `spatmap.html`)
+- **Stable key:** `STORAGE_KEY = 'cageTrackerData'` (L1478), explicitly "KEEP this exact key." Never
+  change it — a new key = instant empty farm.
+- **Additive, idempotent migrations:** `migrateFarm` (L1520) → `ensureSpatialIndex` / `migrateBatch`
+  (L1994) / `migrateEvent` (L2020) backfill missing fields and normalize legacy shapes; they don't
+  delete. `migrateFarm` runs on every load (L1510).
+- **Recovery snapshots:** `:prev` blob saved alongside every write (L8451); persist-on-boot; the
+  full-fidelity export-with-photos backup.
+
+### The real risks (to fix when we get around to it)
+1. **SHARED-ORIGIN COLLISION (highest).** localStorage is per-origin, not per-path. `index.html` (v7,
+   live root) and `spatmap.html` (v4) BOTH use key `cageTrackerData` on `philipinosis.github.io` but
+   carry **different schemas + different `migrateFarm`**. Opening both on the same device makes each
+   app's migrator run on the other's data; last-saver-wins. **Decision needed:** treat `spatmap.html`
+   as THE app and never open the v7 root on a device that holds real data (cheapest — discipline only),
+   or retire the v4/v7 split so one schema owns the origin. Do NOT "fix" by namespacing the key per
+   version — a new key resets the farm.
+2. **No stored schema version → no forward guard.** Nothing stamps which build wrote the data, so an
+   OLDER app can load a NEWER blob and a reconstruct-style migration could silently drop fields it
+   doesn't know. Fix: stamp `state.schemaVersion = N` on save; on load, if stored > known, take the
+   preserve-unknown-fields path (round-trip untouched) + keep a backup before migrating, instead of
+   blindly down-migrating.
+3. **Unknown-field preservation not guaranteed.** Migrations must mutate in place so fields a build
+   doesn't recognize survive a load→save round-trip. Audit `migrateFarm`/`migrateBatch`/`migrateEvent`
+   for any spot that rebuilds an object from scratch (those strip unknown keys).
+
+### Plan
+1. **Never** change `STORAGE_KEY`. Document it as a hard rule.
+2. Keep migrations **additive + idempotent + in-place only** — deprecate a field by ignoring it, never
+   by deleting. Add one line to a `DATA-SCHEMA.md` changelog whenever a field is added.
+3. Add `schemaVersion` stamping + the forward guard (#2 above): newer-than-known data is preserved, not
+   down-migrated, and a raw backup is snapshotted before any migration.
+4. Resolve the shared-origin collision (#1) — pick the single-canonical-app discipline now, plan the
+   v4/v7 unification later.
+5. Add a **migration test harness:** keep a fixtures folder of real exported farm JSONs from each
+   version; on every build, load each through the new `migrateFarm` and assert farm/cage/batch counts
+   and total oyster count are conserved (0 loss). This is the check that PROVES forward-compat before
+   shipping — formalize the conservation check we've been doing by hand (e.g. 45,200 → 45,200).
+6. Keep the recovery layers (`:prev`, persist-on-boot, export-with-photos) and add a second clean-load
+   backup key (`cageTrackerData:safe`) written only after a successful load+migrate, so a botched
+   migration can roll back.
+
 ## Design / UX
+
+### Map legend / key (NEW 2026-06-24)
+The map uses color + glyphs to encode cage state, but there's no key explaining them. Add a legend so a
+new user (or a buyer/inspector looking over a shoulder) can read the map. **What it must decode (the
+real vocabulary in `spatmap.html`):**
+- **Cage fill colors** — `STATUS_COLORS` (L2219): `empty` slate `#3C5560`, `fresh` green `#51B97B`,
+  `mid` amber `#D38C33`, `old` rust `#CB5A2F`. Spell out what fresh/mid/old actually mean (work-recency
+  / time band — confirm against `cageStatus`, L2399).
+- **The ready dot (●)** — sale-ready flag; and the **needs-work** indicator (`needsWork`).
+- **Cage shapes** — each gear type draws a different glyph (`shapeSVG`); the legend should map shape →
+  gear type for that farm.
+- **Plot / area tiers** and the **barge/tub** object if space allows.
+**Where it lives:** a tappable "?" / key chip on the map that opens a small legend sheet (cheapest), or
+fold it into the Menu. Note: `renderStatStrip` (~L2546) already shows colored count dots (ready /
+filled / empty) — that's a partial legend to build on, not duplicate. Keep it dynamic — only show the
+gear shapes/colors this farm actually uses.
 
 ### Line label on the border — fit more lines per screen (NEW 2026-06-15)
 Render each line's text (the line name/label) on the line's border/edge instead of on its own row above the cages. Putting the label inline on the border reclaims the vertical space each line currently spends on a separate header row, so more lines fit on one screen without scrolling. Goal: denser line list, same readability — the label rides the line itself.

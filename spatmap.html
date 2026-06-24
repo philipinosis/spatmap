@@ -409,6 +409,11 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 /* scoped work-map back chip (in renderTopBar) */
 .topbar .fname.scopeBack{ font:750 16px/1.1 var(--font-ui); gap:4px; }
 .topbar .fname.scopeBack .chev{ opacity:1; }
+/* scoped work-map prev/next-area arrow chips, flanking the back chip (mirrors .menuBtn) */
+.topbar .scopeNav{ flex:0 0 auto; width:var(--tap); height:var(--tap); border-radius:var(--radius-sm);
+  display:flex; align-items:center; justify-content:center; color:#fff; }
+.topbar .scopeNav:active{ background:rgba(255,255,255,.12); }
+.topbar .scopeNav.disabled{ opacity:.3; pointer-events:none; }
 
 /* ── LINE ROW ─────────────────────────────────────────────────────── */
 /* WP3: each line is a discrete band with --row-gap air above/below. The
@@ -1476,6 +1481,8 @@ function parseCount(v){ var n = parseNum(v); return n == null ? null : Math.max(
    ───────────────────────────────────────────────────────────────── */
 
 var STORAGE_KEY = 'cageTrackerData';   // KEEP this exact key (back-compat with index-3..6)
+var SCHEMA_VERSION = 1;                 // stamped on every save; loadState's forward guard preserves a
+                                        // newer-than-this blob (bump only if a migration becomes lossy)
 var state = null;                       // module global root: {v, farms, activeFarmId}
 
 // LAYOUT EDITOR runtime-only view state (NOT persisted; reload returns to whole-farm work map). (LAYOUT §4)
@@ -1504,6 +1511,15 @@ function loadState(){
     var d = _parseStateBlob(localStorage.getItem(STORAGE_KEY));
     if (!d) d = _parseStateBlob(localStorage.getItem(STORAGE_KEY + ':prev'));  // main gone/corrupt → recover the pre-import snapshot (audit review #2)
     if (!d) return freshState();
+    // FORWARD GUARD — a blob stamped by a NEWER build than this one. Migrations are additive +
+    // in-place (they never reshape or whitelist keys), so migrating is safe and preserves unknown
+    // fields; but snapshot the raw blob first so it can never be silently overwritten, and flag the
+    // session so boot can warn the owner. (no down-migration, no key whitelist below.)
+    var storedSchema = (typeof d.schemaVersion === 'number') ? d.schemaVersion : 0;
+    if (storedSchema > SCHEMA_VERSION){
+      try { localStorage.setItem(STORAGE_KEY + ':future', localStorage.getItem(STORAGE_KEY)); } catch (e){}
+      window.__spatmapFutureBlob = true;
+    }
     d.v = 1;                                   // v stays 1 — every new field is additive
     delete d.photos;                           // never let a photo-inlined backup reach localStorage
     d.farms = d.farms.filter(function(f){ return f && typeof f === 'object'; });  // drop null/garbage entries before migrate (no t.id throw)
@@ -1605,7 +1621,11 @@ function migrateFarm(f){
   f.lines = flatLines;
   f.lines.forEach(function(l, li){
     if (!l.id) l.id = uid();                                                // line id
-    if (typeof l.name !== 'string') l.name = 'Line ' + (li+1);              // line name
+    if (typeof l.name !== 'string') l.name = '';                           // line name (DERIVED in reindexLines)
+    // auto flag: a stored name that LOOKS auto-generated (old "Line 3" or new bare "2B") gets re-derived;
+    // any other stored name is a USER RENAME and is preserved. Backfill once (older farms predate the flag).
+    if (typeof l.auto !== 'boolean')
+      l.auto = (l.name === '' || /^Line \d+[a-z]*$/i.test(l.name) || /^\d+[A-Z]+$/.test(l.name));
     l.order = li;                                                           // explicit flat order (renumber)
     delete l.section; delete l.vert; delete l.pulled;                       // drop legacy hierarchy bits
     if (!Array.isArray(l.cages)) l.cages = [];                              // cages array
@@ -1783,8 +1803,10 @@ function ensureSpatialIndex(f){
   f.plots.forEach(function(p){ p.areas.forEach(function(a){ a.lineIds = []; }); });
   f.lines.forEach(function(l){ var e = areaById[l.areaId]; if (e) e.area.lineIds.push(l.id); });
 
-  // 7. reindex plots + areas
+  // 7. reindex plots + areas, then re-derive area-relative line names + cage labels (self-heals every
+  // load: legacy "Line N" names with auto:true relabel to the bare "<row><Letter>" scheme; renames stick).
   reindexPlots(f);
+  reindexLines(f);
 }
 
 // reindexPlots(f) — set plot.order == index, area.order == index. Display-only ordering.
@@ -1862,13 +1884,13 @@ function buildLinesForArea(farm, area, lineCount, cagesPerLine){
   var created = [], baseOrder = farm.lines.length;
   for (var li=0; li<n; li++){
     var globalIdx = baseOrder + li;
-    var line = { id:uid(), name:'Line ' + (globalIdx+1), order:globalIdx, cages:[],
-      plotId:plotId, areaId:area.id };                                     // EXACT addLine shape + refs
+    var line = { id:uid(), name:'', auto:true, order:globalIdx, cages:[],
+      plotId:plotId, areaId:area.id };                                     // name/labels DERIVED in reindexLines
     for (var ci=0; ci<per; ci++) line.cages.push(newCage(typeId, globalIdx, ci));
     farm.lines.push(line);
     created.push(line);
   }
-  reindexLines(farm);
+  reindexLines(farm);                                                      // stamps area-relative name + cage labels
   rebuildLineIds(farm);                                                    // derive area.lineIds from lines
   return created;
 }
@@ -2044,6 +2066,8 @@ function migrateEvent(ev, fallbackBatchId){
 var saveFailed = false;
 function save(){
   var ok = true;
+  state.schemaVersion = SCHEMA_VERSION;        // stamp build identity so a future build can guard our blob
+  state.writtenBy = 'spatmap.html';            // app-line marker (distinct from index.html live root)
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch (e) { ok = false; showSaveError(); }
   if (ok && saveFailed) clearSaveError();    // a prior failure has cleared (e.g. user freed space)
@@ -2507,7 +2531,29 @@ function renderTopBar(farm){
       h('span', { style:{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'} }, sc.plot + ' · ' + sc.area));
     var menuBtnS = h('button', { class:'menuBtn', 'aria-label':'Menu', html:icon('menu', 24),
       onclick:function(){ openSheet(buildMenu); } });
-    return h('div', { class:'topbar' }, backBtn, menuBtnS);
+    // Within-plot prev/next-area pager: arrows flank the back chip when the plot holds >1 area. A tap
+    // re-scopes via doDrillSwap (instant swap + its own pushView), so history stays one-entry-per-view
+    // and the back chip's Back-through is preserved. Disabled (not wrapped) at the first/last area.
+    var areas = areasInScopePlot(farm) || [];
+    var curIdx = -1;
+    for (var ni=0; ni<areas.length; ni++) if (areas[ni].id === viewScope.areaId){ curIdx = ni; break; }
+    var prevA = curIdx > 0 ? areas[curIdx-1] : null;
+    var nextA = (curIdx >= 0 && curIdx < areas.length-1) ? areas[curIdx+1] : null;
+    function areaNavBtn(area, dir){
+      return h('button', {
+        class:'scopeNav' + (area ? '' : ' disabled'),
+        'aria-label': area ? ((dir < 0 ? 'Previous area: ' : 'Next area: ') + area.name)
+                           : (dir < 0 ? 'No previous area' : 'No next area'),
+        disabled: area ? null : 'disabled',
+        html: icon(dir < 0 ? 'back' : 'chevron', 20),
+        onclick: area ? function(){ doDrillSwap(area); } : null });
+    }
+    var multiArea = areas.length > 1;
+    return h('div', { class:'topbar' },
+      multiArea ? areaNavBtn(prevA, -1) : null,
+      backBtn,
+      multiArea ? areaNavBtn(nextA, 1) : null,
+      menuBtnS);
   }
   var menuBtn = h('button', { class:'menuBtn', 'aria-label':'Menu', html:icon('menu', 24),
     onclick:function(){ openSheet(buildMenu); } });
@@ -2540,6 +2586,16 @@ function scopeNames(farm){
       if (p.areas[j].id === viewScope.areaId) return { plot:p.name, area:p.areas[j].name };
     }
   }
+  return null;
+}
+
+// areasInScopePlot(farm) — the ordered areas[] of the plot the current viewScope sits in, for the
+// within-plot prev/next-area pager in the scoped top bar. Resolves the plot via viewScope.plotId,
+// falling back to findPlotIdOfArea (mirrors doDrillSwap's own guard). null when unscoped.
+function areasInScopePlot(farm){
+  if (!viewScope || !viewScope.areaId || !farm || !farm.plots) return null;
+  var pid = viewScope.plotId || findPlotIdOfArea(farm, viewScope.areaId);
+  for (var i=0; i<farm.plots.length; i++) if (farm.plots[i].id === pid) return farm.plots[i].areas || [];
   return null;
 }
 
@@ -2997,7 +3053,7 @@ function addLine(){
   var perLine = seqLines.length ? seqLines[seqLines.length-1].cages.length : 10;
   if (!perLine) perLine = 10;
   var typeId = farm.cageTypes[0].id;
-  var line = { id:uid(), name:'Line ' + (seqLines.length+1), order:seqLines.length, cages:[] };
+  var line = { id:uid(), name:'', auto:true, order:seqLines.length, cages:[] };  // name/labels DERIVED in reindexLines
   for (var i=0; i<perLine; i++) line.cages.push(newCage(typeId, seqLines.length, i));
   // LAYOUT §6.7 — stamp the parent area: the scoped area when drilled in, else the default area.
   stampLineArea(farm, line);
@@ -3028,11 +3084,40 @@ function stampLineArea(farm, line){
 function newCage(typeId, lineIdx, cageIdx){
   return { id:uid(), typeId:typeId, label:(lineIdx+1)+'-'+(cageIdx+1), batch:null, events:[], currentGrade:null, workDue:null };
 }
-// reindexLines — fix order + recompute every cage label (cosmetic) after a structural change
+// segLetter(n) — area ordinal (0-based, within its plot) → A,B,C…Z,AA,AB… (bijective base-26).
+function segLetter(n){
+  n = Math.max(0, Math.floor(n));
+  var s = '';
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return s;
+}
+// reindexLines — fix l.order (GLOBAL flat index, dashboard sort depends on it) + recompute every
+// line label/name and cage label from AREA-RELATIVE position. Row number = line's index WITHIN its
+// area (+1); area letter = area's order WITHIN ITS PLOT (per-plot, A,B,C…). Label is BARE: "<row><Letter>"
+// e.g. "1A","2B"; cage = "<row><Letter>-<cage>" e.g. "2B-4". Names are DERIVED here only when
+// l.auto !== false; a user-renamed line (auto:false) keeps its custom name. Cage labels always derive
+// (never user-edited). Orphan lines (no resolvable area) fall back to flat global numbering.
 function reindexLines(farm){
+  // map areaId → its per-plot ordinal (0-based) so the letter is stable regardless of reindexPlots order
+  var areaSeg = {};
+  (farm.plots || []).forEach(function(p){
+    (p.areas || []).forEach(function(a, ai){ areaSeg[a.id] = ai; });
+  });
+  var rowInArea = {};   // areaId → next row number (0-based) as we walk lines in flat order
   farm.lines.forEach(function(l, li){
-    l.order = li;
-    l.cages.forEach(function(c, ci){ c.label = (li+1) + '-' + (ci+1); });
+    l.order = li;                                   // GLOBAL flat index — unchanged contract
+    var seg = (l.areaId != null && areaSeg[l.areaId] != null) ? segLetter(areaSeg[l.areaId]) : null;
+    var rowIdx;
+    if (seg != null){
+      if (rowInArea[l.areaId] == null) rowInArea[l.areaId] = 0;
+      rowIdx = rowInArea[l.areaId]++;
+    } else {
+      rowIdx = li;                                  // orphan: fall back to global index
+      seg = '';                                     // no area letter
+    }
+    var label = (rowIdx + 1) + seg;                 // e.g. "1A" (or just "1" for orphans)
+    if (l.auto !== false) l.name = label;           // DERIVED name unless user-renamed
+    l.cages.forEach(function(c, ci){ c.label = label + '-' + (ci + 1); });
   });
 }
 
@@ -3249,11 +3334,11 @@ function createFarmFromModel(model, nameIn){
   var nLines = Math.max(1, Math.round(parseNum(model.linesCount) || 1));
   var nCages = Math.max(1, Math.round(parseNum(model.cagesPerLine) || 1));
   for (var li=0; li<nLines; li++){
-    var line = { id:uid(), name:'Line ' + (li+1), order:li, cages:[] };
+    var line = { id:uid(), name:'', auto:true, order:li, cages:[] };  // name/labels DERIVED once area is stamped
     for (var ci=0; ci<nCages; ci++) line.cages.push(newCage(typeId, li, ci));
     farm.lines.push(line);
   }
-  ensureSpatialIndex(farm);             // LAYOUT §6.10 — born into the plot model (no first-load flicker)
+  ensureSpatialIndex(farm);             // LAYOUT §6.10 — born into the plot model (no first-load flicker); reindexLines derives labels
   backfillSeedCohorts(farm);            // L1: stamp seedCohortId now so cohort highlight is stable pre-reload
   state.farms.push(farm);
   state.activeFarmId = farm.id;
@@ -3353,7 +3438,7 @@ function buildLinesEditor(farm){
     list.innerHTML = '';
     farm.lines.forEach(function(l){
       var nameIn = h('input', { type:'text', value:l.name, style:{flex:'1 1 auto'},
-        oninput:function(){ l.name = this.value; persist(); } });
+        oninput:function(){ l.name = this.value; l.auto = false; persist(); } });
       var count = h('span', { class:'hint', style:{flex:'0 0 auto', whiteSpace:'nowrap'} }, l.cages.length + ' cages');
       var rm = h('button', { class:'trm', 'aria-label':'Remove line', html:icon('trash', 18),
         onclick:function(){ removeLineFromFarm(farm, l, renderLines); } });
@@ -8054,7 +8139,9 @@ function buildMenu(){
   list.appendChild(item('grade', 'Seed source scorecard', 'Which hatchery performs — survival, time, $ per cage', function(){ openSheet(buildCohortScorecard); }));
   list.appendChild(item('log', 'Harvest Log', (farm.harvestLog.length || 'No') + ' harvests', function(){ openSheet(buildHarvestLog); }));
   list.appendChild(item('grade', 'Grades', farm.grades.length ? farm.grades.join(', ') : 'None yet', function(){ openSheet(buildGrades); }));
-  list.appendChild(item('gear', 'Settings', 'Cage types & mesh, market size, alerts', function(){ openSheet(buildSettings); }));
+  list.appendChild(item('gear', 'Gear', 'Cage & basket types — shape and mesh', function(){ openSheet(buildGear); }));
+  list.appendChild(item('grade', 'Map key', 'What the colors & shapes mean', function(){ openSheet(buildLegend); }));
+  list.appendChild(item('gear', 'Settings', 'Market size, alerts, prices', function(){ openSheet(buildSettings); }));
   list.appendChild(item('data', 'Data', 'Export / import backup', function(){ openSheet(buildDataMenu); }));
   if (state.farms.length > 1){
     list.appendChild(item('anchor', 'Switch farm', state.farms.length + ' farms', function(){ openSheet(buildFarmSwitcher); }));
@@ -8247,6 +8334,84 @@ function buildHarvestLog(){
   return kids;
 }
 
+// buildGear — dedicated home for cage/gear-TYPE management (was buried in Settings). Reuses
+// buildCageTypesEditor against the LIVE farm (isCreate=false → every keystroke persist()s, the
+// in-use removal guard + ≥1 floor stay). Done re-renders because cage SHAPE changes repaint the
+// map glyphs (renderLine/canvas read t.shape live; persist() doesn't bump commit.seq).
+function buildGear(){
+  var farm = getFarm();
+  var kids = sheetHead('Gear', 'Your cage & basket types — shape and mesh.');
+  kids.push(buildCageTypesEditor(farm, false));
+  kids.push(h('button', { class:'btn btn-primary btn-block', style:{marginTop:'18px'},
+    onclick:function(){ closeSheet(); render(); } }, 'Done'));
+  return kids;
+}
+
+// buildLegend — the map key. DYNAMIC: only decodes the vocabulary THIS farm actually shows.
+// Colors are OYSTER AGE since stocked (cageStatus: <6mo fresh / 6–12mo mid / >12mo old), NOT work
+// timing — those are separate axes (the ● ready dot = at/above market size; the dashed ring = needs
+// work). Scans live cages so a band with no cages isn't claimed. Uses the same ● glyph + STATUS
+// colors as renderStatStrip so the two never contradict; this DEFINES the vocabulary, not counts.
+function buildLegend(){
+  var farm = getFarm();
+  var kids = sheetHead('Map key', 'What the colors and shapes mean.');
+  // scan live cages once: which status keys are present + whether any ready / any needs-work
+  var present = {}, anyReady = false, anyWork = false;
+  (farm.lines || []).forEach(function(line){
+    (line.cages || []).forEach(function(c){
+      var st = cageStatus(c, farm);
+      present[st.key] = true;
+      if (st.ready) anyReady = true;
+      if (st.needsWork) anyWork = true;
+    });
+  });
+  // a labeled row: a swatch (solid square / dot / dashed-ring) + name + sublabel
+  function swatchRow(swatchEl, name, sub){
+    return h('div', { class:'legendRow', style:{display:'flex', alignItems:'center', gap:'12px', padding:'8px 0'} },
+      h('span', { class:'legendSwatch', style:{flex:'0 0 26px', display:'inline-flex', alignItems:'center', justifyContent:'center'} }, swatchEl),
+      h('span', { style:{flex:'1 1 auto'} },
+        h('div', { style:{font:'600 14px/1.2 var(--font-ui)'} }, name),
+        sub ? h('div', { class:'fieldHint', style:{margin:'2px 0 0'} }, sub) : null));
+  }
+  function colorChip(hex){
+    return h('span', { style:{display:'inline-block', width:'18px', height:'18px', borderRadius:'4px',
+      background:hex, border:'1px solid rgba(0,0,0,.25)'} });
+  }
+  // ── COLOR BANDS (oyster age since stocked) — only the keys present on this farm ──
+  kids.push(h('div', { class:'menuSub', style:{margin:'10px 0 2px', color:'var(--ink-3)', font:'600 12px/1 var(--font-ui)', letterSpacing:'.04em', textTransform:'uppercase'} }, 'Cage color'));
+  var colorDefs = [
+    ['empty', 'Empty', 'No oysters'],
+    ['fresh', 'Fresh stock', 'Under 6 months'],
+    ['mid',   'Mid',         '6 to 12 months'],
+    ['old',   'Older',       'Over 12 months']
+  ];
+  colorDefs.forEach(function(d){
+    if (!present[d[0]]) return;                              // don't claim a band with no cages
+    kids.push(swatchRow(colorChip(STATUS_COLORS[d[0]]), d[1], d[2]));
+  });
+  // ── MARKERS (ready dot / needs-work ring) — only if such cages exist ──
+  if (anyReady || anyWork){
+    kids.push(h('div', { class:'menuSub', style:{margin:'12px 0 2px', color:'var(--ink-3)', font:'600 12px/1 var(--font-ui)', letterSpacing:'.04em', textTransform:'uppercase'} }, 'Markers'));
+    if (anyReady){
+      var dot = h('span', { style:{color:RING_COLOR, font:'700 20px/1 var(--font-ui)'} }, '●');
+      kids.push(swatchRow(dot, 'Market-ready', 'At or above your market size (' + farm.settings.marketSizeMm + ' mm)'));
+    }
+    if (anyWork){
+      var ring = h('span', { style:{display:'inline-block', width:'18px', height:'18px', borderRadius:'4px',
+        background:'transparent', border:'2px dashed ' + NEEDS_WORK_COLOR} });
+      kids.push(swatchRow(ring, 'Needs work', 'Not worked in over ' + farm.settings.neglectIntervalDays + ' days, or losing faster than its peers (watch list)'));
+    }
+  }
+  // ── GEAR SHAPES — every declared cage type, neutral slate fill so it reads as gear, not status ──
+  kids.push(h('div', { class:'menuSub', style:{margin:'12px 0 2px', color:'var(--ink-3)', font:'600 12px/1 var(--font-ui)', letterSpacing:'.04em', textTransform:'uppercase'} }, 'Gear'));
+  (farm.cageTypes || []).forEach(function(t){
+    var glyph = h('span', { html:shapeSVG(t.shape, STATUS_COLORS.empty, false, 22, false) });
+    kids.push(swatchRow(glyph, typeLabel(t), null));
+  });
+  kids.push(h('button', { class:'btn btn-primary btn-block', style:{marginTop:'18px'}, onclick:closeSheet }, 'Done'));
+  return kids;
+}
+
 // buildGrades — manage the grade vocabulary (one editor; shares the chip editor).
 function buildGrades(){
   var farm = getFarm();
@@ -8259,10 +8424,9 @@ function buildGrades(){
 // buildSettings — market size + neglect interval (edits farm.settings).
 function buildSettings(){
   var farm = getFarm();
-  var kids = sheetHead('Settings', 'Cage types & mesh, market size, alerts.');
-  // ── Cage types (owner ask): set the mesh of each brand + custom-build any cage for the stock/convert
-  // dropdown. buildCageTypesEditor edits farm.cageTypes live (name · shape · mm mesh · add/remove). ──
-  kids.push(buildCageTypesEditor(farm, false));
+  var kids = sheetHead('Settings', 'Market size, alerts, prices.');
+  // Cage/gear-type management now lives in its own Gear sheet (Menu → Gear); buildGear edits the same
+  // farm.cageTypes via buildCageTypesEditor. Settings keeps market size, neglect alert, and prices.
   var marketIn = h('input', { type:'number', inputmode:'decimal', min:'1', value:farm.settings.marketSizeMm,
     oninput:function(){ var v = parseNum(this.value); if (v != null && v > 0){ farm.settings.marketSizeMm = v; persist(); } } });
   kids.push(field('Market size (mm)', marketIn, 'The size you sell at — used to project harvest dates.'));
@@ -8446,6 +8610,8 @@ function triggerImport(){
       // blob ever goes missing/corrupt, so a bad import (or a later corruption) isn't an empty-farm dead end.
       var prevBlob = null;
       try { prevBlob = localStorage.getItem(STORAGE_KEY); } catch (e){}
+      data.schemaVersion = SCHEMA_VERSION;     // re-stamp an imported file to THIS build's identity
+      data.writtenBy = 'spatmap.html';
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
       catch (e){ toast('Could not save imported data — too large?'); cleanup(); return; }
       if (prevBlob != null){ try { localStorage.setItem(STORAGE_KEY + ':prev', prevBlob); } catch (e){} }
@@ -8755,15 +8921,15 @@ function renderPopup(farm){
       var ids = selectedIds();
       var b = getFarm().barge;
       if (activeFillSplitId && bargeSplitById(b, activeFillSplitId)) fillFromBarge(ids, activeFillSplitId);
-      else if (activeFillSplitId){ setActiveFillSplit(null); toast('That batch is gone — pick again'); openSheet(function(){ return buildHarvestSheet(getFarm()); }); }   // armed split vanished (undo/clear) — don't silently fill remainder
+      else if (activeFillSplitId){ setActiveFillSplit(null); toast('That batch is gone — pick again'); openSheet(function(){ return buildBatchPicker(ids); }); }   // armed split vanished (undo/clear) — don't silently fill remainder
       else if (b.state === 'pile') fillFromBarge(ids);
-      else if (b.splits.length){ toast('Pick a batch in the tub first'); openSheet(function(){ return buildHarvestSheet(getFarm()); }); }
+      else if (b.splits.length === 1) fillFromBarge(ids, b.splits[0].id);            // one batch → no picker, fill straight from it
+      else if (b.splits.length) openSheet(function(){ return buildBatchPicker(ids); }); // several → quick batch picker ("these cages, that batch")
       else openSheet(function(){ return buildFillSeedForm(ids); });
     } }, 'Fill'));
-    // Remove only when exactly one empty cage is selected (§2.5)
-    if (n === 1){
-      row.appendChild(h('button', { class:'pbtn remove', onclick:function(){ removeCages(selectedIds()); } }, 'Remove'));
-    }
+    // Remove any number of EMPTY cages (removeCages already takes an id array + guards to empties).
+    // Stays in the allEmpty branch only — removing a filled cage would destroy its batch (§2.5 / PM).
+    row.appendChild(h('button', { class:'pbtn remove', onclick:function(){ removeCages(selectedIds()); } }, 'Remove'));
   }
   pop.appendChild(row);
   mount.appendChild(pop);
@@ -8936,6 +9102,38 @@ function buildFillSeedForm(cageIds){
         photoIds: photos.ids()          // real captured ids → batch + stocked event
       });
     } }, 'Fill ' + n + (n === 1 ? ' cage' : ' cages'))));
+  return kids;
+}
+
+// buildBatchPicker(cageIds) — cage-first fill: the empty cages are already chosen; pick which sorted
+// batch drops into them. One chip per tub split (count · grade · origin). Tapping a chip fills straight
+// via fillFromBarge(cageIds, split.id) (lineage/remainder/undo all live in there). cageIds is snapshotted
+// by the caller BEFORE openSheet (mirrors buildFillSeedForm) so clearSelection can't strip it.
+function buildBatchPicker(cageIds){
+  var farm = getFarm();
+  var b = farm ? farm.barge : null;
+  var splits = (b && Array.isArray(b.splits)) ? b.splits : [];
+  var n = cageIds.length;
+  var kids = sheetHead('Fill from a batch', n + (n === 1 ? ' empty cage' : ' empty cages') + ' — pick which batch drops in.');
+  // splits drained while the sheet was opening → fall through to the pile, else new seed
+  if (!splits.length){
+    if (b && b.state === 'pile'){ closeSheet(); fillFromBarge(cageIds); return kids; }
+    closeSheet(); openSheet(function(){ return buildFillSeedForm(cageIds); }); return kids;
+  }
+  var chips = h('div', { class:'chips' });
+  splits.forEach(function(s, ix){
+    var name = splitChipName(s, ix);
+    var sub = [];
+    if (s.count != null) sub.push(fmtCompact(s.count));
+    if (s.grade) sub.push(s.grade);
+    var ot = bargeOriginText(s); if (ot) sub.push(ot);   // origin per the chip spec; '' when the split has none
+    chips.appendChild(h('button', { class:'chip batchChip', type:'button',
+      onclick:(function(id){ return function(){ closeSheet(); fillFromBarge(cageIds, id); }; })(s.id) },
+      h('span', { class:'bc-name' }, name),
+      sub.length ? h('span', { class:'bc-sub' }, sub.join(' · ')) : null));
+  });
+  kids.push(h('section', null, h('label', null, 'Batches in the tub'), chips));
+  kids.push(h('button', { class:'btn btn-quiet btn-block', style:{ marginTop:'10px' }, onclick:closeSheet }, 'Cancel'));
   return kids;
 }
 
@@ -11510,6 +11708,11 @@ function init(){
     viewMode = homeMode;                  // land on the overview for a laid-out farm; else the work map
     viewScope = null;
     render();
+    // FORWARD GUARD follow-up — loadState saw a blob from a newer build and kept a :future backup.
+    // Warn once, non-blocking; the app stays fully usable. (toast auto-dismisses)
+    if (window.__spatmapFutureBlob){
+      setTimeout(function(){ try { toast('This farm was last saved by a newer version of SpatMap — a backup was kept.'); } catch (e){} }, 400);
+    }
   } catch (err){
     bootFallback(err);                    // never leave a blank page if first paint throws (audit F5)
     return;
