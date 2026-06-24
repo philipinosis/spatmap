@@ -503,6 +503,20 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .cage.sel .cellfill.work{ box-shadow:0 0 0 2px var(--teal), inset 0 -4px 0 var(--c-work); }
 .cage.sel .cellfill.rdy.work{ box-shadow:0 0 0 2px var(--teal), inset 0 4px 0 var(--c-ready), inset 0 -4px 0 var(--c-work); }
 
+/* drill-focus pulse — COSMETIC ONLY (drillToCage "bump into" Work). A brief teal ring that breathes,
+   then fades. Deliberately distinct from .cage.sel (white outline): focus ≠ selection. No selCages,
+   no fill, no popup — it never participates in the selection subsystem. */
+.cage.cageFocus{ z-index:5; }
+.cage.cageFocus .cellfill{ animation:cageFocusPulse 1100ms ease-out 2; }
+@keyframes cageFocusPulse{
+  0%   { box-shadow:0 0 0 0 rgba(52,179,196,.85); }
+  55%  { box-shadow:0 0 0 5px rgba(52,179,196,0); }
+  100% { box-shadow:0 0 0 0 rgba(52,179,196,0); }
+}
+@media (prefers-reduced-motion: reduce){
+  .cage.cageFocus .cellfill{ animation:none; box-shadow:0 0 0 2.5px var(--teal); }
+}
+
 /* drag band tracking the swept range */
 .dragBand{ position:absolute; top:2px; bottom:2px; background:rgba(52,179,196,.20);
   border:1.5px solid var(--teal); border-radius:6px; pointer-events:none; z-index:3; }
@@ -1503,6 +1517,10 @@ var state = null;                       // module global root: {v, farms, active
 // LAYOUT EDITOR runtime-only view state (NOT persisted; reload returns to whole-farm work map). (LAYOUT §4)
 var viewMode = 'work';                   // 'overview' (read-only whole-farm map) | 'work' (today's labor list) | 'layout' (SVG editor)
 var viewScope = null;                    // null = whole farm | { plotId, areaId } = drilled into one area
+// pendingFocusCageId — TRANSIENT one-shot: the cage to scroll-to + cosmetically pulse after a drill
+// from Overview ("bump into" Work). NOT persisted, NOT on history state (must not survive Back).
+// Set by drillToCage(); consumed exactly once by the Work render branch, which nulls it immediately.
+var pendingFocusCageId = null;
 // homeMode — the unscoped landing surface for THIS session ('overview' when a laid-out farm exists,
 // else 'work'). Component 2: drilling out of a scoped area (Back / scope chip / popstate) returns here,
 // so an overview-home session lands back on the overview, not the old work home.
@@ -2529,6 +2547,21 @@ function render(){
 
   // re-sync the popup against the freshly-rendered DOM (Builder 2 owns syncPopup)
   if (typeof syncPopup === 'function') syncPopup();
+
+  // CONSUME the one-shot drill focus (drillToCage → "bump into" Work). Capture + null the global
+  // immediately so it never survives a Back/re-render. Pure COSMETIC cue: scroll the cell into view and
+  // pulse it via .cageFocus — NEVER selection (no selCages write, no syncPopup/fill). Removed after ~2.2s.
+  if (pendingFocusCageId){
+    var focusId = pendingFocusCageId;
+    pendingFocusCageId = null;
+    setTimeout(function(){                                 // let the line strip lay out before measuring
+      var el = document.querySelector('#mapwell .cage[data-cage-id="' + focusId + '"]');
+      if (!el) return;
+      try { el.scrollIntoView({ block:'center', inline:'center' }); } catch (e){ try { el.scrollIntoView(); } catch (e2){} }
+      el.classList.add('cageFocus');
+      setTimeout(function(){ el.classList.remove('cageFocus'); }, 2200);
+    }, 60);
+  }
 }
 
 function renderTopBar(farm){
@@ -6642,6 +6675,19 @@ function doDrillSwap(area){
   LAYOUT.drilling = false;                        // release the re-entry guard once the swap has landed (Bug B3)
 }
 
+// drillToCage(cageId) — "bump into" Work: from the Overview map, drill into the cage's AREA and arm a
+// one-shot focus so the Work render lands scrolled-to + briefly pulsing that exact cell. RENDER/NAV only:
+// it sets a transient global (NOT selection, NOT persisted) then reuses the normal drill animation/swap.
+// Focus ≠ selection — pendingFocusCageId never touches selCages/syncPopup/fill; it's a pure visual cue.
+function drillToCage(cageId){
+  var farm = getFarm(); if (!farm) return;
+  var line = lineOfCage(cageId); if (!line) return;
+  var wrap = areaOfLine(farm, line); if (!wrap) return;   // areaOfLine → { plot, area }
+  var area = wrap.area; if (!area) return;
+  pendingFocusCageId = cageId;                             // survives drillIntoArea's ~220ms animation (plain global)
+  drillIntoArea(area);
+}
+
 // NOTE: the WP8a/WP9 canvas camera-zoom path (enterAreaOnCanvas / frameAreaCamera / plotOfArea /
 // NEIGHBOR_MARGIN) was removed after the product decision: tapping a plot on the map opens its clean
 // work list (drillIntoArea), and the map is for navigation (pan/pinch). Restore from git/_v2-backups if
@@ -7656,12 +7702,10 @@ function handleLayoutTap(e, target){
       if (openId && cageById(openId)){
         if (LAYOUT.tapTimer){ clearTimeout(LAYOUT.tapTimer); LAYOUT.tapTimer = null; }
         LAYOUT.lastTapCageId = null; LAYOUT.lastTapCageXY = null;
-        var cgOpen = cageById(openId);
         clearCageHighlight();
-        // A touch tap emits a trailing synthetic click ~300ms later; once the sheet is open that click
-        // would land on the overlay backdrop and immediately CLOSE it. Swallow exactly that one click.
-        swallowNextClick();
-        openSheet(function(){ return buildCageDetail(cgOpen); });
+        // "Bump into" Work: drill into this cage's area + focus-pulse the cell (was: buildCageDetail modal,
+        // a dead-end disconnected from Work). openId was captured above, before the clears.
+        drillToCage(openId);
         return;
       }
       // FIRST tap on a cell → peek + pinned highlight; arm the window for the second tap.
@@ -7693,11 +7737,11 @@ function handleLayoutTap(e, target){
         Math.abs(p.x - LAYOUT.lastTapCageXY.x) <= TWO_TAP_R &&
         Math.abs(p.y - LAYOUT.lastTapCageXY.y) <= TWO_TAP_R){
       if (LAYOUT.tapTimer){ clearTimeout(LAYOUT.tapTimer); LAYOUT.tapTimer = null; }
-      var cgNear = cageById(LAYOUT.lastTapCageId);
+      var nearId = LAYOUT.lastTapCageId;                  // capture BEFORE the null below
       LAYOUT.lastTapCageId = null; LAYOUT.lastTapCageXY = null;
       clearCageHighlight();
-      swallowNextClick();
-      openSheet(function(){ return buildCageDetail(cgNear); });
+      // "Bump into" Work: drill into the pinned cage's area + focus-pulse it (was: buildCageDetail modal).
+      drillToCage(nearId);
       return;
     }
     // B6 (touch dismiss-first): on TOUCH, when a cage is currently pinned (lastTapCageId set) and this

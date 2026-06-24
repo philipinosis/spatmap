@@ -327,8 +327,29 @@ reset it to empty. Data written by an older build must keep loading in every new
 
 ## Design / UX
 
-### RESEARCH — unify Work + Overview into one spatial plot (NEW 2026-06-24, from use)
-**The friction (Philip, in use):** the **Work tab** and the **Overview tab** are structured differently —
+### Work ↔ Overview unification — PARTIAL BUILD 2026-06-24 (tap-to-bump shipped; canvas unify deferred)
+
+**✅ Built (2026-06-24):** **tap a cage in Overview → "bump into" Work.** Second-tap on a cage in the
+overview map now drills into that cage's AREA and lands the Work map scrolled-to + briefly pulsing that exact
+cell (teal `.cageFocus` ring, distinct from selection). Was a dead-end `buildCageDetail` modal. Render/nav
+only — `drillToCage(cageId)` (resolves `lineOfCage`→`areaOfLine`, arms a transient `pendingFocusCageId`,
+reuses `drillIntoArea`); consumed once in the Work render; **focus ≠ selection** (never writes `selCages`/
+arms a fill), not on history (won't survive Back). Zero persisted-data change. Browser-verified end-to-end;
+daily-work selection/drag/popup untouched. This was the investigation's recommended high-value, low-risk slice.
+
+**⏳ Still deferred (the bigger asks):**
+- **One shared zoomable canvas for both views** (Philip's "draw the lines in the same plot"). The investigation
+  found this is a *render-only* possibility (Work could render from the same SVG geometry as Overview) BUT it
+  requires porting the daily-work **drag-select (`denseRangeSelect`) + selection popup (`syncPopup`)** off the
+  CSS-flow DOM onto the SVG `.lp-cagecell` hit-rects — a rewrite of a working, dogfooded subsystem. High
+  regression surface on the on-the-water tool. **Gate on whether tap-to-bump already removes the confusion.**
+- **Order/orientation parity** (Chunk 3): line *order* already matches between views; the only mismatch is the
+  Work map ignoring `area.axis`/rotation (always horizontal strips). Cheap "add an orientation hint" vs riskier
+  "flip the stack for vertical areas" — only worth it if disorientation persists after dogfooding tap-to-bump.
+- **Pan/zoom between areas** (Chunk 4): largely already exists in Overview (progressive zoom + cross-plot pan)
+  + the within-plot area pager in Work. Likely just an affordance/discovery question, not new mechanics.
+
+**Original friction + investigation (kept for context):** the **Work tab** and the **Overview tab** are structured differently —
 the lines lay out differently between them, which is confusing/disorienting. They should be the *same* one
 spatial picture. What he wants:
 - **Tapping a cage on the map should bump you into that view** — tap a cage/area and land in the right place
