@@ -4,6 +4,8 @@ Running list of things to add or change. Drop raw thoughts in the Inbox; move th
 
 > **How this file works:** Everything above the uppermost `── Built in ──` divider is NEW — not yet built, for the next build. Sections below the dividers document what shipped in each version.
 
+> **SUPERSEDED 2026-06-23 — canonical file is now `spatmap.html` (v4). See README.**
+>
 > **BUILD BASE (set 2026-06-15):** From here on we build off **last night's app — `index.html` (the v7 rebuild)**. That is the canonical file. The overnight build verified the full interaction core (drag-select, pull → barge, fill-from-barge, work, harvest, remove, cage history + growth projection). Photos (Builder 3) are the main carryover still not built. The older `index-3..7.html` are history only. Note: `DIRECTORY.md` still labels index-3 "PRODUCTION" — that's stale; index.html (v7) wins (being corrected). Several "Features to add" entries below (Pull/Fill popup + barge, batch lineage, harvest log) already shipped in v7 and are kept only for history — check the live index.html before rebuilding any of them.
 
 ---

@@ -45,6 +45,7 @@ The v4 pitch ran a wider list. These were looked at and left on purpose:
 
 From [build-history/notes-and-ideas.md](build-history/notes-and-ideas.md):
 
+- Service worker — only build if users report the app stops working offline after sitting unused (Add-to-Home-Screen already caches the file today).
 - Remembered fill defaults + steppers.
 - Long-press to ADD to selection (drag-replace already shipped).
 - Bulk-Work method-chip audit (don't silently log "tumbled").

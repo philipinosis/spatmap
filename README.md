@@ -67,6 +67,7 @@ in again; data stays on each phone, so updating never erases anyone's records.
 **Ongoing updates — GitHub Pages:** this repo already serves `index.html` at
 `philipinosis.github.io/spatmap/`. To make the current build live, point the Pages root at
 `spatmap.html` (or copy it over `index.html`). That swap is deliberately left to the owner.
+Before swapping, back up any live farm data on a test device — the v4 migrator runs on the v7 blob at first open.
 
 One hosted copy serves many farms — each farmer's layout and data stay on their own phone. The app
 also holds multiple farms on one device (tap the farm name to switch).

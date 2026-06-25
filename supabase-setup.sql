@@ -1,3 +1,5 @@
+-- NOT WIRED UP. Aspirational schema for a future optional cloud-backup feature.
+-- The app is fully offline today and never calls Supabase. See docs/ROADMAP.md.
 -- ============================================================
 --  SpatMap — Supabase backend setup
 --  Paste this ENTIRE file into your Supabase project:

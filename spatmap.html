@@ -1471,6 +1471,8 @@ function uid(){ _uidc++; return 'x' + Date.now().toString(36) + _uidc.toString(3
 // ── DATE UTILS (ISO yyyy-mm-dd, UTC-safe) ──
 function pad2(n){ return n < 10 ? '0' + n : '' + n; }
 function todayISO(){ var d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate()); }
+// toISOfromMs — UTC ms → ISO yyyy-mm-dd (chart axis labels + UTC-day bucketing). NOT local — see todayISO for local.
+function toISOfromMs(ms){ var d = new Date(ms); return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth()+1) + '-' + pad2(d.getUTCDate()); }
 function isValidISO(s){ return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(isoToMs(s)); }
 function isoToMs(s){ if (typeof s !== 'string') return NaN; var p = s.split('-'); return Date.UTC(+p[0], (+p[1])-1, +p[2]); }
 function daysBetween(aMs, bMs){ return Math.floor((bMs - aMs) / 86400000); }
@@ -1858,9 +1860,25 @@ function areaOfLine(farm, line){
   return null;
 }
 
+// buildAreaLineIndex(farm) — bucket farm.lines by areaId ONCE per layoutRedraw (single O(lines) pass), so
+// linesInArea is O(1) per area during the draw instead of a full scan per area (was O(areas×lines)). The
+// cache is consulted ONLY while LAYOUT._redrawing is true (the synchronous draw pass), so the many
+// mid-mutation linesInArea calls (setAreaLineCount, undo callbacks) always take the live filter and can't
+// read a stale bucket. (perf: layoutRedraw line index)
+function buildAreaLineIndex(farm){
+  var idx = {};
+  (farm && farm.lines ? farm.lines : []).forEach(function(l){
+    (idx[l.areaId] || (idx[l.areaId] = [])).push(l);     // preserves global flat order — same as the filter
+  });
+  LAYOUT._areaLineIdx = idx; LAYOUT._areaLineSeq = LAYOUT.redrawSeq;
+}
+
 // linesInArea(farm, areaId) — lines whose areaId matches, in global flat order.
 function linesInArea(farm, areaId){
   if (!farm) return [];
+  // Fast path: during a redraw, read the bucket built once by buildAreaLineIndex (byte-identical order).
+  if (LAYOUT._redrawing && LAYOUT._areaLineSeq === LAYOUT.redrawSeq && LAYOUT._areaLineIdx)
+    return LAYOUT._areaLineIdx[areaId] || [];
   return farm.lines.filter(function(l){ return l.areaId === areaId; });
 }
 
@@ -2049,10 +2067,10 @@ function commitRename(kind, id, before){
 function migrateBatch(b){
   if (!b || typeof b !== 'object') return;
   if (!b.id) b.id = uid();                                                  // batch (lineage) id
-  if (typeof b.count !== 'number') b.count = (b.count == null ? null : parseNum(b.count)); // count
+  if (typeof b.count !== 'number' || !isFinite(b.count)) b.count = (b.count == null ? null : parseNum(b.count)); // count
   // size mirror (legacy initialSizeMm)
-  if (typeof b.sizeMm !== 'number'){
-    var legacy = (typeof b.initialSizeMm === 'number') ? b.initialSizeMm : parseNum(b.sizeMm);
+  if (typeof b.sizeMm !== 'number' || !isFinite(b.sizeMm)){
+    var legacy = (typeof b.initialSizeMm === 'number' && isFinite(b.initialSizeMm)) ? b.initialSizeMm : parseNum(b.sizeMm);
     b.sizeMm = (typeof legacy === 'number') ? legacy : null;               // sizeMm mirror
   }
   delete b.initialSizeMm;
@@ -2083,8 +2101,8 @@ function migrateEvent(ev, fallbackBatchId){
   if (typeof ev.batchId !== 'string') ev.batchId = fallbackBatchId || '';
   if (ev.type === 'worked'){ if (WORK_METHODS.indexOf(ev.method) < 0) ev.method = null; }
   else ev.method = (WORK_METHODS.indexOf(ev.method) >= 0) ? ev.method : null;
-  if (typeof ev.sizeMm !== 'number') ev.sizeMm = (ev.sizeMm == null ? null : parseNum(ev.sizeMm));
-  if (typeof ev.count !== 'number') ev.count = (ev.count == null ? null : parseNum(ev.count));
+  if (typeof ev.sizeMm !== 'number' || !isFinite(ev.sizeMm)) ev.sizeMm = (ev.sizeMm == null ? null : parseNum(ev.sizeMm));
+  if (typeof ev.count !== 'number' || !isFinite(ev.count)) ev.count = (ev.count == null ? null : parseNum(ev.count));
   if (typeof ev.note !== 'string' && ev.note != null) ev.note = String(ev.note);
   if (ev.note === undefined) ev.note = null;
   if (!Array.isArray(ev.photoIds)) ev.photoIds = [];
@@ -2099,7 +2117,7 @@ function migrateEvent(ev, fallbackBatchId){
 var saveFailed = false;
 function save(){
   var ok = true;
-  state.schemaVersion = SCHEMA_VERSION;        // stamp build identity so a future build can guard our blob
+  if (!(state.schemaVersion > SCHEMA_VERSION)) state.schemaVersion = SCHEMA_VERSION;  // stamp build identity; preserve a higher (future) version so a newer build's blob isn't stamped down
   state.writtenBy = 'spatmap.html';            // app-line marker (distinct from index.html live root)
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch (e) { ok = false; showSaveError(); }
@@ -3841,6 +3859,7 @@ var LAYOUT = {
   savedView: null,                  // last view snapshot, restored across a commit re-mount
   redrawSeq: 0,                     // bumped each layoutRedraw — keys the per-redraw cage-count cache (Component 3)
   _cellTotal: -1, _cellSeq: -1,     // memoized farm-wide cage total for the CELL_MAX LOD gate (Component 3)
+  _areaLineIdx: null, _areaLineSeq: -1, // {areaId:[lines]} bucket map, built once per redraw — linesInArea reads it only mid-redraw
   // ── Component 4: cell hover/tap + sibling highlight ──
   hlGroup: null,                    // active batch-group key (highlight target) | null
   hlCage: null,                     // active cage id (the cell that triggered the highlight) | null
@@ -4577,7 +4596,7 @@ function condDailyAgg(series){
   var days = {};
   function bucket(pts, key){
     (pts || []).forEach(function(p){
-      var d = new Date(p.ms), k = d.getUTCFullYear() + '-' + pad2(d.getUTCMonth()+1) + '-' + pad2(d.getUTCDate());
+      var k = toISOfromMs(p.ms);
       if (!days[k]) days[k] = { k:k, ms:Date.parse(k + 'T12:00:00Z'), ts:[], ss:[] };
       days[k][key].push(p.v);
     });
@@ -5641,6 +5660,7 @@ function layoutRedraw(){
   if (!farm || !world) return;
   LAYOUT.redrawSeq++;                                    // Component 3: invalidate the per-redraw cage-count cache
   LAYOUT.cellCount = 0;                                  // Component 4: re-counted by drawCageCells this pass
+  buildAreaLineIndex(farm);                              // index lines by areaId ONCE → linesInArea is O(1) per area this pass
   LAYOUT._redrawing = true;                              // Component 4: suppress focusout-clear while cells are torn down
   try {                                                  // L2: reset the flag even if a draw call throws
     while (world.firstChild) world.removeChild(world.firstChild);
@@ -8222,9 +8242,7 @@ function buildOnboardingPage(){
    the map colors, needs-work, projection, and the loaded barge.
    ───────────────────────────────────────────────────────────────── */
 function isoDaysAgo(days){
-  var ms = isoToMs(todayISO()) - days * 86400000;
-  var d = new Date(ms);
-  return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth()+1) + '-' + pad2(d.getUTCDate());
+  return toISOfromMs(isoToMs(todayISO()) - days * 86400000);
 }
 function loadBrightsideFarm(){
   var flip = { id:uid(), name:'FlipFarm', shape:'rect', meshMm:6 };
@@ -9850,7 +9868,7 @@ function buildWorkSheet(cageIds){
   return kids;
 }
 function isoDaysAhead(days){ var d = new Date(); d.setUTCDate(d.getUTCDate() + days);
-  return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth()+1) + '-' + pad2(d.getUTCDate()); }
+  return toISOfromMs(d.getTime()); }
 // eventDetail — the secondary line for a timeline row
 function eventDetail(ev){
   var bits = [];
@@ -11236,8 +11254,7 @@ function growthModel(cage, farm){
     var proj = integrateGrowth(todayMs, model.estTodayMm != null ? model.estTodayMm : 15, rate, market, MAX_PROJECTION_DAYS, market, seasonArr);
     model.daysToMarket = proj.days;
     if (proj.reached && rate >= MIN_GROWTH_MM_DAY){
-      var pd = new Date(proj.ms);
-      model.projectedDate = pd.getUTCFullYear() + '-' + pad2(pd.getUTCMonth()+1) + '-' + pad2(pd.getUTCDate());
+      model.projectedDate = toISOfromMs(proj.ms);
     }
     if (!proj.reached) model.projectionCapped = true;
   }
@@ -11352,8 +11369,6 @@ function growthChartSVG(cage, marketMm, model){
   svg += '</svg>';
   return svg;
 }
-// toISOfromMs — UTC ms → ISO yyyy-mm-dd (chart axis labels)
-function toISOfromMs(ms){ var d = new Date(ms); return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth()+1) + '-' + pad2(d.getUTCDate()); }
 
 // seasonShapeSparkline(fitted, isFitted) — a tiny 12-bar SVG of the monthly growth SHAPE. Fitted months are
 // teal; months still riding the default Gulf curve are grey (so the farmer sees which months have data).
