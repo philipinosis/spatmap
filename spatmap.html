@@ -138,6 +138,10 @@ button{ font-family:inherit; cursor:pointer; background:none; border:none; color
   font:600 13px/1 var(--font-ui); padding:9px 16px;
   display:flex; align-items:center; gap:6px; flex-wrap:wrap;
   border-bottom:1px solid var(--hair); }
+.areaTabs{ display:flex; gap:8px; padding:8px 14px; overflow-x:auto; scrollbar-width:none;
+  background:var(--paper); border-bottom:1px solid var(--hair); }
+.areaTabs::-webkit-scrollbar{ display:none; }
+.areaTabs .chip{ flex:0 0 auto; }
 .statstrip .st{ display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
 .statstrip .st .n{ font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:700; color:var(--ink); }
 /* WP5: leading status dot — colored per action class, carries the "this is status" read */
@@ -520,6 +524,19 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 /* drag band tracking the swept range */
 .dragBand{ position:absolute; top:2px; bottom:2px; background:rgba(52,179,196,.20);
   border:1.5px solid var(--teal); border-radius:6px; pointer-events:none; z-index:3; }
+/* VERTICAL AREA (area.axis:'v') — Work-map mirror of the Overview: lines become columns L→R,
+   cage #1 at top, each column scrolls vertically. JS only toggles .axv on .mapwell. (geometry parity) */
+.mapwell.axv{ display:flex; flex-direction:row; align-items:flex-start; gap:var(--row-gap); overflow-x:auto; min-height:0; }
+.axv .lineRow{ min-height:0; }
+.axv .lineRow + .lineRow{ margin-top:0; }
+.axv .lineBody{ flex-direction:column; align-items:stretch; min-height:0; }
+.axv .cageStrip{ flex-direction:column; align-items:center; overflow-x:visible; overflow-y:auto; min-height:0;
+  background-size:4px 100%; background-position:center top;
+  background-image:repeating-linear-gradient(25deg, var(--rope-hi) 0 4px, var(--rope) 4px 8px, var(--rope-shadow) 8px 10px); }
+.axv .cage{ touch-action:pan-x; }
+.axv .cage .tensTick{ left:calc(50% + 16px); top:50%; transform:translateY(-50%); }
+.axv .cage::after{ left:50%; right:auto; top:-3px; bottom:-3px; transform:translateX(-50%); width:var(--tap); height:auto; }
+.dragBand.vert{ left:2px; right:2px; top:auto; bottom:auto; }
 
 /* + Add line — full-width, IN FLOW (no FAB) */
 .addLine{ width:100%; min-height:var(--tap); margin-top:8px; border-radius:var(--radius-sm);
@@ -2546,11 +2563,15 @@ function render(){
 
   // top bar
   app.appendChild(renderTopBar(farm));
+  var areaTabs = renderAreaTabs(farm);
+  if (areaTabs) app.appendChild(areaTabs);
   // one summary strip
   app.appendChild(renderStatStrip(farm));
 
   // map well — the worktable
-  var well = h('div', { class:'mapwell', id:'mapwell' });
+  var fa = (viewScope && viewScope.areaId) ? findAreaById(farm, viewScope.areaId) : null;
+  var axv = !!(fa && fa.area && fa.area.axis === 'v');
+  var well = h('div', { class:'mapwell' + (axv ? ' axv' : ''), id:'mapwell' });
   visibleLines(farm).forEach(function(line){ well.appendChild(renderLine(line, farm)); });
   // NOTE: no "Add line" button here — adding/removing LINES belongs to the Farm Layout editor only
   // (owner ask). The daily work view edits CAGES (per-line ⋯ menu: bulk add/remove), never line count.
@@ -2597,29 +2618,7 @@ function renderTopBar(farm){
       h('span', { style:{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'} }, sc.plot + ' · ' + sc.area));
     var menuBtnS = h('button', { class:'menuBtn', 'aria-label':'Menu', html:icon('menu', 24),
       onclick:function(){ openSheet(buildMenu); } });
-    // Within-plot prev/next-area pager: arrows flank the back chip when the plot holds >1 area. A tap
-    // re-scopes via doDrillSwap (instant swap + its own pushView), so history stays one-entry-per-view
-    // and the back chip's Back-through is preserved. Disabled (not wrapped) at the first/last area.
-    var areas = areasInScopePlot(farm) || [];
-    var curIdx = -1;
-    for (var ni=0; ni<areas.length; ni++) if (areas[ni].id === viewScope.areaId){ curIdx = ni; break; }
-    var prevA = curIdx > 0 ? areas[curIdx-1] : null;
-    var nextA = (curIdx >= 0 && curIdx < areas.length-1) ? areas[curIdx+1] : null;
-    function areaNavBtn(area, dir){
-      return h('button', {
-        class:'scopeNav' + (area ? '' : ' disabled'),
-        'aria-label': area ? ((dir < 0 ? 'Previous area: ' : 'Next area: ') + area.name)
-                           : (dir < 0 ? 'No previous area' : 'No next area'),
-        disabled: area ? null : 'disabled',
-        html: icon(dir < 0 ? 'back' : 'chevron', 20),
-        onclick: area ? function(){ doDrillSwap(area); } : null });
-    }
-    var multiArea = areas.length > 1;
-    return h('div', { class:'topbar' },
-      multiArea ? areaNavBtn(prevA, -1) : null,
-      backBtn,
-      multiArea ? areaNavBtn(nextA, 1) : null,
-      menuBtnS);
+    return h('div', { class:'topbar' }, backBtn, menuBtnS);
   }
   var menuBtn = h('button', { class:'menuBtn', 'aria-label':'Menu', html:icon('menu', 24),
     onclick:function(){ openSheet(buildMenu); } });
@@ -2663,6 +2662,23 @@ function areasInScopePlot(farm){
   var pid = viewScope.plotId || findPlotIdOfArea(farm, viewScope.areaId);
   for (var i=0; i<farm.plots.length; i++) if (farm.plots[i].id === pid) return farm.plots[i].areas || [];
   return null;
+}
+
+// Area pill tabs — jump straight to any area in the scoped plot (replaces the prev/next arrows).
+// Reuses areasInScopePlot + doDrillSwap (same jump + history push the arrows used). Scoped multi-area only.
+function renderAreaTabs(farm){
+  if (!viewScope || !viewScope.areaId) return null;        // unscoped → no tabs
+  var areas = areasInScopePlot(farm) || [];
+  if (areas.length < 2) return null;                        // single area → nothing to switch
+  var strip = h('div', { class:'areaTabs' });
+  areas.forEach(function(area){
+    var active = (area.id === viewScope.areaId);
+    strip.appendChild(h('button', {
+      class:'chip' + (active ? ' on' : ''),
+      'aria-current': active ? 'true' : null,
+      onclick: active ? null : function(){ doDrillSwap(area); } }, area.name));   // active pill inert → no dup history push
+  });
+  return strip;
 }
 
 function renderStatStrip(farm){
@@ -8983,8 +8999,14 @@ function denseRangeSelect(strip, line){
     var sr = strip.getBoundingClientRect();
     var fr = first.getBoundingClientRect(), lr = last.getBoundingClientRect();
     band = h('div', { class:'dragBand' });
-    band.style.left  = (Math.min(fr.left, lr.left) - sr.left) + 'px';
-    band.style.width = (Math.max(fr.right, lr.right) - Math.min(fr.left, lr.left)) + 'px';
+    if (strip.closest('.axv')){
+      band.classList.add('vert');
+      band.style.top    = (Math.min(fr.top, lr.top) - sr.top) + 'px';
+      band.style.height = (Math.max(fr.bottom, lr.bottom) - Math.min(fr.top, lr.top)) + 'px';
+    } else {
+      band.style.left  = (Math.min(fr.left, lr.left) - sr.left) + 'px';
+      band.style.width = (Math.max(fr.right, lr.right) - Math.min(fr.left, lr.left)) + 'px';
+    }
     strip.appendChild(band);
   }
   function removeBand(){ if (band && band.parentNode) band.parentNode.removeChild(band); band = null; }

@@ -329,7 +329,25 @@ reset it to empty. Data written by an older build must keep loading in every new
 
 ## Design / UX
 
-### Work ↔ Overview unification — PARTIAL BUILD 2026-06-24 (tap-to-bump shipped; canvas unify deferred)
+### Work ↔ Overview unification — geometry parity SHIPPED 2026-06-26 (tap-to-bump + axis parity + pill switcher; full canvas still deferred)
+
+**✅ Built (2026-06-26): geometry parity — the Work map now reads as the same shape as Overview.** Philip's
+"Brightside" farm runs both orientations (Q1/Q2 horizontal E–W, Q3/Q4 vertical N–S 2-line quarters); an old
+build rendered the vertical work views as columns and the SVG refactor dropped it, leaving the disorientation.
+Fix (chosen scope = geometry parity, NOT the full SVG-canvas rewrite — drag-select kept on the DOM):
+- **Vertical areas render as columns again.** `render()` adds an `.axv` class to `#mapwell` when the scoped
+  area's `axis==='v'`; a CSS-only block flips `.mapwell`/`.lineBody`/`.cageStrip` to column flow (vertical rope,
+  side-flipped tens-ticks, vertical tap target). `renderLine`/`renderCageCell` DOM untouched, so
+  `denseRangeSelect`/`syncPopup`/`drillToCage` keep working. Horizontal path byte-identical (every change is
+  `.axv`-gated). `drawBand` gets one `closest('.axv')` branch to draw the drag band on top/height; `syncPopup`
+  needed no change (already viewport math).
+- **Pill-tab area switcher restored** (`renderAreaTabs`, mounted between topbar and stat strip) — tap any area
+  in the plot to jump straight to it via the existing `doDrillSwap`; reuses `.chip`/`.chip.on`. The active pill
+  is inert (`onclick:null`) so re-tapping can't double-push history. The redundant prev/next arrow pager was
+  removed (net code reduction).
+- Zero data-model change; old farm JSON loads unchanged. QA'd in Playwright (vertical render, vertical
+  drag-select + band + popup, horizontal regression, pill jump, active-pill no-op, clean console). NOTE for
+  future QA: `file://` is blocked in Playwright — serve the single file over `python3 -m http.server` first.
 
 **✅ Built (2026-06-24):** **tap a cage in Overview → "bump into" Work.** Second-tap on a cage in the
 overview map now drills into that cage's AREA and lands the Work map scrolled-to + briefly pulsing that exact
@@ -339,17 +357,18 @@ reuses `drillIntoArea`); consumed once in the Work render; **focus ≠ selection
 arms a fill), not on history (won't survive Back). Zero persisted-data change. Browser-verified end-to-end;
 daily-work selection/drag/popup untouched. This was the investigation's recommended high-value, low-risk slice.
 
-**⏳ Still deferred (the bigger asks):**
-- **One shared zoomable canvas for both views** (Philip's "draw the lines in the same plot"). The investigation
-  found this is a *render-only* possibility (Work could render from the same SVG geometry as Overview) BUT it
-  requires porting the daily-work **drag-select (`denseRangeSelect`) + selection popup (`syncPopup`)** off the
-  CSS-flow DOM onto the SVG `.lp-cagecell` hit-rects — a rewrite of a working, dogfooded subsystem. High
-  regression surface on the on-the-water tool. **Gate on whether tap-to-bump already removes the confusion.**
-- **Order/orientation parity** (Chunk 3): line *order* already matches between views; the only mismatch is the
-  Work map ignoring `area.axis`/rotation (always horizontal strips). Cheap "add an orientation hint" vs riskier
-  "flip the stack for vertical areas" — only worth it if disorientation persists after dogfooding tap-to-bump.
-- **Pan/zoom between areas** (Chunk 4): largely already exists in Overview (progressive zoom + cross-plot pan)
-  + the within-plot area pager in Work. Likely just an affordance/discovery question, not new mechanics.
+**✅ Resolved by the 2026-06-26 build:**
+- **Order/orientation parity** (was Chunk 3): done — the Work map now flips to columns for `axis==='v'` areas
+  (we took the "flip the stack" path, not the cheap hint). Arbitrary `rot` angles still render as clean h/v,
+  not literal tilt — acceptable per the chosen scope.
+- **Between-areas affordance** (was Chunk 4): done via the pill-tab switcher (jump to any area in one tap).
+
+**⏳ Still deferred (the bigger ask):**
+- **One shared zoomable canvas for both views** (Philip's literal "draw the lines in the same plot"). Still a
+  *render-only* possibility but still requires porting **drag-select (`denseRangeSelect`) + popup (`syncPopup`)**
+  off the CSS-flow DOM onto the SVG `.lp-cagecell` hit-rects — a rewrite of a dogfooded subsystem, high
+  regression surface on the on-water tool. Geometry parity (2026-06-26) was the agreed lower-risk substitute;
+  revisit the full canvas only if the same-shape Work map still isn't enough.
 
 **Original friction + investigation (kept for context):** the **Work tab** and the **Overview tab** are structured differently —
 the lines lay out differently between them, which is confusing/disorienting. They should be the *same* one
