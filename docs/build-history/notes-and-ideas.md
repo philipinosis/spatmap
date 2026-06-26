@@ -329,6 +329,27 @@ reset it to empty. Data written by an older build must keep loading in every new
 
 ## Design / UX
 
+### Farm Layout folded into onboarding — SHIPPED 2026-06-26
+New-farm setup now ends IN the Farm Layout editor instead of dropping you on the overview with a flat
+single-area farm to reorganize later. Picked via a 3-round multi-agent planning loop (3 competing plans →
+critic-hardened → adversarial break): rejected a create-early "wizard-step" rebuild (≈15× the diff, fragile
+splice-rollback) and a bare drop-into-editor (under-guides). **Chosen: reuse `buildLayoutEditor` verbatim,
+route in as a guided first-run step**, gated behind one transient global `obLayoutFirstRun` (never persisted;
+zero data-model change). What it does:
+- `createFarmFromModel` tail: `persist()` (not `commit()`, no flash) → `history.replaceState(null,'')` →
+  `enterLayoutView(true)`. So both chromes (first-run page + "+ New farm" sheet) land in the editor.
+- `enterLayoutView(firstRun)` sets the flag authoritatively on EVERY entry (menu path = no arg = false, so it
+  can't leak) and pre-selects the lone area; `leaveLayoutView`/`restoreFromState` clear it.
+- Editor in first-run: topbar `[· name · Finish]` (no ‹Map/gear), one top coach pill, action bar trimmed to
+  `[area · Edit area]`.
+- S3 stays as the seed grid; subtitle reworded (dropped the false "design your real layout later").
+The adversarial round caught THREE drill-out leaks the first cut missed — all now gated by `obLayoutFirstRun`:
+(1) the on-canvas selected-area "Open ›" chip in `drawArea`; (2) the Edit-area sheet's own "Open this area ›"
+button; (3) a history regression where "+ New farm" from a *drilled* work map left a stale `{view:'work',scope}`
+under the pushed `{view:'layout'}` (fixed by the `replaceState`). QA'd in Playwright: full wizard run, both
+chromes, Finish→overview, flag-clear, menu-editor-still-normal (full action bar + chip back), demo path skips
+the editor, H3 drilled-create lands on the new farm's overview with `viewScope:null`, 0 console errors.
+
 ### Work ↔ Overview unification — geometry parity SHIPPED 2026-06-26 (tap-to-bump + axis parity + pill switcher; full canvas still deferred)
 
 **✅ Built (2026-06-26): geometry parity — the Work map now reads as the same shape as Overview.** Philip's

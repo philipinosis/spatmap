@@ -333,6 +333,7 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
   background:var(--toast-bg); color:rgba(255,255,255,.92); font:600 12.5px/1 var(--font-ui);
   padding:8px 14px; border-radius:999px; box-shadow:0 2px 8px rgba(0,0,0,.22);
   white-space:nowrap; opacity:.92; }
+.lp-coach.lp-coach-top{ top:12px; bottom:auto; white-space:normal; text-align:center; line-height:1.32; max-width:min(86vw, 420px); }
 .lp-coach[hidden]{ display:none; }
 .lp-coach .lp-coach-arrow{ font-weight:700; animation:lpCoachNudge 1.4s ease-in-out infinite; }
 @keyframes lpCoachNudge{ 0%,100%{ transform:translateX(0); } 50%{ transform:translateX(3px); } }
@@ -1544,6 +1545,7 @@ var pendingFocusCageId = null;
 // else 'work'). Component 2: drilling out of a scoped area (Back / scope chip / popstate) returns here,
 // so an overview-home session lands back on the overview, not the old work home.
 var homeMode = 'work';
+var obLayoutFirstRun = false;   // TRANSIENT, never persisted: true only while the post-create guided layout step shows
 
 function freshState(){ return { v:1, farms:[], activeFarmId:null }; }
 
@@ -3425,9 +3427,11 @@ function createFarmFromModel(model, nameIn){
   state.farms.push(farm);
   state.activeFarmId = farm.id;
   closeSheet();
-  applyFreshFarmLanding();              // B3: a laid-out farm lands on Overview in this SAME session
-  commit();
+  applyFreshFarmLanding();              // B3: flips homeMode 'work'→'overview' so Finish/Back lands on the new farm's home
+  persist();                           // save WITHOUT render — avoids overview→editor flash
   toast('Farm created');
+  history.replaceState(null, '');      // normalize a stale scoped/work history top so Finish/Back lands on the new farm's home
+  enterLayoutView(true);               // route into the guided first-run layout editor (one render)
 }
 
 // applyFreshFarmLanding() — B3: init() computes homeMode ONCE, when there were zero farms (→ 'work').
@@ -3679,7 +3683,7 @@ function buildOnboardWizard(opts){
         return [
           renderDots(),
           h('div', { class:'obTitle' }, 'How is it laid out?'),
-          h('div', { class:'obSub' }, 'Just a rough grid to start. You can design your real layout later.'),
+          h('div', { class:'obSub' }, 'Just a rough grid to start — you’ll arrange it on the map next.'),
           h('div', { class:'row2' }, field('How many lines?', linesIn), field('Cages per line', cagesIn)),
           hintEl,
           navRow(function(){ go(2); }, 'Next', function(){ go(4); })
@@ -3819,7 +3823,7 @@ function buildEditAreaSheet(area){
   // ── Open this area › (drill-in) ──
   // WP8a: from the canvas this is a CAMERA zoom that stays on the map (closeSheet first so the reduced-
   // motion path isn't framing behind an open sheet); the animated path closes the sheet itself.
-  frag.push(h('button', { class:'btn btn-primary btn-block', style:{ marginTop:'22px' },
+  if (!obLayoutFirstRun) frag.push(h('button', { class:'btn btn-primary btn-block', style:{ marginTop:'22px' },
     onclick:function(){ closeSheet(); drillIntoArea(area); } }, 'Open this area ›'));
 
   return frag;
@@ -5566,14 +5570,21 @@ function buildLayoutEditor(farm, mode){
     // its plain renderStatStrip). Sits above the canvas in normal flow; reads farmDashboard (pure).
     if (!viewScope) page.appendChild(renderDashboardCard(farm));
   } else {
-    // ── EDITOR topbar: ‹ Map · farm name · gear ──
-    var back = h('button', { class:'menuBtn', 'aria-label':'Back to map',
-      onclick:function(){ leaveLayoutView(); } },   // pop the {view:'layout'} entry → popstate restores parent (Bug B1)
-      h('span', { class:'lp-back' }, h('span', { html:icon('back', 22) }), 'Map'));
     var title = h('div', { class:'lp-title' }, farm.name);
-    var gear = h('button', { class:'menuBtn', 'aria-label':'Farm settings', html:icon('gear', 24),
-      onclick:function(){ openSheet(buildFarmSettingsSheet); } });
-    page.appendChild(h('div', { class:'topbar layoutTop' }, back, title, gear));
+    if (obLayoutFirstRun){
+      // ── ONBOARDING topbar: (spacer) · farm name · Finish — single exit, no ‹Map / no gear ──
+      var spacer = h('span', { class:'menuBtn', 'aria-hidden':'true' });
+      var finish = h('button', { class:'btn btn-primary lp-finish', onclick:function(){ leaveLayoutView(); } }, 'Finish');
+      page.appendChild(h('div', { class:'topbar layoutTop' }, spacer, title, finish));
+    } else {
+      // ── EDITOR topbar: ‹ Map · farm name · gear ──
+      var back = h('button', { class:'menuBtn', 'aria-label':'Back to map',
+        onclick:function(){ leaveLayoutView(); } },   // pop the {view:'layout'} entry → popstate restores parent (Bug B1)
+        h('span', { class:'lp-back' }, h('span', { html:icon('back', 22) }), 'Map'));
+      var gear = h('button', { class:'menuBtn', 'aria-label':'Farm settings', html:icon('gear', 24),
+        onclick:function(){ openSheet(buildFarmSettingsSheet); } });
+      page.appendChild(h('div', { class:'topbar layoutTop' }, back, title, gear));
+    }
   }
 
   // ── the SVG canvas (touch-action:none ONLY here) ──
@@ -5624,6 +5635,10 @@ function buildLayoutEditor(farm, mode){
       h('span', { class:'lp-zoomhint-ico', 'aria-hidden':'true', html:icon('plus', 16) }),
       h('span', null, 'Zoom in to see individual cages'));
     canvasWrap.appendChild(zoomHint);
+  }
+  if (!isView && obLayoutFirstRun){
+    canvasWrap.appendChild(h('div', { class:'lp-coach lp-coach-top', id:'lpFirstRunCoach', 'aria-hidden':'true' },
+      h('span', null, 'This is your farm. Tap “Edit area” to set its lines and direction — or just tap Finish. You can change it anytime.')));
   }
   page.appendChild(canvasWrap);
 
@@ -6603,13 +6618,15 @@ function drawArea(farm, plot, area, tier){
 
   // Open › chip on the selected area (the explicit drill-in handoff) (LAYOUT §4)
   if (selected){
-    var chipW = 78, chipH = 26, chx = area.x + area.w - chipW - 6, chy = area.y + area.h - chipH - 6;
-    var chip = s('g', { 'data-open-area-id':area.id, class:'lp-openchip', style:'cursor:pointer' });
-    chip.appendChild(s('rect', { x:chx, y:chy, width:chipW, height:chipH, rx:13, ry:13,
-      fill:'#0E7C8B', 'data-open-area-id':area.id }));
-    chip.appendChild(s('text', { x:chx + chipW/2, y:chy + chipH/2 + 4, fill:'#FFFFFF', 'font-size':12,
-      'font-weight':700, 'font-family':'inherit', 'text-anchor':'middle', 'pointer-events':'none' }, 'Open ›'));
-    g.appendChild(chip);
+    if (!obLayoutFirstRun){
+      var chipW = 78, chipH = 26, chx = area.x + area.w - chipW - 6, chy = area.y + area.h - chipH - 6;
+      var chip = s('g', { 'data-open-area-id':area.id, class:'lp-openchip', style:'cursor:pointer' });
+      chip.appendChild(s('rect', { x:chx, y:chy, width:chipW, height:chipH, rx:13, ry:13,
+        fill:'#0E7C8B', 'data-open-area-id':area.id }));
+      chip.appendChild(s('text', { x:chx + chipW/2, y:chy + chipH/2 + 4, fill:'#FFFFFF', 'font-size':12,
+        'font-weight':700, 'font-family':'inherit', 'text-anchor':'middle', 'pointer-events':'none' }, 'Open ›'));
+      g.appendChild(chip);
+    }
     // resize + rotate handles, drawn INSIDE the rotate() group so they ride the area's rotation.
     drawHandles(g, 'area', area);
   }
@@ -6628,17 +6645,17 @@ function renderLayoutActionBar(farm){
     var found = findAreaById(farm, LAYOUT.sel.areaId);
     if (!found){ LAYOUT.sel = null; bar.classList.remove('show'); return; }
     bar.appendChild(h('span', { class:'lp-abtitle' }, found.plot.name + ' · ' + found.area.name));
-    bar.appendChild(h('button', { class:'btn btn-danger', onclick:function(){ removeAreaFromPlot(found.plot, found.area); } },
+    if (!obLayoutFirstRun) bar.appendChild(h('button', { class:'btn btn-danger', onclick:function(){ removeAreaFromPlot(found.plot, found.area); } },
       'Remove'));
     bar.appendChild(h('button', { class:'btn btn-quiet', onclick:function(){ openSheet(function(){ return buildEditAreaSheet(found.area); }); } },
       'Edit area'));
-    bar.appendChild(h('button', { class:'btn btn-primary', onclick:function(){ drillIntoArea(found.area); } },
+    if (!obLayoutFirstRun) bar.appendChild(h('button', { class:'btn btn-primary', onclick:function(){ drillIntoArea(found.area); } },
       'Open ›'));
   } else if (LAYOUT.sel.kind === 'plot'){
     var p = (farm.plots || []).filter(function(pp){ return pp.id === LAYOUT.sel.plotId; })[0];
     if (!p){ LAYOUT.sel = null; bar.classList.remove('show'); return; }
     bar.appendChild(h('span', { class:'lp-abtitle' }, p.name));
-    bar.appendChild(h('button', { class:'btn btn-danger', onclick:function(){ removePlotFromFarm(p); } },
+    if (!obLayoutFirstRun) bar.appendChild(h('button', { class:'btn btn-danger', onclick:function(){ removePlotFromFarm(p); } },
       'Remove'));
     bar.appendChild(h('button', { class:'btn btn-quiet', onclick:function(){
       if (layoutHasEditing()){ addAreaToPlot(p); } else { toast('Add-area lands in the next build'); }
@@ -11896,6 +11913,7 @@ function pushView(st){ try { history.pushState(st, ''); } catch (e){} }
 // restoreFromState(st) — drive viewMode/viewScope/LAYOUT to match a pushed state object (or the home when
 // st is null/unknown). The single source of truth for "what view does this history entry mean".
 function restoreFromState(st){
+  obLayoutFirstRun = false;     // any history navigation that ends the onboarding editor clears the flag
   closeSheet(); clearSelection();
   if (st && st.view === 'layout'){
     // Re-enter the layout editor. (We don't restore its prior scope; the editor is whole-farm.)
@@ -11919,9 +11937,16 @@ function restoreFromState(st){
 // enterLayoutView() — the single path into the Farm Layout editor as a real, Back-able view. Owns a
 // {view:'layout'} history entry so device/browser Back exits the editor instead of desyncing the stack
 // (Bug B1). Used by the menu's "Farm Layout" item, exitLayout's inverse, and SpatMapDebug.enterLayout.
-function enterLayoutView(){
+function enterLayoutView(firstRun){
+  obLayoutFirstRun = !!firstRun;          // authoritative on EVERY entry → menu path (no arg) always resets to false
   closeSheet(); clearSelection();
   viewScope = null; viewMode = 'layout'; LAYOUT.mode = 'edit'; LAYOUT.entered = false;
+  if (firstRun){
+    var f = getFarm(), p0 = f && f.plots && f.plots[0], a0 = p0 && p0.areas && p0.areas[0];
+    LAYOUT.sel = a0 ? { kind:'area', plotId:p0.id, areaId:a0.id } : null;   // pre-select the lone area
+  } else {
+    LAYOUT.sel = null;
+  }
   pushView({ view:'layout' });
   render();
 }
@@ -11930,6 +11955,7 @@ function enterLayoutView(){
 // (history.back) and let popstate→restoreFromState rebuild the logical parent (the scoped work map if we
 // drilled before opening the editor, else the home). Keeps the stack coherent and the URL clean.
 function leaveLayoutView(){
+  obLayoutFirstRun = false;
   if (history.state && history.state.view === 'layout'){ history.back(); return; }
   // Defensive: no owned entry on top (shouldn't happen) → fall back to the home directly.
   viewScope = null; viewMode = homeMode; LAYOUT.mode = (homeMode === 'overview') ? 'view' : 'edit';
