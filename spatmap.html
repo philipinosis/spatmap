@@ -402,6 +402,9 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
   background:var(--teal); color:#fff; font:750 15px/1 var(--font-ui);
   display:inline-flex; align-items:center; gap:7px; box-shadow:var(--shadow-pop); }
 .lp-addplot:active{ background:var(--teal-press); }
+/* C7: create-tool toolbar — top-centered segmented control (Select | +Plot | +Area | +Line) */
+.lp-toolbar{ position:absolute; left:50%; transform:translateX(-50%);
+  top:calc(56px + env(safe-area-inset-top)); z-index:6; box-shadow:var(--shadow-pop); }
 /* selection action bar (docked above the add-plot pill) */
 .lp-actionbar{ position:absolute; left:14px; right:14px; bottom:calc(78px + env(safe-area-inset-bottom));
   z-index:6; display:none; align-items:center; gap:10px;
@@ -1861,6 +1864,14 @@ function ensureSpatialIndex(f){
   // load: legacy "Line N" names with auto:true relabel to the bare "<row><Letter>" scheme; renames stick).
   reindexPlots(f);
   reindexLines(f);
+
+  // 6.5 — backfill line geometry a/b. Additive + idempotent (stamped lines skipped) + self-healing
+  // (a line that lost a/b is re-derived next load). Pure-legacy area (all missing) reproduces the EXACT
+  // old even-row render; partial loss tops-up only the missing line at its derived slot. Writes ONLY a/b.
+  f.plots.forEach(function(p){ p.areas.forEach(function(a){
+    var lns = linesInArea(f, a.id), n = lns.length; if (!n) return;
+    lns.forEach(function(l, i){ if (validAB(l)) return; var g = deriveLineAB(a, i, n); l.a = g.a; l.b = g.b; });
+  }); });
 }
 
 // reindexPlots(f) — set plot.order == index, area.order == index. Display-only ordering.
@@ -1962,6 +1973,7 @@ function buildLinesForArea(farm, area, lineCount, cagesPerLine){
   }
   reindexLines(farm);                                                      // stamps area-relative name + cage labels
   rebuildLineIds(farm);                                                    // derive area.lineIds from lines
+  relayoutAreaLines(farm, area);                                           // stamp a/b on new lines (guarded: keeps placed lines)
   return created;
 }
 
@@ -2015,6 +2027,7 @@ function setAreaLineCount(farm, area, target){
       var fa = findAreaById(f, area.id);
       reindexLines(f);
       rebuildLineIds(f);
+      if (fa) relayoutAreaLines(f, fa.area);             // undo re-derives a/b for any now-missing line (guarded)
       if (fa) fa.area.lineCount = linesInArea(f, fa.area.id).length;
       commit();
       layoutRedraw();
@@ -2032,6 +2045,7 @@ function setAreaLineCount(farm, area, target){
   removed.forEach(function(r){ var i = farm.lines.indexOf(r.line); if (i >= 0) farm.lines.splice(i, 1); });
   reindexLines(farm);
   rebuildLineIds(farm);
+  relayoutAreaLines(farm, area);                         // stamp a/b on survivors (guarded: keeps placed lines)
   area.lineCount = linesInArea(farm, area.id).length;
   commit();
   undoable('Lines updated', function(){
@@ -2044,6 +2058,7 @@ function setAreaLineCount(farm, area, target){
     var fa = findAreaById(f, area.id);
     reindexLines(f);
     rebuildLineIds(f);
+    if (fa) relayoutAreaLines(f, fa.area);             // undo re-derives a/b for any now-missing line (guarded)
     if (fa) fa.area.lineCount = linesInArea(f, fa.area.id).length;
     commit();
     layoutRedraw();
@@ -3130,8 +3145,11 @@ function renderCageCell(cage, line, farm, pos){
 /* ─────────────────────────────────────────────────────────────────
    ADD / REMOVE LINE helpers (used by render + layout)
    ───────────────────────────────────────────────────────────────── */
-// addLine() — defaults to ONE line of the same cage count as the last line (or 10), first cage type. Undoable.
-function addLine(){
+// addLine([p0,p1]) — add ONE line of the same cage count as the last line (or 10), first cage type.
+// No args (daily-work "Add line"): endpoints DERIVE from the line's area grid (F-B2). With p0/p1
+// (C7 free-line draw): endpoints ARE the dragged posts; area is assigned by containment-at-birth then
+// frozen. Undoable either way.
+function addLine(p0, p1){
   var farm = getFarm(); if (!farm) return;
   var seqLines = farm.lines;
   var perLine = seqLines.length ? seqLines[seqLines.length-1].cages.length : 10;
@@ -3139,11 +3157,25 @@ function addLine(){
   var typeId = farm.cageTypes[0].id;
   var line = { id:uid(), name:'', auto:true, order:seqLines.length, cages:[] };  // name/labels DERIVED in reindexLines
   for (var i=0; i<perLine; i++) line.cages.push(newCage(typeId, seqLines.length, i));
-  // LAYOUT §6.7 — stamp the parent area: the scoped area when drilled in, else the default area.
-  stampLineArea(farm, line);
+  var freeDraw = !!(p0 && p1);
+  if (freeDraw){
+    line.a = { x:p0.x, y:p0.y }; line.b = { x:p1.x, y:p1.y };
+    var mx = (p0.x + p1.x)/2, my = (p0.y + p1.y)/2;
+    var host = plotAtWorld(farm, mx, my);                // areaId by containment-at-birth, then FROZEN
+    var hostArea = host ? ((host.areas||[]).filter(function(a){ return mx>=a.x && mx<=a.x+a.w && my>=a.y && my<=a.y+a.h; })[0] || host.areas[0]) : null;
+    if (host && hostArea){ line.plotId = host.id; line.areaId = hostArea.id; }
+    else stampLineArea(farm, line);                      // fallback: default area (never orphaned)
+  } else {
+    // LAYOUT §6.7 — stamp the parent area: the scoped area when drilled in, else the default area.
+    stampLineArea(farm, line);
+  }
   farm.lines.push(line);
   reindexLines(farm);
   rebuildLineIds(farm);
+  if (!freeDraw){
+    var ao = areaOfLine(farm, line);                     // F-B2: derive a/b for the new line from its area grid
+    if (ao) relayoutAreaLines(farm, ao.area);            // (guarded: keeps placed lines)
+  }                                                       // freeDraw: a/b already set directly — never relayout
   commit();
   undoable('Line added', function(){
     var idx = getFarm().lines.indexOf(line);
@@ -3152,6 +3184,13 @@ function addLine(){
     rebuildLineIds(getFarm());
     commit();
   });
+}
+// plotAtWorld(farm, wx, wy) — first plot whose rect contains the world point, else null. (C7 area/line drop)
+function plotAtWorld(farm, wx, wy){
+  var plots = (farm && farm.plots) || [];
+  for (var i=0; i<plots.length; i++){ var p = plots[i];
+    if (wx>=p.x && wx<=p.x+p.w && wy>=p.y && wy<=p.y+p.h) return p; }
+  return null;
 }
 // stampLineArea(farm, line) — set line.plotId/areaId. Honors viewScope (drilled-in area) when
 // it points at a real area in this farm; otherwise falls to the farm's default area. The
@@ -3586,13 +3625,14 @@ function buildOnboardWizard(opts){
   // steps 1..4 only: a dots row + 'Step N/4' label; null on step 0.
   function renderDots(){
     if (step < 1) return null;
+    var shown = Math.min(step, 3);
     var dots = [];
-    for (var i=1; i<=4; i++){
-      dots.push(h('span', { class:'obDot' + (i <= step ? ' on' : ''), 'aria-hidden':'true' }));
+    for (var i=1; i<=3; i++){
+      dots.push(h('span', { class:'obDot' + (i <= shown ? ' on' : ''), 'aria-hidden':'true' }));
     }
     return h('div', { class:'obSteps' },
       h('div', null, dots),
-      h('div', null, 'Step ' + step + '/4'));
+      h('div', null, 'Step ' + shown + '/3'));
   }
 
   // .obNav for the SIMPLE steps (S2,S3,S4): Back (quiet) + a primary (filled, flex:1).
@@ -3659,42 +3699,9 @@ function buildOnboardWizard(opts){
         return gearKids;
       }
 
-      // ── S3: geometry (lines × cages, B11 clamp lifted verbatim) ──
-      case 3: {
-        var hintEl = h('div', { class:'fieldHint' });
-        function recomputeHint(){
-          var n = Math.max(1, Math.round(parseNum(model.linesCount) || 1)) *
-                  Math.max(1, Math.round(parseNum(model.cagesPerLine) || 1));
-          hintEl.textContent = "That's " + n.toLocaleString() + ' cages to start.';
-        }
-        // B11 clamp (lifted verbatim from buildFarmForm): oninput updates the MODEL only (transient
-        // empty/<1 allowed); the DISPLAYED value is normalised on change/blur. Prevents the "30 → 130" bug.
-        var normLineCount = function(){ var n = Math.max(1, Math.round(parseNum(this.value) || 1));
-          model.linesCount = n; this.value = n; recomputeHint(); };
-        var normCageCount = function(){ var n = Math.max(1, Math.round(parseNum(this.value) || 1));
-          model.cagesPerLine = n; this.value = n; recomputeHint(); };
-        var linesIn = h('input', { type:'number', inputmode:'numeric', min:'1', value:model.linesCount,
-          oninput:function(){ var n = parseNum(this.value); model.linesCount = (n != null && n >= 1) ? n : 1; recomputeHint(); },
-          onchange:normLineCount, onblur:normLineCount });
-        var cagesIn = h('input', { type:'number', inputmode:'numeric', min:'1', value:model.cagesPerLine,
-          oninput:function(){ var n = parseNum(this.value); model.cagesPerLine = (n != null && n >= 1) ? n : 1; recomputeHint(); },
-          onchange:normCageCount, onblur:normCageCount });
-        recomputeHint();
-        return [
-          renderDots(),
-          h('div', { class:'obTitle' }, 'How is it laid out?'),
-          h('div', { class:'obSub' }, 'Just a rough grid to start — you’ll arrange it on the map next.'),
-          h('div', { class:'row2' }, field('How many lines?', linesIn), field('Cages per line', cagesIn)),
-          hintEl,
-          navRow(function(){ go(2); }, 'Next', function(){ go(4); })
-        ];
-      }
-
-      // ── S4: review → create ──
+      // ── S3: review → create. (Layout is no longer asked here — you draw plots/areas on the map next;
+      //     the farm is seeded with one starter area you can resize, tune, or draw alongside.) ──
       default: {
-        var nLines = Math.max(1, Math.round(parseNum(model.linesCount) || 1));
-        var nCages = Math.max(1, Math.round(parseNum(model.cagesPerLine) || 1));
-        var total = nLines * nCages;
         function reviewRow(label, value, jumpStep){
           var row = h('div', { class:'obReviewRow', onclick:function(){ go(jumpStep); } },
             h('div', { class:'obReviewLabel' }, label),
@@ -3704,16 +3711,15 @@ function buildOnboardWizard(opts){
         }
         var card = h('div', { class:'chartFrame' },
           reviewRow('NAME', model.name || 'My farm', 1),
-          reviewRow('GEAR', gearLabel(), 2),
-          reviewRow('LAYOUT', nLines + ' lines × ' + nCages + ' cages = ' + total.toLocaleString() + ' cages', 3));
+          reviewRow('GEAR', gearLabel(), 2));
         return [
           renderDots(),
           h('div', { class:'obTitle' }, 'Ready to build'),
-          h('div', { class:'obSub' }, 'Check it over, then create.'),
+          h('div', { class:'obSub' }, 'Next you’ll lay out plots and lines on the map — drag to draw them.'),
           card,
           h('div', { class:'fieldHint' }, 'Grades, market size, and alerts use defaults — set them in Settings.'),
           h('div', { class:'obNav' },
-            h('button', { class:'btn btn-quiet', onclick:function(){ go(3); } }, 'Back'),
+            h('button', { class:'btn btn-quiet', onclick:function(){ go(2); } }, 'Back'),
             h('button', { class:'btn btn-primary', onclick:function(){ createFarmFromModel(model, null); } }, 'Create farm'))
         ];
       }
@@ -3866,6 +3872,9 @@ var LAYOUT = {
   svgRect: null,                    // cached getBoundingClientRect of svg (gesture start / resize)
   mode: 'edit',                     // 'edit' (full layout editor) | 'view' (read-only overview: pan/zoom + tap-area-to-drill only)
   sel: null,                        // { kind:'plot'|'area', plotId, areaId } | null — single-selection
+  selLines: null,                   // C4: Set<lineId> — multi-line selection, mutually exclusive with `sel`
+  tool: 'select',                   // C4: armed tool ('select' for now; create tools arrive in C7)
+  create: null,                     // C4: active rubber-band create gesture (C7) | null
   ptrs: null,                       // active-pointer Map (pinch) keyed by pointerId
   pinch: null,                      // { startDist, startK, startMid }
   pan: null,                        // { lastX, lastY, moved }
@@ -5545,6 +5554,12 @@ function buildLayoutEditor(farm, mode){
   LAYOUT.ptrs = new Map();
   LAYOUT.pinch = null; LAYOUT.pan = null; LAYOUT.lastTier = null;
   LAYOUT.edit = null; LAYOUT.guides = null;
+  // C4: init line-selection state WITHOUT clobbering it on a commit-triggered re-render (like LAYOUT.sel,
+  // it must survive a commit so consecutive bulk edits keep their selection). Fresh ENTRY clears it
+  // (enterLayoutView/leaveLayoutView). `create` is per-gesture, always cleared on a fresh mount.
+  if (!LAYOUT.selLines) LAYOUT.selLines = new Set();
+  if (!LAYOUT.tool) LAYOUT.tool = 'select';
+  LAYOUT.create = null;
   LAYOUT.lastTap = 0; LAYOUT.lastTapXY = null;
   LAYOUT.lastTapCageId = null; LAYOUT.lastTapCageXY = null;
   if (isView) LAYOUT.sel = null;          // an overview is never in a "selected shape" state
@@ -5638,7 +5653,7 @@ function buildLayoutEditor(farm, mode){
   }
   if (!isView && obLayoutFirstRun){
     canvasWrap.appendChild(h('div', { class:'lp-coach lp-coach-top', id:'lpFirstRunCoach', 'aria-hidden':'true' },
-      h('span', null, 'This is your farm. Tap “Edit area” to set its lines and direction — or just tap Finish. You can change it anytime.')));
+      h('span', null, 'This is your farm. Pick +Plot or +Area and drag on the water to lay it out, tap an area to set its lines — or just tap Finish. You can change it anytime.')));
   }
   page.appendChild(canvasWrap);
 
@@ -5650,13 +5665,17 @@ function buildLayoutEditor(farm, mode){
       onclick:function(){ LAYOUT.sel = null; fitToContent(getFarm()); } }));
   page.appendChild(zoomCluster);
 
-  // editing affordances are EDIT-only: add-plot button + the selection-driven action bar mount.
+  // editing affordances are EDIT-only: the create toolbar + the selection-driven action bar mount.
   if (!isView){
-    var addPlot = h('button', { class:'lp-addplot', onclick:function(){
-      if (layoutHasEditing()){ addPlotToFarm(); }
-      else { toast('Add-plot lands in the next build'); }
-    } }, h('span', { html:icon('plus', 20) }), 'Add plot');
-    page.appendChild(addPlot);
+    // C7: segmented tool toolbar. Select = pan/select/drag; +Plot/+Area/+Line arm a rubber-band create
+    // (drag on the canvas to draw the shape; one-shot auto-returns to Select on release).
+    var tools = h('div', { class:'lp-toolbar ovSeg', role:'tablist', 'aria-label':'Tool' });
+    [['select','Select'],['plot','+ Plot'],['area','+ Area'],['line','+ Line']].forEach(function(t){
+      tools.appendChild(h('button', { class:'ovSegBtn' + (LAYOUT.tool === t[0] ? ' active' : ''),
+        role:'tab', 'aria-selected': LAYOUT.tool === t[0] ? 'true' : 'false',
+        onclick:function(){ if (layoutHasEditing()) setLayoutTool(t[0]); else toast('Editing lands in the next build'); } }, t[1]));
+    });
+    page.appendChild(tools);
 
     // action bar mount (selection-driven; populated by layoutRedraw)
     page.appendChild(h('div', { class:'lp-actionbar', id:'lpActionBar' }));
@@ -5689,6 +5708,13 @@ function layoutRedraw(){
   var farm = getFarm();
   var world = LAYOUT.world;
   if (!farm || !world) return;
+  // C4 (F-D5): sel/selLines are mutually exclusive — a live shape selection wins; then prune dangling
+  // line ids (a line removed elsewhere must drop out of the set so the action bar / posts stay honest).
+  if (LAYOUT.sel) clearLineSelection();
+  if (LAYOUT.selLines && LAYOUT.selLines.size){
+    var liveLineIds = {}; (farm.lines || []).forEach(function(l){ liveLineIds[l.id] = 1; });
+    LAYOUT.selLines.forEach(function(id){ if (!liveLineIds[id]) LAYOUT.selLines.delete(id); });
+  }
   LAYOUT.redrawSeq++;                                    // Component 3: invalidate the per-redraw cage-count cache
   LAYOUT.cellCount = 0;                                  // Component 4: re-counted by drawCageCells this pass
   buildAreaLineIndex(farm);                              // index lines by areaId ONCE → linesInArea is O(1) per area this pass
@@ -5697,6 +5723,35 @@ function layoutRedraw(){
     while (world.firstChild) world.removeChild(world.firstChild);
     var tier = layoutTier();
     (farm.plots || []).forEach(function(p){ world.appendChild(drawPlot(farm, p, tier)); });
+    // C3: free-placed lines render in WORLD space, in ONE pass AFTER all plots → ropes/cells/posts win
+    // hit-testing (#1 invariant). Dangling-selLines reconcile + line-move gestures arrive in C4.
+    (farm.lines || []).forEach(function(l){ var lg = drawLine(farm, l); if (lg) world.appendChild(lg); });
+    // F-D6 (z-order): the line pass paints over the selected area's handles + the "Open ›" chips, which
+    // live inside the area rotate() group. Lift them above the lines. Re-parenting to `world` drops the
+    // area's rotate() transform, so re-apply it from the owning area (keeps rotated areas pixel-correct).
+    (function liftLayoutChrome(){
+      function relift(node, ar){
+        if (ar && ar.rot){ var ax = ar.x + ar.w/2, ay = ar.y + ar.h/2;
+          node.setAttribute('transform', 'rotate(' + ar.rot + ' ' + ax + ' ' + ay + ')'); }
+        world.appendChild(node);                          // static NodeList → safe to move during iteration
+      }
+      var chips = world.querySelectorAll('.lp-openchip');
+      for (var ci=0; ci<chips.length; ci++){
+        var aid = chips[ci].getAttribute('data-open-area-id');
+        var fc = aid ? findAreaById(farm, aid) : null;
+        relift(chips[ci], fc && fc.area);
+      }
+      if (LAYOUT.sel && LAYOUT.sel.kind === 'area'){       // only an AREA's handles need lifting above lines
+        var fa = findAreaById(farm, LAYOUT.sel.areaId);
+        if (fa){
+          var hits = world.querySelectorAll('[data-h-area="' + LAYOUT.sel.areaId + '"]'), done = [];
+          for (var hj=0; hj<hits.length; hj++){
+            var grp = hits[hj].parentNode;                 // the .lp-handle group (posts carry data-line-post, not data-h-area)
+            if (grp && grp !== world && done.indexOf(grp) < 0){ done.push(grp); relift(grp, fa.area); }
+          }
+        }
+      }
+    })();
     applyView();
     renderLayoutActionBar(farm);
     renderEmptyFarmState(farm);
@@ -6208,52 +6263,110 @@ function drawCageGlyph(g, shape, fill, ready, work, x, y, w, hgt){
   g.appendChild(wrap);
 }
 
-// drawCageCells(farm, plot, area, tier, g) — append one colored rect per cage INTO the area's
-// rotate(<g>) `g` (so cells ride area.rot), subdividing each line row into line.cages.length cells.
-// Z-order: called after the line strokes, before label/chip/handles → above strokes, below edit chrome.
-function drawCageCells(farm, plot, area, tier, g){
-  if (!layoutIsView()) return;                          // EDIT mode: draw NO cells (editor stays uncluttered)
-  // SMALL farms: draw cells at EVERY tier including 'farm' (Bug B3 — narrow phones fit at 'farm' tier and
-  // were showing bare cards). LARGE farms keep the perf cap: cells only at the zoomed-in 'area' tier;
-  // farm/plot tier shows a "zoom in" hint instead (drawn by drawZoomHint, gated identically). (Bug B5)
-  if (!farmIsSmall(farm) && tier !== 'area' && tier !== 'work') return;  // WP7: 'work' is the zoomed-in band → still draw cells
+// drawLine(farm, line) — render ONE free-placed line in WORLD space (NOT inside any area rotate() group;
+// the area's rotation is already baked into the stored a/b). Local frame: translate to post A, rotate to
+// the A→B bearing → the rope is axis-aligned on +X, so the lifted cell loop is ALWAYS horiz w/ rowCenter=0.
+// Appended to LAYOUT.world AFTER all plots/areas → ropes/cells/posts win hit-testing (#1 invariant).
+function drawLine(farm, line){
+  var a = line.a, b = line.b; if (!a || !b) return null;
+  var dx = b.x - a.x, dy = b.y - a.y;
+  var len = Math.hypot(dx, dy) || 1;
+  var deg = Math.atan2(dy, dx) * 180 / Math.PI;
+  var up = Math.abs(deg) > 90;                          // F-D11: bearing flips labels upside-down (free lines only)
+  var sel = !!(LAYOUT.selLines && LAYOUT.selLines.has(line.id));   // selLines arrives in C4; guarded null-safe
+  var k = Math.max(0.0001, LAYOUT.view.k);
+  var tier = layoutTier();
+  if (tier === 'farm' && !farmIsSmall(farm)) return null;   // F-D7: mirror the old showRows gate — no rope-per-line on a large farm at farm tier
+  var g = s('g', { 'data-line-id':line.id,
+    transform:'translate(' + a.x + ' ' + a.y + ') rotate(' + deg.toFixed(3) + ')' });
 
-  // Component 4: cells are interactive in VIEW/overview only (we're already gated to view above).
-  // Keyboard focusability is capped — only wire tabindex/role when the farm is small (≤120 cages)
-  // so we never build a 500-deep tab order.
+  // rope — the two strokes drawArea drew per row (#8A6A40 / #B18B53), now spanning 0..len in local coords.
+  var rope = (tier === 'area' || tier === 'work') ? 3 : (tier === 'plot' ? 2 : 1.4);
+  g.appendChild(s('line', { x1:0, y1:0,   x2:len, y2:0,   stroke:'#8A6A40', 'stroke-width':rope,
+    'stroke-linecap':'round', 'pointer-events':'none' }));
+  g.appendChild(s('line', { x1:0, y1:-0.6, x2:len, y2:-0.6, stroke:'#B18B53', 'stroke-width':1,
+    'stroke-linecap':'round', 'pointer-events':'none' }));
+
+  // per-cage cells — SAME LOD gate drawCageCells used: VIEW only, and small-farm OR zoomed-in (area/work).
+  if (layoutIsView() && (farmIsSmall(farm) || tier === 'area' || tier === 'work')){
+    var pitch = linePitch(farm, line);
+    drawLineCells(farm, line, g, len, pitch.thick, pitch.rowSlot);
+  }
+
+  // per-line tally — drawArea's filled/total text at the B end (counter-rotated if the bearing flips it).
+  if (tier === 'area'){
+    var filled = line.cages.filter(function(c){ return c.batch; }).length;
+    g.appendChild(s('text', { x:len + 3, y:-3, fill:'#9FB6BC', 'font-size':8,
+      'font-family':'inherit', 'pointer-events':'none', 'text-anchor':'end',
+      transform: up ? ('rotate(180 ' + (len + 3) + ' ' + (-3) + ')') : null },
+      filled + '/' + line.cages.length));
+  }
+
+  // POSTS + body hit-stroke — EDIT mode AND tier 'area'/'work' ONLY (LOD-gated). F-D6: suppress them for
+  // lines of the CURRENTLY-SELECTED area so the area's own handles + body-move aren't shadowed by post hits.
+  var inSelArea = LAYOUT.sel && LAYOUT.sel.kind === 'area' && line.areaId === LAYOUT.sel.areaId;
+  if (!layoutIsView() && (tier === 'area' || tier === 'work') && !inSelArea){
+    g.appendChild(s('line', { x1:0, y1:0, x2:len, y2:0, stroke:'transparent',
+      'stroke-width':(HANDLE_HIT*2)/k, 'stroke-linecap':'round',
+      'data-line-id':line.id, 'data-line-body':line.id, class:'lp-linehit' }));
+    drawPost(g, line, 'a', 0,   sel);
+    drawPost(g, line, 'b', len, sel);
+  }
+  return g;
+}
+
+// drawPost — a selectable anchor post: visible dot + ≥44px transparent hit circle (mirrors drawHandles).
+// Round → rotation-invariant inside the line group.
+function drawPost(g, line, end, cx, sel){
+  var k = Math.max(0.0001, LAYOUT.view.k);
+  var hr = HANDLE_HIT/k, dot = 6/k;
+  var pg = s('g', { class:'lp-handle lp-post' });
+  pg.appendChild(s('circle', { cx:cx, cy:0, r:hr, fill:'transparent',
+    'data-line-post':line.id, 'data-post-end':end, 'data-line-id':line.id }));
+  pg.appendChild(s('circle', { cx:cx, cy:0, r:dot, fill: sel ? '#34B3C4' : '#0E7C8B',
+    stroke:'#FFFFFF', 'stroke-width':1.6/k, 'pointer-events':'none' }));
+  g.appendChild(pg);
+}
+
+// linePitch(farm, line) — per-line {thick,rowSlot}, reproducing the old area row-pitch so migrated farms
+// stay byte-identical: a grouped line reuses its host area's pitched slot; a free line uses the cap.
+// F-D10: memoized per redraw (keyed by LAYOUT.redrawSeq, by areaId) so we never findAreaById per line/frame.
+var _linePitchCache = { seq:-1, map:null };
+function linePitch(farm, line){
+  if (_linePitchCache.seq !== LAYOUT.redrawSeq){ _linePitchCache.seq = LAYOUT.redrawSeq; _linePitchCache.map = {}; }
+  var key = line.areaId || '';
+  var hit = _linePitchCache.map[key];
+  if (hit) return hit;
+  var slot = LINE_PITCH_MAX;                                  // free line → the pitch cap
+  if (line.areaId){
+    var fa = findAreaById(farm, line.areaId);
+    if (fa){ var n = linesInArea(farm, fa.area.id).length || 1; slot = rowBand(fa.area, n).usable / n; }
+  }
+  var res = { rowSlot:slot, thick:Math.max(2, Math.min(slot * 0.62, 14)) };   // VERBATIM old rowSlot/thick
+  _linePitchCache.map[key] = res;
+  return res;
+}
+
+// drawLineCells(farm, line, g, len, thick, rowSlot) — VERBATIM lift of drawCageCells's per-cage loop into
+// the per-line LOCAL frame. The ONLY changes vs the original: horiz→true, rowCenter→0, spanStart→0,
+// spanLen→len, cellLen→len/cn, and the four hit-rect area-bound vars re-pointed to the local rope
+// (areaLo=0, areaHi=len, crossLo/Hi=∓1e9 so the header-reserve clamp evaluates but never fires). Every
+// class / attribute / element-order / contract (data-cage-id, .lp-cagecell, .lp-cellhit lp-cell-live,
+// hit-rect appended FIRST, B7 rebuild guard, cellCount++, ≤120 a11y cap, px-based pip/rect/glyph,
+// tens-ticks) is preserved BYTE-FOR-BYTE — peek/highlight/two-tap-open/drill/a11y all key on these.
+function drawLineCells(farm, line, g, len, thick, rowSlot){
   var cellInteractive = layoutIsView();
   var a11yCells = cellInteractive && farmTotalCageCount(farm) <= 120;
-
-  var lines = linesInArea(farm, area.id);
-  if (!lines.length) return;
-  var n = lines.length;
-  var horiz = area.axis !== 'v';                        // 'h' rows run along X; 'v' rows run along Y
-  var cross = horiz ? area.h : area.w;                  // rows are spaced ACROSS this axis (mirror drawArea)
-  var _band = rowBand(area, n);                         // pitch-capped row geometry (shared w/ drawArea)
-  var usable = _band.usable, pad = _band.pad;
-  // Row span along the line's long axis (mirror the line-stroke endpoints in drawArea).
-  var spanStart = horiz ? (area.x + area.w*0.06) : (area.y + area.h*0.06);
-  var spanEnd   = horiz ? (area.x + area.w*0.94) : (area.y + area.h*0.94);
-  var spanLen = spanEnd - spanStart;
-  if (spanLen <= 0) return;
-  // Cell thickness across the row: a fraction of the per-row cross slot, capped so cells stay legible.
-  var rowSlot = usable / n;
-  var thick = Math.max(2, Math.min(rowSlot * 0.62, 14));
+  var cages = line.cages || []; var cn = cages.length; if (!cn) return;
   var ringC = (typeof RING_COLOR === 'string') ? RING_COLOR : '#0E7C8B';
-
-  for (var i=0; i<n; i++){
-    var ln = lines[i];
-    var cages = ln.cages || [];
-    var cn = cages.length;
-    if (!cn) continue;
-    var frac = (n === 1) ? 0.5 : (i + 0.5) / n;         // same cross-axis placement drawArea uses for the stroke
-    var off = pad + frac * usable;                      // distance across the cross axis
-    var rowCenter = horiz ? (area.y + off) : (area.x + off);
-
-    var cellLen = spanLen / cn;
-    var gap = Math.max(0.5, Math.min(cellLen * 0.16, 3));   // tiny gap so cells read as discrete cages
-    var drawLen = Math.max(0.5, cellLen - gap);
-
+  var horiz = true;        // LOCAL rope always runs +X        (was area.axis !== 'v')
+  var rowCenter = 0;       // rope sits on the local X axis     (was area.y/area.x + off)
+  var spanStart = 0;       // post A = origin                  (was area.x + area.w*0.06)
+  var spanLen = len;       // post-to-post                     (was the 0.06..0.94 area span)
+  var cellLen = spanLen / cn;
+  var gap = Math.max(0.5, Math.min(cellLen * 0.16, 3));
+  var drawLen = Math.max(0.5, cellLen - gap);
+  var _up = !!(line.a && line.b) && Math.abs(Math.atan2(line.b.y - line.a.y, line.b.x - line.a.x) * 180 / Math.PI) > 90;  // F-D11
     for (var c=0; c<cn; c++){
       var cage = cages[c];
       if (!cage) continue;
@@ -6295,8 +6408,8 @@ function drawCageCells(farm, plot, area, tier, g){
         var lead = Math.min(cellLen * 0.5, rowSlot * 0.5);             // lead-in/out cap — never to the area edge
         var hitFrom = spanStart + c*cellLen;                           // default: this cell's pitch start
         var hitLen = cellLen;
-        var areaLo = horiz ? area.x : area.y;                          // line's host edge (clamp target)
-        var areaHi = horiz ? (area.x + area.w) : (area.y + area.h);    // line's far edge (clamp target)
+        var areaLo = 0;                                                // local rope start (was area.x/area.y)
+        var areaHi = len;                                              // local rope end (was the area far edge)
         if (c === 0){ var lo = Math.max(areaLo, hitFrom - lead); hitLen += hitFrom - lo; hitFrom = lo; } // first cell → short lead-in
         if (c === cn - 1){ var hi = Math.min(areaHi, hitFrom + hitLen + lead); hitLen = hi - hitFrom; }  // last cell → short lead-out
         var hx, hy, hw, hh;
@@ -6307,8 +6420,8 @@ function drawCageCells(farm, plot, area, tier, g){
         // margin, so a tap on the header or just inside the area border DRILLS (handleLayoutTap area-body
         // branch) instead of being swallowed by the first/last row's hit-rect. The middle rows keep their
         // full gutter-to-gutter reach. Clamp the cross-axis extent into [crossLo, crossHi].
-        var crossLo = (horiz ? area.y : area.x) + Math.min(18, (horiz ? area.h : area.w) * 0.16); // header reserve
-        var crossHi = (horiz ? (area.y + area.h) : (area.x + area.w)) - Math.min(6, (horiz ? area.h : area.w) * 0.06);
+        var crossLo = -1e9;                                            // no area header band in the line frame
+        var crossHi = 1e9;                                             // (was the header-reserve clamp; evaluates but never fires)
         if (horiz){
           if (hy < crossLo){ hh -= (crossLo - hy); hy = crossLo; }
           if (hy + hh > crossHi){ hh = crossHi - hy; }
@@ -6473,10 +6586,10 @@ function drawCageCells(farm, plot, area, tier, g){
         g.appendChild(s('line', { x1:tickX0, y1:tickY0, x2:tickX1, y2:tickY1,
           stroke:'var(--hair-strong)', 'stroke-width':tickW, 'pointer-events':'none' }));
         g.appendChild(s('text', { x:numX, y:numY, fill:'var(--ink-3)', 'font-size':fs, 'font-weight':700,
-          'font-family':'inherit', 'text-anchor':'middle', 'pointer-events':'none' }, String(c + 1)));
+          'font-family':'inherit', 'text-anchor':'middle', 'pointer-events':'none',
+          transform: _up ? ('rotate(180 ' + numX + ' ' + numY + ')') : null }, String(c + 1)));
       }
     }
-  }
 }
 
 // LINE_PITCH_MAX — cap (world units) on the centre-to-centre distance between adjacent oyster line-rows
@@ -6499,6 +6612,50 @@ function rowBand(area, n){
   return { usable:usable, pad:(cross - usable) / 2 };
 }
 
+// deriveLineAB(area,i,n) — the SINGLE source of truth for a line's world endpoints. Reproduces the
+// EXACT row math drawArea + drawCageCells use: rowBand pad/usable, frac (i+.5)/n, 6%/94% span — then
+// BAKES area.rot via rotPt (old strokes drew inside drawArea's rotate(area.rot cx cy) group). Hoisted
+// (function decl) so ensureSpatialIndex can call it.
+function deriveLineAB(area, i, n){
+  var horiz = area.axis !== 'v';
+  var band  = rowBand(area, n);                          // EXACT shared geometry (rowBand)
+  var frac  = (n === 1) ? 0.5 : (i + 0.5) / n;           // mirror drawArea / drawCageCells
+  var off   = band.pad + frac * band.usable;
+  var x1, y1, x2, y2;
+  if (horiz){ y1 = y2 = area.y + off; x1 = area.x + area.w*0.06; x2 = area.x + area.w*0.94; }
+  else      { x1 = x2 = area.x + off; y1 = area.y + area.h*0.06; y2 = area.y + area.h*0.94; }
+  var cx = area.x + area.w/2, cy = area.y + area.h/2, rot = area.rot || 0;
+  var A = rotPt(x1, y1, cx, cy, rot), B = rotPt(x2, y2, cx, cy, rot);   // bake rot (drawArea group)
+  return { a:{ x:A.x, y:A.y }, b:{ x:B.x, y:B.y } };
+}
+// relayoutAreaLines — re-even EVERY line of an area (count-change parity w/ the old derived render).
+function relayoutAreaLines(farm, area){
+  if (!farm || !area) return;
+  var lns = linesInArea(farm, area.id), n = lns.length;
+  lns.forEach(function(l, i){ if (validAB(l)) return; var g = deriveLineAB(area, i, n); l.a = g.a; l.b = g.b; });
+}
+// validAB — finite endpoints present (idempotency / self-heal guard).
+function validAB(l){
+  return !!(l && l.a && l.b && isFinite(l.a.x) && isFinite(l.a.y) && isFinite(l.b.x) && isFinite(l.b.y));
+}
+// --- parity self-check (inline assert; references the REAL rowBand + rotPt) ---
+(function deriveLineABSelfCheck(){
+  try {
+    function near(p, q){ return Math.abs(p - q) < 1e-6; }
+    var A0 = { x:100, y:200, w:300, h:160, rot:0, axis:'h', spacing:0.2 }, n = 4, i = 0;
+    var band = rowBand(A0, n), frac = (i + 0.5)/n, off = band.pad + frac*band.usable;   // REAL rowBand
+    var ex = { ax:A0.x + A0.w*0.06, ay:A0.y + off, bx:A0.x + A0.w*0.94, by:A0.y + off };
+    var g0 = deriveLineAB(A0, i, n);
+    var ok0 = near(g0.a.x,ex.ax)&&near(g0.a.y,ex.ay)&&near(g0.b.x,ex.bx)&&near(g0.b.y,ex.by);
+    var A90 = { x:100, y:200, w:300, h:160, rot:90, axis:'h', spacing:0.2 };
+    var cx = A90.x + A90.w/2, cy = A90.y + A90.h/2;
+    var ra = rotPt(ex.ax,ex.ay,cx,cy,90), rb = rotPt(ex.bx,ex.by,cx,cy,90);              // REAL rotPt
+    var g90 = deriveLineAB(A90, i, n);
+    var ok90 = near(g90.a.x,ra.x)&&near(g90.a.y,ra.y)&&near(g90.b.x,rb.x)&&near(g90.b.y,rb.y);
+    if (!ok0 || !ok90) console.warn('[spatmap] deriveLineAB parity FAILED', {ok0:ok0, ok90:ok90});
+  } catch (e){ /* never break boot on a self-check */ }
+})();
+
 // drawArea — an area rect inside its plot, drawn with the area's rotate() transform. Rows of lines
 // appear at PLOT/AREA tiers (never per-cage glyphs). A focused/selected area gets an "Open ›" chip.
 function drawArea(farm, plot, area, tier){
@@ -6512,42 +6669,9 @@ function drawArea(farm, plot, area, tier){
     'data-area-id':area.id, class:'lp-areabody' }));
 
   var lines = linesInArea(farm, area.id);
-  // rows: at PLOT tier thin strokes; at AREA tier thicker + per-line tally. FARM tier is normally a ghost
-  // (no rows) — but for SMALL farms we draw rows at the farm tier too, so the per-cage cells (drawCageCells)
-  // have their host strokes and every cage is visible at the fitted overview on a narrow phone. (Bug B3)
-  var showRows = (tier !== 'farm') || farmIsSmall(farm);
-  if (showRows && lines.length){
-    var n = lines.length;
-    var horiz = area.axis !== 'v';                       // 'h' rows run horizontally (along width)
-    var cross = horiz ? area.h : area.w;                 // axis rows are spaced ACROSS
-    var _band = rowBand(area, n);                        // pitch-capped row geometry (shared w/ drawCageCells)
-    var usable = _band.usable, pad = _band.pad;
-    var stroke = (tier === 'area') ? 3 : (tier === 'plot' ? 2 : 1.4);   // farm tier = thinnest rope
-    for (var i=0; i<n; i++){
-      var frac = (n === 1) ? 0.5 : (i + 0.5) / n;        // even spacing across the cross axis
-      var off = pad + frac * usable;
-      var x1, y1, x2, y2;
-      if (horiz){                                         // horizontal rows: vary Y, span X
-        y1 = y2 = area.y + off;
-        x1 = area.x + area.w*0.06; x2 = area.x + area.w*0.94;
-      } else {                                            // vertical rows: vary X, span Y
-        x1 = x2 = area.x + off;
-        y1 = area.y + area.h*0.06; y2 = area.y + area.h*0.94;
-      }
-      g.appendChild(s('line', { x1:x1, y1:y1, x2:x2, y2:y2, stroke:'#8A6A40', 'stroke-width':stroke,
-        'stroke-linecap':'round', 'pointer-events':'none' }));
-      g.appendChild(s('line', { x1:x1, y1:y1-0.6, x2:x2, y2:y2-0.6, stroke:'#B18B53', 'stroke-width':1,
-        'stroke-linecap':'round', 'pointer-events':'none' }));
-      if (tier === 'area'){
-        var ln = lines[i];
-        var filled = ln.cages.filter(function(c){ return c.batch; }).length;
-        var tx = horiz ? x2 : x1, ty = horiz ? y1 : y2;
-        g.appendChild(s('text', { x:tx + 3, y:ty - 3, fill:'#9FB6BC', 'font-size':8,
-          'font-family':'inherit', 'pointer-events':'none', 'text-anchor':'end' },
-          filled + '/' + ln.cages.length));
-      }
-    }
-  } else if (tier !== 'farm' && !lines.length){
+  // C3: a line's ropes + per-cage cells + tally now render in the world-level line pass (drawLine); the
+  // area is a soft grouping. Only the empty-area hint (no lines yet) is still drawn here.
+  if (tier !== 'farm' && !lines.length){
     // EMPTY-AREA state (Item 2c): no lines yet → faint dashed row hints + a "Set lines" chip that
     // opens the Edit-area sheet (carries data-setlines-area; routed in handleLayoutTap). Reachable
     // after reducing an area's line count to 0. (LAYOUT §5 "Empty states")
@@ -6578,9 +6702,6 @@ function drawArea(farm, plot, area, tier){
       g.appendChild(slg);
     }
   }
-  // Component 3: per-cage cells, appended INTO `g` (rides area.rot), above the line strokes drawn
-  // above and below the label/chip/handles added below. No-op in edit mode / over the LOD cap.
-  drawCageCells(farm, plot, area, tier, g);
   // area label pill — tappable (a tap on a SELECTED area's label opens the quick rename, LAYOUT §4)
   g.appendChild(s('text', { x:area.x + 8, y:area.y + 15, fill:'#3D5A60', 'font-size':11, 'font-weight':700,
     'font-family':'inherit', 'data-area-label':area.id, 'data-area-id':area.id, style:'cursor:text' }, area.name));
@@ -6633,12 +6754,208 @@ function drawArea(farm, plot, area, tier){
   return g;
 }
 
+// ── C4: free-line multi-selection helpers (selLines is a Set<lineId>, mutually exclusive with sel) ──
+function clearLineSelection(){ if (LAYOUT.selLines) LAYOUT.selLines.clear(); }
+function selectedLines(farm){ return Array.from(LAYOUT.selLines||[]).map(function(id){ return lineByIdLocal(farm, id); }).filter(Boolean); }
+function selectLine(id){ if (!LAYOUT.selLines) LAYOUT.selLines = new Set(); LAYOUT.sel = null; LAYOUT.selLines.add(id); layoutRedraw(); }  // additive (tap more posts)
+// editStartMoveLines — begin a body-drag of the whole selected line-set (1 → 'line', N → 'lineset').
+function editStartMoveLines(farm, ptWorld){
+  var ids = Array.from(LAYOUT.selLines||[]); if (!ids.length) return null;
+  var snaps = ids.map(function(id){ var l = lineByIdLocal(farm, id);
+    return l ? { id:id, a:{x:l.a.x,y:l.a.y}, b:{x:l.b.x,y:l.b.y} } : null; }).filter(Boolean);
+  if (!snaps.length) return null;
+  if (snaps.length === 1) return { mode:'move', kind:'line', lineId:snaps[0].id, start:snaps[0], startWorld:ptWorld, moved:false };
+  return { mode:'move', kind:'lineset', lineIds:ids, start:snaps, startWorld:ptWorld, moved:false };
+}
+// undo restorers for line gestures — close over BEFORE a/b so undo restores them exactly (mirrors snapAreaGeom).
+function snapLineGeom(lineId, start){
+  return { restore:function(f){ var l = lineByIdLocal(f, lineId);
+    if (l){ l.a = { x:start.a.x, y:start.a.y }; l.b = { x:start.b.x, y:start.b.y }; } } };
+}
+function snapLineSetGeom(snaps){
+  return { restore:function(f){ snaps.forEach(function(sn){ var l = lineByIdLocal(f, sn.id);
+    if (l){ l.a = { x:sn.a.x, y:sn.a.y }; l.b = { x:sn.b.x, y:sn.b.y }; } }); } };
+}
+
+// ── C5: bulk edits over the selected line-set (each = ONE commit()+undoable) ──
+// BULK set cages/line — grows with empties of the line's type; shrinks by trimming EMPTY end cages only
+// (stocked end cages are kept, mirroring setLineCageCount's stock-safe rule).
+function bulkSetCages(target){
+  var farm = getFarm(); var lines = selectedLines(farm); if (!lines.length) return;
+  target = Math.max(0, Math.floor(target||0));
+  var before = lines.map(function(l){ return { id:l.id, cages:l.cages.slice() }; });
+  var blocked = 0;
+  lines.forEach(function(l){
+    var cur = l.cages.length;
+    if (target > cur){
+      var typeId = cur ? l.cages[cur-1].typeId : farm.cageTypes[0].id;
+      for (var i=cur;i<target;i++) l.cages.push(newCage(typeId, l.order, i));
+    } else if (target < cur){
+      while (l.cages.length > target){ if (l.cages[l.cages.length-1].batch){ blocked++; break; } l.cages.pop(); }
+    }
+  });
+  reindexLines(farm); commit(); layoutRedraw();
+  if (blocked) toast(blocked + (blocked===1?' line has':' lines have') + ' stocked end cages — left as-is');
+  undoable('Set cages on ' + lines.length + ' lines', function(){
+    var f = getFarm(); before.forEach(function(sn){ var l = lineByIdLocal(f,sn.id); if (l) l.cages = sn.cages.slice(); });
+    reindexLines(f); commit(); layoutRedraw();
+  });
+}
+// BULK cage type — set every selected line's cages to one type.
+function bulkSetType(typeId){
+  var farm = getFarm(); var lines = selectedLines(farm); if (!lines.length) return;
+  var before = []; lines.forEach(function(l){ l.cages.forEach(function(c){ before.push({c:c,t:c.typeId}); c.typeId = typeId; }); });
+  commit(); layoutRedraw();
+  undoable('Changed cage type on ' + lines.length + ' lines', function(){
+    before.forEach(function(b){ b.c.typeId = b.t; }); commit(); layoutRedraw();
+  });
+}
+// BULK delete — stock-safe (lineHasStock); batched splice + reindex into ONE undo.
+function bulkDeleteLines(){
+  var farm = getFarm(); var lines = selectedLines(farm); if (!lines.length) return;
+  var stocked = lines.filter(lineHasStock);
+  if (stocked.length){ toast('Empty ' + stocked.length + ' stocked ' + (stocked.length===1?'line':'lines') + ' first'); return; }
+  var removed = lines.map(function(l){ return { line:l, idx:farm.lines.indexOf(l) }; });
+  removed.slice().sort(function(a,b){ return b.idx-a.idx; }).forEach(function(r){ if (r.idx>=0) farm.lines.splice(r.idx,1); });
+  reindexLines(farm); rebuildLineIds(farm); clearLineSelection(); closeSheet(); commit(); layoutRedraw();
+  undoable('Removed ' + removed.length + ' lines', function(){
+    var f = getFarm();
+    removed.sort(function(a,b){ return a.idx-b.idx; }).forEach(function(r){ f.lines.splice(Math.min(r.idx,f.lines.length),0,r.line); });
+    reindexLines(f); rebuildLineIds(f); commit(); layoutRedraw();
+  });
+}
+// BULK relabel — "<prefix>1,2,3…" in selection order; auto=false so reindexLines won't overwrite.
+function bulkRenameLines(prefix){
+  var farm = getFarm(); var lines = selectedLines(farm); if (!lines.length) return;
+  var before = lines.map(function(l){ return { id:l.id, name:l.name, auto:l.auto }; });
+  lines.forEach(function(l, i){ l.name = prefix + (i+1); l.auto = false; });
+  commit(); layoutRedraw();
+  undoable('Renamed ' + lines.length + ' lines', function(){
+    var f = getFarm(); before.forEach(function(sn){ var l = lineByIdLocal(f,sn.id); if (l){ l.name = sn.name; l.auto = sn.auto; } });
+    reindexLines(f); commit(); layoutRedraw();
+  });
+}
+// buildBulkLinesSheet — reuses sheetHead / field / .stepper / typeLabel / parseNum.
+function buildBulkLinesSheet(){
+  var farm = getFarm(); var lines = selectedLines(farm);
+  var frag = sheetHead(lines.length + (lines.length===1?' line selected':' lines selected'), 'Bulk edit');
+  if (!lines.length){ frag.push(h('div',{class:'sheetSub'},'No lines selected.')); return frag; }
+  var cur = lines[0].cages.length, same = lines.every(function(l){ return l.cages.length===cur; });
+  var cagesVal = h('input', { class:'num-in stp-val', type:'number', inputmode:'numeric', min:'0',
+    value: same ? cur : '', placeholder: same ? '' : 'mixed' });
+  var cagesStep = h('div', { class:'stepper' },
+    h('button', { class:'stp-btn', 'aria-label':'Remove a cage from every line',
+      onclick:function(){ bulkSetCages((parseNum(cagesVal.value)||cur)-1); refreshSheet(); } }, '−'),
+    cagesVal,
+    h('button', { class:'stp-btn', 'aria-label':'Add a cage to every line',
+      onclick:function(){ bulkSetCages((parseNum(cagesVal.value)||cur)+1); refreshSheet(); } }, '+'));
+  cagesVal.addEventListener('change', function(){ bulkSetCages(parseNum(this.value)); refreshSheet(); });
+  frag.push(field('Cages per line', cagesStep, 'Grows with empty cages; shrinking trims empty end cages (stocked cages are kept).'));
+  var typeSel = h('select', { onchange:function(){ bulkSetType(this.value); refreshSheet(); } });
+  farm.cageTypes.forEach(function(t){ typeSel.appendChild(h('option', { value:t.id }, typeLabel(t))); });
+  frag.push(field('Set all cages to type', typeSel));
+  var pat = h('input', { type:'text', placeholder:'e.g. A' });
+  frag.push(field('Relabel as <prefix>1, 2, 3…',
+    h('div', { style:{display:'flex', gap:'8px'} }, pat,
+      h('button', { class:'btn btn-quiet', onclick:function(){ var v=(pat.value||'').trim(); if (v){ bulkRenameLines(v); refreshSheet(); } } }, 'Apply'))));
+  frag.push(h('button', { class:'btn btn-quiet btn-block', style:{marginTop:'10px'},
+    onclick:function(){ flipLineSet(); refreshSheet(); } }, 'Flip 90°'));
+  frag.push(h('button', { class:'btn btn-danger btn-block', style:{marginTop:'10px'},
+    onclick:bulkDeleteLines }, h('span',{html:icon('trash',18)}), 'Remove ' + lines.length + (lines.length===1?' line':' lines')));
+  return frag;
+}
+
+// ── C6: F2 — 90° flip + auto-orient ──
+// flipLineSet — rotate the selected lines 90° about their bbox center (free-line flip).
+function flipLineSet(){
+  var farm = getFarm(); var lines = selectedLines(farm); if (!lines.length) return;
+  var xs=[], ys=[]; lines.forEach(function(l){ xs.push(l.a.x,l.b.x); ys.push(l.a.y,l.b.y); });
+  var cx=(Math.min.apply(null,xs)+Math.max.apply(null,xs))/2, cy=(Math.min.apply(null,ys)+Math.max.apply(null,ys))/2;
+  var before = lines.map(function(l){ return { id:l.id, a:{x:l.a.x,y:l.a.y}, b:{x:l.b.x,y:l.b.y} }; });
+  lines.forEach(function(l){ l.a = rotPt(l.a.x,l.a.y,cx,cy,90); l.b = rotPt(l.b.x,l.b.y,cx,cy,90); });
+  commit(); layoutRedraw();
+  undoable('Flipped ' + lines.length + (lines.length===1?' line':' lines'), function(){
+    var f = getFarm(); snapLineSetGeom(before).restore(f); commit(); layoutRedraw();
+  });
+}
+// flipArea(areaId) — 90° flip of an area: swap the rect w/h about center, rotate every contained line's
+// a/b 90° about that center, toggle axis (work-map .axv). ONE commit+undoable restoring rect+axis+lines.
+function flipArea(areaId){
+  var farm = getFarm(); var fa = findAreaById(farm, areaId); if (!fa) return;
+  var a = fa.area, cx = a.x + a.w/2, cy = a.y + a.h/2;
+  var lines = linesInArea(farm, a.id);
+  var before = { x:a.x, y:a.y, w:a.w, h:a.h, axis:a.axis,
+    lines: lines.map(function(l){ return { id:l.id, a:{x:l.a.x,y:l.a.y}, b:{x:l.b.x,y:l.b.y} }; }) };
+  a.x = cx - a.h/2; a.y = cy - a.w/2; var t = a.w; a.w = a.h; a.h = t;   // swap w/h, keep center
+  a.axis = (a.axis === 'v') ? 'h' : 'v';
+  lines.forEach(function(l){ l.a = rotPt(l.a.x,l.a.y,cx,cy,90); l.b = rotPt(l.b.x,l.b.y,cx,cy,90); });
+  commit(); layoutRedraw();
+  undoable('Flipped area', function(){
+    var f = getFarm(); var fa2 = findAreaById(f, areaId);
+    if (fa2){ var z=fa2.area; z.x=before.x; z.y=before.y; z.w=before.w; z.h=before.h; z.axis=before.axis; }
+    before.lines.forEach(function(sn){ var l=lineByIdLocal(f,sn.id); if(l){ l.a={x:sn.a.x,y:sn.a.y}; l.b={x:sn.b.x,y:sn.b.y}; } });
+    commit(); layoutRedraw();
+  });
+}
+// autoAxis(w,h) — orient new rectangles to fit MORE lines: rows stack across the cross axis, so pick the
+// orientation whose CROSS side is the longer one. (ponytail: flips addAreaToPlot's old long-side default.)
+function autoAxis(w, h){ return (h >= w) ? 'h' : 'v'; }
+
+// ── C7: rubber-band create tool (Select | +Plot | +Area | +Line) ──
+function setLayoutTool(tool){
+  LAYOUT.tool = tool;
+  if (tool !== 'select'){ LAYOUT.sel = null; clearLineSelection(); }   // armed → nothing to grab → create wins
+  var bar = document.querySelector('.lp-toolbar');
+  if (bar){ var bs = bar.querySelectorAll('.ovSegBtn');
+    for (var i=0;i<bs.length;i++){
+      var on = (tool === 'select') ? /select/i.test(bs[i].textContent) : bs[i].textContent.toLowerCase().indexOf(tool) >= 0;
+      bs[i].classList.toggle('active', on); bs[i].setAttribute('aria-selected', on ? 'true' : 'false');
+    } }
+  layoutRedraw();
+}
+// drawCreatePreview — dashed rubber band in the guide layer while dragging a new shape.
+function drawCreatePreview(p0, p1, tool){
+  var layer = ensureGuideLayer(); if (!layer) return; clearGuides();
+  var sw = 1.5 / Math.max(0.0001, LAYOUT.view.k);
+  if (tool === 'line'){
+    layer.appendChild(s('line', { x1:p0.x, y1:p0.y, x2:p1.x, y2:p1.y, stroke:'#34B3C4',
+      'stroke-width':3/Math.max(0.0001,LAYOUT.view.k), 'stroke-dasharray':(5*sw)+' '+(4*sw), 'pointer-events':'none' }));
+  } else {
+    var x=Math.min(p0.x,p1.x), y=Math.min(p0.y,p1.y), w=Math.abs(p1.x-p0.x), hh=Math.abs(p1.y-p0.y);
+    layer.appendChild(s('rect', { x:x, y:y, width:w, height:hh, rx:8, ry:8,
+      fill:(tool==='plot'?'#13303A':'#0F2229'), 'fill-opacity':0.35, stroke:'#34B3C4',
+      'stroke-width':sw, 'stroke-dasharray':(5*sw)+' '+(4*sw), 'pointer-events':'none' }));
+  }
+}
+// commitCreate — map the released rubber band to the extended add* cores. F-D8: min-length/size guards.
+function commitCreate(tool, p0, p1){
+  if (tool === 'line'){
+    if (Math.hypot(p1.x-p0.x, p1.y-p0.y) < EDIT_MIN_W){ toast('Drag to draw a line'); return; }
+    addLine(p0, p1); return;
+  }
+  var x=Math.min(p0.x,p1.x), y=Math.min(p0.y,p1.y), w=Math.abs(p1.x-p0.x), hh=Math.abs(p1.y-p0.y);
+  if (w < EDIT_MIN_W || hh < EDIT_MIN_H){ toast('Drag a bigger rectangle'); return; }
+  if (tool === 'plot'){ addPlotToFarm({ x:x, y:y, w:w, h:hh }); return; }
+  var host = plotAtWorld(getFarm(), x + w/2, y + hh/2);     // area drops into the plot under its center
+  if (!host){ toast('Drop the area inside a plot'); return; }
+  addAreaToPlot(host, { x:x, y:y, w:w, h:hh });
+}
+
 // renderLayoutActionBar — bottom-docked action bar for the current selection (read-only Builder 2:
 // shows Open › for an area; editing verbs arrive in Builder 3).
 function renderLayoutActionBar(farm){
   var bar = document.getElementById('lpActionBar');
   if (!bar) return;
   bar.innerHTML = '';
+  if (LAYOUT.selLines && LAYOUT.selLines.size){           // C4: multi-line selection takes precedence over `sel`
+    bar.classList.add('show');
+    var nSel = LAYOUT.selLines.size;
+    bar.appendChild(h('span', { class:'lp-abtitle' }, nSel + (nSel === 1 ? ' line selected' : ' lines selected')));
+    bar.appendChild(h('button', { class:'btn btn-quiet', onclick:flipLineSet }, 'Flip 90°'));
+    bar.appendChild(h('button', { class:'btn btn-primary', onclick:function(){ openSheet(buildBulkLinesSheet); } }, 'Bulk edit'));
+    bar.appendChild(h('button', { class:'btn btn-quiet', onclick:function(){ clearLineSelection(); layoutRedraw(); } }, 'Clear'));
+    return;
+  }
   if (!LAYOUT.sel){ bar.classList.remove('show'); return; }
   bar.classList.add('show');
   if (LAYOUT.sel.kind === 'area'){
@@ -6649,6 +6966,7 @@ function renderLayoutActionBar(farm){
       'Remove'));
     bar.appendChild(h('button', { class:'btn btn-quiet', onclick:function(){ openSheet(function(){ return buildEditAreaSheet(found.area); }); } },
       'Edit area'));
+    bar.appendChild(h('button', { class:'btn btn-quiet', onclick:function(){ flipArea(found.area.id); } }, 'Flip 90°'));
     if (!obLayoutFirstRun) bar.appendChild(h('button', { class:'btn btn-primary', onclick:function(){ drillIntoArea(found.area); } },
       'Open ›'));
   } else if (LAYOUT.sel.kind === 'plot'){
@@ -6722,6 +7040,7 @@ function doDrillSwap(area){
   LAYOUT.entered = false;                                    // re-entry to layout should re-fit (UX nit)
   LAYOUT.sel = null;
   clearSelection();
+  clearLineSelection();                                       // C4: drop any line multi-selection on drill
   closeSheet();
   pushView({ view:'work', scope: viewScope });   // owned entry → Back/popstate restores the home (Bug B1)
   render();
@@ -6827,6 +7146,9 @@ function alignCandidates(farm, ed){
     if (plot){ xs.push(plot.x, plot.x+plot.w, plot.x+plot.w/2); ys.push(plot.y, plot.y+plot.h, plot.y+plot.h/2);
       plot.areas.forEach(function(sib){ if (sib.id === ed.areaId) return;
         xs.push(sib.x, sib.x+sib.w, sib.x+sib.w/2); ys.push(sib.y, sib.y+sib.h, sib.y+sib.h/2); }); }
+  } else if (ed.kind === 'line' || ed.kind === 'lineset'){
+    // C4: snap a dragged endpoint / line to sibling posts (grid candidates already pushed above).
+    (farm.lines||[]).forEach(function(l){ if (l.a && l.b){ xs.push(l.a.x, l.b.x); ys.push(l.a.y, l.b.y); } });
   } else {
     (farm.plots||[]).forEach(function(sib){ if (sib.id === ed.plotId) return;
       xs.push(sib.x, sib.x+sib.w, sib.x+sib.w/2); ys.push(sib.y, sib.y+sib.h, sib.y+sib.h/2); });
@@ -6859,7 +7181,12 @@ function editApply(ed, ptWorld){
 
   if (ed.mode === 'move'){
     var dx = ptWorld.x - ed.startWorld.x, dy = ptWorld.y - ed.startWorld.y;
-    if (ed.kind === 'area'){
+    if (ed.kind === 'line' || ed.kind === 'lineset'){
+      // C4: translate every selected line's endpoints by the gesture delta (from start snapshots).
+      var lsnaps = ed.kind === 'line' ? [ed.start] : ed.start;
+      lsnaps.forEach(function(sn){ var l = lineByIdLocal(farm, sn.id || ed.lineId); if (!l) return;
+        l.a = { x:sn.a.x + dx, y:sn.a.y + dy }; l.b = { x:sn.b.x + dx, y:sn.b.y + dy }; });
+    } else if (ed.kind === 'area'){
       var fa = findAreaById(farm, ed.areaId); if (!fa) return;
       var a = fa.area, plot = fa.plot;
       var nx = ed.start.x + dx, ny = ed.start.y + dy;
@@ -6914,6 +7241,13 @@ function editApply(ed, ptWorld){
     // angle of the pointer about the center; knob sits straight ABOVE center → offset by +90°
     var ang = Math.atan2(ptWorld.y - c.y, ptWorld.x - c.x) * 180 / Math.PI + 90;
     a3.rot = rotateSnap(ang);
+  } else if (ed.mode === 'movePost'){
+    // C4: drag ONE anchor post; the other endpoint stays fixed. Snap to grid + sibling posts.
+    var lp = lineByIdLocal(farm, ed.lineId); if (!lp) return;
+    var candL = alignCandidates(farm, ed);
+    var px = pickClosest(ptWorld.x, [snapVal(ptWorld.x, candL.xs, tolW)], tolW);
+    var py = pickClosest(ptWorld.y, [snapVal(ptWorld.y, candL.ys, tolW)], tolW);
+    lp[ed.end] = { x:px, y:py };
   }
   ed.moved = true;
   layoutRedraw();                                            // rebuild scene with live geometry
@@ -7048,10 +7382,14 @@ function drawSelBadge(farm){
 function editFinalize(ed){
   removeGuides();
   var farm = getFarm();
-  var verb = ed.mode === 'move' ? 'Moved' : ed.mode === 'rotate' ? 'Rotated' : 'Resized';
-  var noun = ed.kind === 'area' ? 'area' : 'plot';
-  // capture before/after for undo (geometry only; lines untouched)
-  var before = ed.kind === 'area' ? snapAreaGeom(farm, ed.areaId, ed.start) : snapPlotGeom(farm, ed);
+  var verb = (ed.mode === 'move' || ed.mode === 'movePost') ? 'Moved' : ed.mode === 'rotate' ? 'Rotated' : 'Resized';
+  var noun = ed.kind === 'area' ? 'area' : ed.kind === 'plot' ? 'plot'
+           : ed.kind === 'lineset' ? (ed.lineIds.length + ' lines') : ed.mode === 'movePost' ? 'post' : 'line';
+  // capture before/after for undo (geometry only; cages/stock untouched). Line gestures snapshot a/b.
+  var before = ed.kind === 'area' ? snapAreaGeom(farm, ed.areaId, ed.start)
+             : ed.kind === 'plot' ? snapPlotGeom(farm, ed)
+             : ed.kind === 'lineset' ? snapLineSetGeom(ed.start)
+             : snapLineGeom(ed.lineId, ed.start);
   commit();
   undoable(verb + ' ' + noun, function(){
     var f = getFarm();
@@ -7143,8 +7481,8 @@ function wireLayoutPointers(svg){
     try { svg.setPointerCapture(e.pointerId); } catch (err){}
 
     if (LAYOUT.ptrs.size >= 2){
-      // begin pinch — cancel any pan or edit in progress
-      LAYOUT.pan = null; LAYOUT.edit = null; removeGuides();
+      // begin pinch — cancel any pan, edit, or in-flight rubber-band create (F-D4)
+      LAYOUT.pan = null; LAYOUT.edit = null; LAYOUT.create = null; removeGuides();
       var pts = Array.from(LAYOUT.ptrs.values());
       var a = pts[0], b = pts[1];
       var r = LAYOUT.svgRect;
@@ -7170,6 +7508,29 @@ function wireLayoutPointers(svg){
     var ed = editStartFromHandle(e.target);
     if (ed){ ed.startSx = lp.x; ed.startSy = lp.y; LAYOUT.edit = ed; LAYOUT.pan = null; e.preventDefault(); return; }
 
+    // 1.5) C4: a line POST → select that line (additive) + arm an endpoint drag. Gated to the Select
+    //      tool so an armed create tool (C7) wins instead. Posts only render in EDIT mode at tier
+    //      area/work (LOD-gated in drawLine), so this is inert when zoomed out.
+    if (LAYOUT.tool === 'select'){
+      var postLineId = ancestorAttr(e.target, 'data-line-post');
+      if (postLineId){
+        selectLine(postLineId);
+        var pl = lineByIdLocal(getFarm(), postLineId);
+        if (pl){ LAYOUT.edit = { mode:'movePost', kind:'line', lineId:postLineId,
+            end: ancestorAttr(e.target, 'data-post-end'),
+            start:{ a:{x:pl.a.x,y:pl.a.y}, b:{x:pl.b.x,y:pl.b.y} },
+            startWorld:ptWorld, startSx:lp.x, startSy:lp.y, moved:false }; }
+        LAYOUT.pan = null; e.preventDefault(); return;
+      }
+      // 1.6) a line BODY hit-stroke → select it (if not already) + move the line (or whole selected set).
+      var bodyLineId = ancestorAttr(e.target, 'data-line-body');
+      if (bodyLineId){
+        if (!(LAYOUT.selLines && LAYOUT.selLines.has(bodyLineId))) selectLine(bodyLineId);
+        LAYOUT.edit = editStartMoveLines(getFarm(), ptWorld);
+        if (LAYOUT.edit){ LAYOUT.edit.startSx = lp.x; LAYOUT.edit.startSy = lp.y; LAYOUT.pan = null; e.preventDefault(); return; }
+      }
+    }
+
     // 2) pointerdown on the body of the CURRENTLY-SELECTED shape → move that shape
     if (LAYOUT.sel){
       var bodyArea = ancestorAttr(e.target, 'data-area-id');
@@ -7181,6 +7542,12 @@ function wireLayoutPointers(svg){
         LAYOUT.edit = editStartMove('plot', LAYOUT.sel.plotId, null, ptWorld);
       }
       if (LAYOUT.edit){ LAYOUT.edit.startSx = lp.x; LAYOUT.edit.startSy = lp.y; LAYOUT.pan = null; e.preventDefault(); return; }
+    }
+
+    // 2.5) C7: an armed create tool (+Plot/+Area/+Line) with nothing grabbed → start a rubber-band create.
+    if (LAYOUT.tool !== 'select'){
+      LAYOUT.create = { tool:LAYOUT.tool, downWorld:ptWorld, moved:false };
+      LAYOUT.pan = null; e.preventDefault(); return;
     }
 
     // 3) single pointer on empty/other → tentative pan (becomes a tap if it doesn't move)
@@ -7203,12 +7570,20 @@ function wireLayoutPointers(svg){
     // active edit gesture (move/resize/rotate) — drive it before pan/pinch
     if (LAYOUT.edit && LAYOUT.ptrs.size < 2){
       var lp = localXY(e);
-      if (!LAYOUT.edit.moved && LAYOUT.edit.mode === 'move'){
-        // require a small threshold before a body-move begins (a still press stays a tap)
+      if (!LAYOUT.edit.moved && (LAYOUT.edit.mode === 'move' || LAYOUT.edit.mode === 'movePost')){
+        // require a small threshold before a body/post-move begins (a still press stays a pure select/tap)
         if (Math.abs(lp.x - LAYOUT.edit.startSx) <= MOVE_THRESH && Math.abs(lp.y - LAYOUT.edit.startSy) <= MOVE_THRESH) return;
       }
       e.preventDefault();
       editApply(LAYOUT.edit, toWorld(lp.x, lp.y));
+      return;
+    }
+
+    // C7: live rubber-band create preview (single pointer; pinch pre-empts via the >=2 guard below)
+    if (LAYOUT.create && LAYOUT.ptrs.size < 2){
+      e.preventDefault();
+      var lpc = localXY(e); LAYOUT.create.moved = true;
+      drawCreatePreview(LAYOUT.create.downWorld, toWorld(lpc.x, lpc.y), LAYOUT.create.tool);
       return;
     }
 
@@ -7265,6 +7640,15 @@ function wireLayoutPointers(svg){
     LAYOUT.ptrs.delete(e.pointerId);
     try { svg.releasePointerCapture(e.pointerId); } catch (err){}
     if (LAYOUT.ptrs.size < 2) LAYOUT.pinch = null;
+
+    // C7: finish a rubber-band create — commit the drawn shape, then one-shot return to the Select tool.
+    var wasCreate = LAYOUT.create;
+    if (wasCreate){
+      LAYOUT.create = null; removeGuides();
+      if (wasCreate.moved){ var up = localXY(e); commitCreate(wasCreate.tool, wasCreate.downWorld, toWorld(up.x, up.y)); }
+      setLayoutTool('select');
+      LAYOUT.pan = null; return;
+    }
 
     if (wasEdit){
       LAYOUT.edit = null;
@@ -7844,6 +8228,11 @@ function handleLayoutTap(e, target){
     return;                                                 // tapped empty water in the overview → no-op
   }
 
+  // C4 (F-D5): any EDIT-mode tap that reaches here selects a shape/chip/label or empty water — never a
+  // post/line (those start an edit gesture in onDown). Clear the line multi-selection so sel/selLines stay
+  // mutually exclusive (the layoutRedraw reconcile only clears when LAYOUT.sel ends up set; empty water doesn't).
+  clearLineSelection();
+
   // Open › chip → drill in immediately
   var chipId = target && target.getAttribute && target.getAttribute('data-open-area-id');
   if (chipId){
@@ -7928,17 +8317,20 @@ function viewportCenterWorld(){
 
 // addPlotToFarm() — drop a new axis-aligned plot at the viewport center, pre-select it, ONE
 // commit()+undoable. A plot is the lease container; it is NOT line-filled. (LAYOUT §4 "Add a plot")
-function addPlotToFarm(){
+function addPlotToFarm(rect){
   var farm = getFarm(); if (!farm) return;
   if (!Array.isArray(farm.plots)) farm.plots = [];
   var DW = 360, DH = 280;                                   // default plot size (world units)
+  var pw = DW, ph = DH;
   // Bug B3 (round-12): drop the new plot in a NON-overlapping spot instead of the raw viewport center,
   // which buried it on top of the existing plot's areas/lines and forced the user to drag it out blind.
   // Place it just to the RIGHT of the rightmost existing plot (top-aligned to that plot); x ≥ every plot's
   // right edge + GAP guarantees no overlap with ANY plot regardless of y. First plot still uses the
   // viewport center. A fresh plot has no lines, so position is the only state → undo (splice) is unchanged.
   var px, py;
-  if (farm.plots.length){
+  if (rect){                                                // C7: rubber-band create → use the drawn rect verbatim
+    px = rect.x; py = rect.y; pw = rect.w; ph = rect.h;
+  } else if (farm.plots.length){
     var maxRight = -Infinity, topY = 0;
     farm.plots.forEach(function(p){ var rr = p.x + p.w; if (rr > maxRight){ maxRight = rr; topY = p.y; } });
     px = maxRight + 40; py = topY;
@@ -7947,12 +8339,12 @@ function addPlotToFarm(){
     px = c.x - DW/2; py = c.y - DH/2;
   }
   var plot = { id:uid(), name:'Plot ' + (farm.plots.length + 1), order:farm.plots.length,
-    x:px, y:py, w:DW, h:DH, areas:[] };
+    x:px, y:py, w:pw, h:ph, areas:[] };
   farm.plots.push(plot);
   reindexPlots(farm);
   LAYOUT.sel = { kind:'plot', plotId:plot.id };             // pre-select the new plot
   commit();                                                 // save + render (work mode no-ops; layout re-mounts)
-  fitToContent(farm);                                       // re-fit so the new (off-to-the-right) plot is visible, not stranded
+  if (!rect) fitToContent(farm);                            // re-fit a button-drop; a drawn rect is already on-screen
   layoutRedraw();                                           // reflect selection + new card now
   undoable('Plot added', function(){
     var f = getFarm();
@@ -7968,7 +8360,7 @@ function addPlotToFarm(){
 // addAreaToPlot(plot) — drop an area centered in the given (or selected) plot, then immediately
 // auto-fill it with default lines via the existing bulk-fill core, pre-select it. The WHOLE
 // drop+fill is ONE commit()+undoable so a single Undo reverses both. (LAYOUT §4 "Add / drop an area")
-function addAreaToPlot(plot){
+function addAreaToPlot(plot, rect){
   var farm = getFarm(); if (!farm) return;
   if (!plot && LAYOUT.sel && LAYOUT.sel.kind === 'plot'){
     plot = (farm.plots || []).filter(function(p){ return p.id === LAYOUT.sel.plotId; })[0];
@@ -7976,19 +8368,24 @@ function addAreaToPlot(plot){
   if (!plot){ toast('Select a plot first'); return; }
   if (!Array.isArray(plot.areas)) plot.areas = [];
 
-  // centered, inset rect at a default size that fits inside the plot
-  var W = Math.max(120, Math.min(280, plot.w - 80));
-  var H = Math.max(100, Math.min(200, plot.h - 80));
-  // Bug B3 (round-12): CASCADE each new area off the centered position by a per-area delta so repeated
-  // adds don't perfectly stack/bury each other; clamp so the rect stays fully inside the plot.
-  var cx0 = plot.x + (plot.w - W)/2, cy0 = plot.y + (plot.h - H)/2;
-  var step = 24 * plot.areas.length;
-  var ax = Math.max(plot.x + 4, Math.min(cx0 + step, plot.x + plot.w - W - 4));
-  var ay = Math.max(plot.y + 4, Math.min(cy0 + step, plot.y + plot.h - H - 4));
+  var W, H, ax, ay;
+  if (rect){                                                // C7: rubber-band create → use the drawn rect verbatim
+    W = rect.w; H = rect.h; ax = rect.x; ay = rect.y;
+  } else {
+    // centered, inset rect at a default size that fits inside the plot
+    W = Math.max(120, Math.min(280, plot.w - 80));
+    H = Math.max(100, Math.min(200, plot.h - 80));
+    // Bug B3 (round-12): CASCADE each new area off the centered position by a per-area delta so repeated
+    // adds don't perfectly stack/bury each other; clamp so the rect stays fully inside the plot.
+    var cx0 = plot.x + (plot.w - W)/2, cy0 = plot.y + (plot.h - H)/2;
+    var step = 24 * plot.areas.length;
+    ax = Math.max(plot.x + 4, Math.min(cx0 + step, plot.x + plot.w - W - 4));
+    ay = Math.max(plot.y + 4, Math.min(cy0 + step, plot.y + plot.h - H - 4));
+  }
   var area = { id:uid(), name:'Area ' + (plot.areas.length + 1), order:plot.areas.length,
     x:ax, y:ay, w:W, h:H, rot:0,
     lineCount:4, cagesPerLine:10, spacing:0.2,
-    axis:(W >= H ? 'h' : 'v'),                              // lines run along the rect's LONG side
+    axis:autoAxis(W, H),                                    // C6: orient to fit MORE lines (rows across the longer side)
     lineIds:[] };
   plot.areas.push(area);
   reindexPlots(farm);
@@ -11939,7 +12336,8 @@ function restoreFromState(st){
 // (Bug B1). Used by the menu's "Farm Layout" item, exitLayout's inverse, and SpatMapDebug.enterLayout.
 function enterLayoutView(firstRun){
   obLayoutFirstRun = !!firstRun;          // authoritative on EVERY entry → menu path (no arg) always resets to false
-  closeSheet(); clearSelection();
+  closeSheet(); clearSelection(); clearLineSelection();   // C4: never carry a line multi-selection into a fresh editor entry
+  LAYOUT.tool = 'select'; LAYOUT.create = null;            // fresh entry → Select tool
   viewScope = null; viewMode = 'layout'; LAYOUT.mode = 'edit'; LAYOUT.entered = false;
   if (firstRun){
     var f = getFarm(), p0 = f && f.plots && f.plots[0], a0 = p0 && p0.areas && p0.areas[0];
@@ -11956,6 +12354,7 @@ function enterLayoutView(firstRun){
 // drilled before opening the editor, else the home). Keeps the stack coherent and the URL clean.
 function leaveLayoutView(){
   obLayoutFirstRun = false;
+  clearLineSelection();                  // C4: drop any line multi-selection on exit
   if (history.state && history.state.view === 'layout'){ history.back(); return; }
   // Defensive: no owned entry on top (shouldn't happen) → fall back to the home directly.
   viewScope = null; viewMode = homeMode; LAYOUT.mode = (homeMode === 'overview') ? 'view' : 'edit';
