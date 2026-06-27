@@ -10,6 +10,50 @@ Running list of things to add or change. Drop raw thoughts in the Inbox; move th
 
 ---
 
+## ✅ Built 2026-06-27 (free-placed lines + flip/auto-orient + map-first onboarding — spatmap.html, v4)
+
+The biggest layout rework yet. Lines stopped being evenly-spaced rows *derived* from an area and became
+**first-class spatial objects with anchor-post endpoints**. Built supervisor-style: 3 planning rounds (two
+`Plan` agents propose → I critique → they resolve open holes) + an adversarial `architect-review` pass →
+7 QA-gated build chunks (C1–C7) → a 4-persona simulated-usage test phase → a `code-reviewer` pass → fixes.
+`index.html` untouched throughout.
+
+- **Data model:** every `farm.lines[]` gained `a:{x,y}`, `b:{x,y}` world-coord endpoints (the geometry).
+  Areas became **optional soft groupings** — `line.areaId` stays a frozen membership tag so every
+  area-scoped consumer (work map, area pills, `.axv`, drill, harvest/$/cohort, CSV/backup) is untouched.
+- **Migration** (`deriveLineAB`/`relayoutAreaLines`/`validAB` + a step in `ensureSpatialIndex`): backfills
+  a/b for legacy lines from the EXACT old area-row math (`rowBand` + axis + even spacing), **baking
+  `area.rot`** so a rotated area renders byte-identical. Idempotent (`validAB` guard never moves a placed
+  line), self-healing, additive — Brightside loads pixel-identical (verified via a git-stash A/B pixel diff:
+  only the decorative barge differed). Inline parity self-check asserts rot=0 and rot=90.
+- **Render:** new `drawLine`/`drawLineCells`/`drawPost`/`linePitch` draw each line at WORLD level in a single
+  `layoutRedraw` pass (NEVER inside the area `rotate()` group — rot lives in the stored a/b). The cage-cell
+  contract was lifted byte-for-byte out of the deleted `drawCageCells` (data-cage-id/classes/element-order/
+  tens-ticks/a11y caps preserved → peek/two-tap/drill intact). LOD-gated posts, per-redraw pitch memo,
+  chip/handle z-order lift, counter-rotated labels.
+- **Selection + drag:** `LAYOUT.selLines` (Set, mutually exclusive with `sel`). Tap a post → select (teal),
+  tap more → multi-select, tap water → clear. Drag a post → move that endpoint (other fixed, min-length
+  clamped); drag a body → move the line/whole set. Hit order handle→post→line→area→create→pan; pinch always
+  wins. Every gesture = one commit+undoable restoring a/b.
+- **Bulk edit sheet:** set cages/line (stock-safe), change cage type, relabel `<prefix>N`, delete (blocks
+  stocked lines). Selection survives consecutive edits (init `selLines` non-clobbering on re-render).
+- **Flip + auto-orient:** `flipArea` rotates the rect via `area.rot += 90` AND rotates the contained lines'
+  a/b about center (badge stays consistent); `flipLineSet` flips a selection about its bbox; `setAreaOrientation`
+  (NS/EW chip) now also rotates the lines so they track the rect; `autoAxis(w,h)` orients new areas to fit
+  MORE lines (rows across the longer side). Area move/rotate **carry their lines** (caught in code review).
+- **Map-first onboarding + create:** the wizard dropped its lines×cages step (S3) — you draw on the map now.
+  A new `Select | +Plot | +Area | +Line` toolbar arms a rubber-band create (drag to draw; one-shot return to
+  Select; pinch cancels a stray create; min-size guards). `addPlotToFarm`/`addAreaToPlot`/`addLine` gained
+  optional explicit-rect / endpoint params. New farms land directly on the map with a seeded plot+area.
+- **Test phase (4 personas):** onboarding, free-line power user, daily-work regression, mobile gestures.
+  Stock-safety held everywhere (42k oysters preserved through every op); zero runtime errors; daily work
+  intact; pan/pinch-vs-draw clean. Real bugs fixed: stale flip badge, NS/EW-chip line desync, area
+  move/rotate not carrying lines (code review), movePost zero-collapse, plus polish. The "Undo broken" and
+  "Back blank" reports were verified test-harness artifacts (Playwright won't click a fading toast;
+  `homeMode` left stale by evaluate-based setup).
+
+---
+
 ## ✅ Built 2026-06-24 (guided onboarding wizard — spatmap.html, v4)
 
 Replaced the single wall-of-fields new-farm form with a **step-by-step wizard**. Built via a
