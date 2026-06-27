@@ -5570,7 +5570,7 @@ function buildLayoutEditor(farm, mode){
   LAYOUT.create = null;
   LAYOUT.lastTap = 0; LAYOUT.lastTapXY = null;
   LAYOUT.lastTapCageId = null; LAYOUT.lastTapCageXY = null;
-  if (isView) LAYOUT.sel = null;          // an overview is never in a "selected shape" state
+  if (isView){ LAYOUT.sel = null; clearLineSelection(); }   // an overview is never in a selected state
 
   var page = h('div', { class:'layoutPage' });
 
@@ -6803,8 +6803,8 @@ function bulkSetCages(target){
     }
   });
   reindexLines(farm); commit(); layoutRedraw();
-  if (blocked) toast(blocked + (blocked===1?' line has':' lines have') + ' stocked end cages — left as-is');
-  undoable('Set cages on ' + lines.length + ' lines', function(){
+  // fold the stocked-kept note into the undo toast (a separate toast would be clobbered by undoable's).
+  undoable('Set cages on ' + lines.length + ' lines' + (blocked ? ' (' + blocked + ' kept stocked)' : ''), function(){
     var f = getFarm(); before.forEach(function(sn){ var l = lineByIdLocal(f,sn.id); if (l) l.cages = sn.cages.slice(); });
     reindexLines(f); commit(); layoutRedraw();
   });
@@ -7115,7 +7115,8 @@ function editStartFromHandle(hit){
     var fa = findAreaById(farm, areaId); if (!fa) return null;
     var a = fa.area;
     return { mode:(handle === 'rot' ? 'rotate' : 'resize'), kind:'area', plotId:fa.plot.id, areaId:areaId,
-      handle:handle, start:{ x:a.x, y:a.y, w:a.w, h:a.h, rot:a.rot||0 }, moved:false };
+      handle:handle, start:{ x:a.x, y:a.y, w:a.w, h:a.h, rot:a.rot||0 },
+      lineStart:snapLinesOf(farm, areaId), moved:false };   // carry contained lines (rotate; resize keeps them)
   }
   if (plotId){
     var p = (farm.plots||[]).filter(function(q){ return q.id===plotId; })[0]; if (!p) return null;
@@ -7125,6 +7126,12 @@ function editStartFromHandle(hit){
   return null;
 }
 
+// snapLinesOf(farm, areaId|null) — snapshot {id,a,b} for an area's lines, or (areaId null) a plot's all
+// lines when filtered by caller. Used so an area/plot move/rotate carries its world-coord lines along.
+function snapLinesOf(farm, areaId){
+  return (farm.lines || []).filter(function(l){ return l.areaId === areaId; })
+    .map(function(l){ return { id:l.id, a:{x:l.a.x,y:l.a.y}, b:{x:l.b.x,y:l.b.y} }; });
+}
 // editStartMove(kind, plotId, areaId, ptWorld) — begin a body-drag (move) of the selected shape.
 function editStartMove(kind, plotId, areaId, ptWorld){
   var farm = getFarm();
@@ -7132,13 +7139,17 @@ function editStartMove(kind, plotId, areaId, ptWorld){
     var fa = findAreaById(farm, areaId); if (!fa) return null;
     var a = fa.area;
     return { mode:'move', kind:'area', plotId:fa.plot.id, areaId:areaId,
-      start:{ x:a.x, y:a.y, w:a.w, h:a.h, rot:a.rot||0 }, startWorld:ptWorld, moved:false };
+      start:{ x:a.x, y:a.y, w:a.w, h:a.h, rot:a.rot||0 },
+      lineStart:snapLinesOf(farm, areaId), startWorld:ptWorld, moved:false };   // carry contained lines
   }
   var p = (farm.plots||[]).filter(function(q){ return q.id===plotId; })[0]; if (!p) return null;
   // snapshot every contained area's offset so a plot move carries them by the SAME delta
   var areaStart = p.areas.map(function(ar){ return { id:ar.id, x:ar.x, y:ar.y }; });
+  // snapshot ALL the plot's lines (any area) so a plot move carries every contained line too
+  var lineStart = (farm.lines || []).filter(function(l){ return l.plotId === plotId; })
+    .map(function(l){ return { id:l.id, a:{x:l.a.x,y:l.a.y}, b:{x:l.b.x,y:l.b.y} }; });
   return { mode:'move', kind:'plot', plotId:plotId,
-    start:{ x:p.x, y:p.y, w:p.w, h:p.h }, areaStart:areaStart, startWorld:ptWorld, moved:false };
+    start:{ x:p.x, y:p.y, w:p.w, h:p.h }, areaStart:areaStart, lineStart:lineStart, startWorld:ptWorld, moved:false };
 }
 
 // alignCandidates(farm, ed) — sibling/parent/grid edge candidates for X and Y snapping.
@@ -7214,6 +7225,11 @@ function editApply(ed, ptWorld){
       // (Bug: an area could only travel ~40u inside its plot.) growPlotToContainArea expands plot.x/y/w/h.
       a.x = nx; a.y = ny;
       growPlotToContainArea(plot, a);
+      // carry the area's contained lines by the SAME applied delta (lines render at world a/b, outside
+      // the area group, so an area move must translate them too — else they're left behind).
+      if (ed.lineStart){ var adx = a.x - ed.start.x, ady = a.y - ed.start.y;
+        ed.lineStart.forEach(function(sn){ var l = lineByIdLocal(farm, sn.id);
+          if (l){ l.a = {x:sn.a.x+adx, y:sn.a.y+ady}; l.b = {x:sn.b.x+adx, y:sn.b.y+ady}; } }); }
     } else {
       var p = (farm.plots||[]).filter(function(q){ return q.id===ed.plotId; })[0]; if (!p) return;
       var npx = ed.start.x + dx, npy = ed.start.y + dy;
@@ -7237,6 +7253,9 @@ function editApply(ed, ptWorld){
         var ar = p.areas.filter(function(z){ return z.id === asnap.id; })[0];
         if (ar){ ar.x = asnap.x + pdx; ar.y = asnap.y + pdy; }
       });
+      // carry ALL the plot's lines by the same delta (world a/b, outside the area groups)
+      if (ed.lineStart){ ed.lineStart.forEach(function(sn){ var l = lineByIdLocal(farm, sn.id);
+        if (l){ l.a = {x:sn.a.x+pdx, y:sn.a.y+pdy}; l.b = {x:sn.b.x+pdx, y:sn.b.y+pdy}; } }); }
     }
   } else if (ed.mode === 'resize'){
     if (ed.kind === 'area'){
@@ -7252,12 +7271,22 @@ function editApply(ed, ptWorld){
     // angle of the pointer about the center; knob sits straight ABOVE center → offset by +90°
     var ang = Math.atan2(ptWorld.y - c.y, ptWorld.x - c.x) * 180 / Math.PI + 90;
     a3.rot = rotateSnap(ang);
+    // rotate the area's contained lines about the SAME center by the rot delta (x/y/w/h unchanged during
+    // a rotate, so c is the start center) — lines render at world a/b and must follow the knob.
+    if (ed.lineStart){ var rdelta = a3.rot - (ed.start.rot || 0);
+      ed.lineStart.forEach(function(sn){ var l = lineByIdLocal(farm, sn.id);
+        if (l){ l.a = rotPt(sn.a.x, sn.a.y, c.x, c.y, rdelta); l.b = rotPt(sn.b.x, sn.b.y, c.x, c.y, rdelta); } }); }
   } else if (ed.mode === 'movePost'){
     // C4: drag ONE anchor post; the other endpoint stays fixed. Snap to grid + sibling posts.
     var lp = lineByIdLocal(farm, ed.lineId); if (!lp) return;
     var candL = alignCandidates(farm, ed);
     var px = pickClosest(ptWorld.x, [snapVal(ptWorld.x, candL.xs, tolW)], tolW);
     var py = pickClosest(ptWorld.y, [snapVal(ptWorld.y, candL.ys, tolW)], tolW);
+    // F-D8: never collapse the line to zero length — clamp the dragged end to ≥ EDIT_MIN_W from the fixed end.
+    var fixed = lp[ed.end === 'a' ? 'b' : 'a'];
+    var ddx = px - fixed.x, ddy = py - fixed.y, dlen = Math.hypot(ddx, ddy);
+    if (dlen < EDIT_MIN_W){ if (dlen < 1e-6){ ddx = EDIT_MIN_W; ddy = 0; dlen = EDIT_MIN_W; }
+      px = fixed.x + ddx/dlen*EDIT_MIN_W; py = fixed.y + ddy/dlen*EDIT_MIN_W; }
     lp[ed.end] = { x:px, y:py };
   }
   ed.moved = true;
@@ -7401,10 +7430,13 @@ function editFinalize(ed){
              : ed.kind === 'plot' ? snapPlotGeom(farm, ed)
              : ed.kind === 'lineset' ? snapLineSetGeom(ed.start)
              : snapLineGeom(ed.lineId, ed.start);
+  // an area/plot move/rotate also carried its contained lines (editApply) → restore those a/b too on undo.
+  var beforeLines = (ed.kind === 'area' || ed.kind === 'plot') && ed.lineStart ? snapLineSetGeom(ed.lineStart) : null;
   commit();
   undoable(verb + ' ' + noun, function(){
     var f = getFarm();
     before.restore(f);
+    if (beforeLines) beforeLines.restore(f);
     commit();
     layoutRedraw();
   });
