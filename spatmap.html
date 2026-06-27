@@ -2074,13 +2074,21 @@ function setAreaOrientation(farm, area, mode){
   var beforeRot = area.rot || 0, beforeAxis = area.axis;
   var nextRot = (mode === 'NS') ? 90 : 0;
   if (((beforeRot % 180) + 180) % 180 === nextRot && beforeAxis) return false;  // already there
+  // lines render at world a/b, so rotating the rect (rot) must rotate the lines by the SAME delta about
+  // the area center — else the lines desync from the rect (cluster in a corner). Snapshot for undo.
+  var delta = nextRot - beforeRot;
+  var cx = area.x + area.w/2, cy = area.y + area.h/2;
+  var lines = linesInArea(farm, area.id);
+  var beforeLines = lines.map(function(l){ return { id:l.id, a:{x:l.a.x,y:l.a.y}, b:{x:l.b.x,y:l.b.y} }; });
   area.rot = nextRot;
   // axis follows: EW rows run along width ('h'); NS rows run along height ('v').
   area.axis = (mode === 'NS') ? 'v' : 'h';
+  lines.forEach(function(l){ l.a = rotPt(l.a.x,l.a.y,cx,cy,delta); l.b = rotPt(l.b.x,l.b.y,cx,cy,delta); });
   commit();
   undoable('Orientation changed', function(){
     var f = getFarm(); var fa = findAreaById(f, area.id);
     if (fa){ fa.area.rot = beforeRot; fa.area.axis = beforeAxis; }
+    beforeLines.forEach(function(sn){ var l = lineByIdLocal(f, sn.id); if (l){ l.a={x:sn.a.x,y:sn.a.y}; l.b={x:sn.b.x,y:sn.b.y}; } });
     commit();
     layoutRedraw();
   });
@@ -6818,7 +6826,7 @@ function bulkDeleteLines(){
   var removed = lines.map(function(l){ return { line:l, idx:farm.lines.indexOf(l) }; });
   removed.slice().sort(function(a,b){ return b.idx-a.idx; }).forEach(function(r){ if (r.idx>=0) farm.lines.splice(r.idx,1); });
   reindexLines(farm); rebuildLineIds(farm); clearLineSelection(); closeSheet(); commit(); layoutRedraw();
-  undoable('Removed ' + removed.length + ' lines', function(){
+  undoable('Removed ' + removed.length + (removed.length === 1 ? ' line' : ' lines'), function(){
     var f = getFarm();
     removed.sort(function(a,b){ return a.idx-b.idx; }).forEach(function(r){ f.lines.splice(Math.min(r.idx,f.lines.length),0,r.line); });
     reindexLines(f); rebuildLineIds(f); commit(); layoutRedraw();
@@ -6827,6 +6835,7 @@ function bulkDeleteLines(){
 // BULK relabel — "<prefix>1,2,3…" in selection order; auto=false so reindexLines won't overwrite.
 function bulkRenameLines(prefix){
   var farm = getFarm(); var lines = selectedLines(farm); if (!lines.length) return;
+  prefix = String(prefix == null ? '' : prefix).trim().slice(0, 24);   // guard: trim + cap length
   var before = lines.map(function(l){ return { id:l.id, name:l.name, auto:l.auto }; });
   lines.forEach(function(l, i){ l.name = prefix + (i+1); l.auto = false; });
   commit(); layoutRedraw();
@@ -6878,21 +6887,23 @@ function flipLineSet(){
     var f = getFarm(); snapLineSetGeom(before).restore(f); commit(); layoutRedraw();
   });
 }
-// flipArea(areaId) — 90° flip of an area: swap the rect w/h about center, rotate every contained line's
-// a/b 90° about that center, toggle axis (work-map .axv). ONE commit+undoable restoring rect+axis+lines.
+// flipArea(areaId) — 90° flip of an area. Rotates the rect 90° about its center via area.rot (so the
+// orientation badge/chips, which read area.rot, stay consistent — same convention as setAreaOrientation),
+// rotates every contained line's a/b 90° about that center (lines render at world coords, so they must be
+// rotated explicitly to track the rect), and toggles axis (work-map .axv). ONE commit+undoable.
 function flipArea(areaId){
   var farm = getFarm(); var fa = findAreaById(farm, areaId); if (!fa) return;
   var a = fa.area, cx = a.x + a.w/2, cy = a.y + a.h/2;
   var lines = linesInArea(farm, a.id);
-  var before = { x:a.x, y:a.y, w:a.w, h:a.h, axis:a.axis,
+  var before = { rot:(a.rot || 0), axis:a.axis,
     lines: lines.map(function(l){ return { id:l.id, a:{x:l.a.x,y:l.a.y}, b:{x:l.b.x,y:l.b.y} }; }) };
-  a.x = cx - a.h/2; a.y = cy - a.w/2; var t = a.w; a.w = a.h; a.h = t;   // swap w/h, keep center
+  a.rot = ((a.rot || 0) + 90) % 360;                                  // rect rotates via rot (badge-consistent)
   a.axis = (a.axis === 'v') ? 'h' : 'v';
   lines.forEach(function(l){ l.a = rotPt(l.a.x,l.a.y,cx,cy,90); l.b = rotPt(l.b.x,l.b.y,cx,cy,90); });
   commit(); layoutRedraw();
   undoable('Flipped area', function(){
     var f = getFarm(); var fa2 = findAreaById(f, areaId);
-    if (fa2){ var z=fa2.area; z.x=before.x; z.y=before.y; z.w=before.w; z.h=before.h; z.axis=before.axis; }
+    if (fa2){ fa2.area.rot = before.rot; fa2.area.axis = before.axis; }
     before.lines.forEach(function(sn){ var l=lineByIdLocal(f,sn.id); if(l){ l.a={x:sn.a.x,y:sn.a.y}; l.b={x:sn.b.x,y:sn.b.y}; } });
     commit(); layoutRedraw();
   });
