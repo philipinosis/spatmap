@@ -3980,8 +3980,11 @@ function buildEditAreaSheet(area){
   frag.push(field('Spacing', spaceSeg));
 
   // ── Orientation (NS / EW chip — sets area.rot like the rotate chip; reconciles axis) ──
-  var rotN = (((area.rot || 0) % 180) + 180) % 180;
-  var orient = (Math.abs(rotN - 90) < 10) ? 'NS' : (rotN < 10 || rotN > 170 ? 'EW' : null);
+  // chip highlight derives from the live line geometry (areaRunDir) so it matches the canvas; fall back
+  // to rot-degrees for diagonal/empty areas (FB/F4).
+  var orient = areaRunDir(getFarm(), area);
+  if (!orient){ var rotN = (((area.rot || 0) % 180) + 180) % 180;
+    orient = (Math.abs(rotN - 90) < 10) ? 'NS' : (rotN < 10 || rotN > 170 ? 'EW' : null); }
   var orientSeg = h('div', { class:'chips' });
   [['EW','East–West'], ['NS','North–South']].forEach(function(o){
     var chip = h('button', { class:'chip' + (orient === o[0] ? ' on' : ''), onclick:function(){
@@ -7614,8 +7617,27 @@ function drawRotChip(area){
     'font-family':'inherit', 'text-anchor':'middle', 'pointer-events':'none' }, label));
 }
 
-// areaOrientLabel(area) — NS/EW (or degrees) from area.rot, matching the rotate-chip vocabulary.
+// areaRunDir(farm, area) — GROUND-TRUTH orientation from the actual direction the area's lines run.
+// More reliable than (axis|rot) alone: auto-created areas orient via axis (rot 0), gesture-rotated areas
+// via rot (axis stale), setAreaOrientation/flip via both — only the live a/b geometry is always correct.
+// Returns 'EW' (horizontal lines), 'NS' (vertical), or null (diagonal / no measurable line → caller falls
+// back to the rot-degrees vocabulary). (FB/F4)
+function areaRunDir(farm, area){
+  if (!farm || !area) return null;
+  var lns = (farm.lines || []).filter(function(l){ return l.areaId === area.id && validAB(l); });
+  if (!lns.length) return null;
+  var grid = lns.filter(function(l){ return !l.free; });
+  var l = grid.length ? grid[0] : lns[0];
+  var ang = Math.abs(Math.atan2(l.b.y - l.a.y, l.b.x - l.a.x) * 180 / Math.PI) % 180;
+  if (ang < 10 || ang > 170) return 'EW';
+  if (Math.abs(ang - 90) < 10) return 'NS';
+  return null;
+}
+// areaOrientLabel(area) — NS/EW from the line geometry (areaRunDir), falling back to area.rot degrees for
+// diagonal / empty areas. Matches the rotate-chip vocabulary.
 function areaOrientLabel(area){
+  var dir = areaRunDir(getFarm(), area);
+  if (dir) return dir;
   var rot = (((area.rot || 0) % 180) + 180) % 180;
   return (rot < 10 || rot > 170) ? 'EW' : (Math.abs(rot - 90) < 10 ? 'NS' : Math.round(area.rot || 0) + '°');
 }
@@ -9558,6 +9580,16 @@ function exportStockCSV(){
         (typeof sz === 'number' ? sz : ''), cage.batch.stockedDate || '',
         (months != null ? Math.round(months) : ''), (cageStatus(cage, farm).ready ? 'yes' : 'no'), est ]);
     });
+  });
+  // Tub holds pulled, sale-ready stock the per-cage loop can't see (its oysters left the cages).
+  tubEntries(farm).forEach(function(e){
+    any = true;
+    var price = (typeof priceForGrade === 'function') ? priceForGrade(farm, e.grade) : null;
+    var est = (price != null && e.count != null) ? (price * e.count).toFixed(2) : '';
+    rows.push([ 'Tub', e.label || '', '', '',
+      (e.count != null ? e.count : ''), e.grade || '',
+      (typeof e.sizeMm === 'number' ? e.sizeMm : ''), '',
+      '', 'yes', est ]);
   });
   if (!any){ toast('Nothing stocked to export'); return; }
   downloadText('spatmap-stock-' + exportDateStamp() + '.csv', csvText(rows), 'text/csv');

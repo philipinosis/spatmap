@@ -404,6 +404,56 @@ test('T6-forecast-tub', async (ctx) => {
   assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
 });
 
+// T7 — stock-on-hand CSV INCLUDES the tub. exportStockCSV() only walked farm.lines, so pulled,
+// sale-ready stock sitting in the tub produced no rows at all (the user saw blank Grade/$). Now one
+// row per tubEntries() entry is appended (Line='Tub'), priced via priceForGrade, with every cell
+// flowed through the csvCell formula-injection guard. Pre-fix: no "Tub," line exists.
+test('T7-stock-csv-tub', async (ctx) => {
+  const { page, errors, assert } = ctx;
+  const fs = await import('fs');
+
+  // Brightside tub = 3200 Standard @ 60mm; price Standard at 1.25 → 3200 × 1.25 = 4000.00
+  await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    const f = SpatMapDebug.getFarm();
+    f.settings = f.settings || {};
+    f.settings.gradePrices = { Standard: 1.25 };
+    SpatMapDebug.save();
+  });
+
+  // export #1 — capture the downloaded CSV (boot context has acceptDownloads:true)
+  const dlP = page.waitForEvent('download');
+  await page.evaluate(() => exportStockCSV());
+  const dl = await dlP;
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+
+  const tubLine = csv.split(/\r?\n/).find(l => /^Tub,/.test(l));
+  assert(tubLine, 'a line starting with "Tub," should exist (BEFORE the fix: none)');
+  assert(/Standard/.test(tubLine), 'the tub row should carry its grade (Standard), got: ' + tubLine);
+  const cells = tubLine.split(',');                       // remainder label has no comma → safe split
+  assert(cells[cells.length - 1] === '4000.00',
+    'tub Est-$ cell should be 4000.00 (3200×1.25), got: ' + cells[cells.length - 1] + ' | ' + tubLine);
+
+  // ── formula-injection: a malicious split value must be neutralized by csvCell, never executable.
+  // (tubEntries wraps split LABELS as "Tub · …", which already defuses a leading "=", so to prove the
+  // csvCell quote-prefix guard fires on real export output we target the unwrapped Grade column too.) ──
+  await page.evaluate(() => {
+    const f = SpatMapDebug.getFarm();
+    f.barge.splits.push({ id:'x', count:10, sizeMm:60, grade:'=cmd()', label:'=cmd()',
+      ploidy:null, hatchery:'', origin:null, parentBatchId:null });
+    SpatMapDebug.save();
+  });
+  const dlP2 = page.waitForEvent('download');
+  await page.evaluate(() => exportStockCSV());
+  const dl2 = await dlP2;
+  const csv2 = fs.readFileSync(await dl2.path(), 'utf8');
+
+  assert(/'=cmd\(\)/.test(csv2), 'csvCell should quote-prefix the malicious value (expected "\'=cmd()")');
+  assert(!/(^|,)=cmd\(\)/m.test(csv2), 'no raw "=cmd()" may sit at a cell start (would be an executable formula)');
+
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;
