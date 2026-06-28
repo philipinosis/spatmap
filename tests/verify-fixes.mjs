@@ -486,6 +486,47 @@ test('T8-cohort-grouping', async (ctx) => {
   assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
 });
 
+// T9 — cold-start RESTORE. After a wipe/reinstall the first-run onboarding (step 0) must offer a way back
+// to a backup, or the offline safety net is unreachable. A "Restore from backup" button is added to step 0
+// that reuses the EXISTING importer (triggerImport) verbatim — non-destructive dry-run + ':prev' snapshot
+// untouched. Here we capture a real backup, wipe to a true cold start, reload into onboarding, assert the
+// control exists (fails pre-fix), feed the backup through the file chooser, and assert the farm comes back.
+test('T9-coldstart-import', async (ctx) => {
+  const { page, errors, assert } = ctx;
+
+  // capture a real backup blob from a seeded farm
+  await page.evaluate(() => SpatMapDebug.loadBrightside());
+  const backup = await page.evaluate(() => localStorage.getItem('cageTrackerData'));
+  assert(backup && backup.length > 0, 'should have captured a backup blob, got ' + (backup && backup.length));
+
+  // wipe to a true cold start and reload into onboarding
+  await page.evaluate(() => { SpatMapDebug.state.farms = []; localStorage.removeItem('cageTrackerData'); });
+  await page.reload();
+  await page.waitForFunction('window.SpatMapDebug');
+
+  // the restore control exists on the first-run screen (this fails pre-fix)
+  const restore = page.getByRole('button', { name: /restore from backup/i });
+  await restore.waitFor({ timeout: 5000 });
+
+  // drive it: accept the import confirm, then feed the backup through the file chooser
+  page.on('dialog', d => d.accept());
+  const fs = await import('fs'), os = await import('os'), path = await import('path');
+  const tmp = path.join(os.tmpdir(), 'spatmap-restore-' + Date.now() + '.json');
+  fs.writeFileSync(tmp, backup);
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    restore.click()
+  ]);
+  await chooser.setFiles(tmp);
+
+  // the farm came back through the existing importer
+  await page.waitForFunction(
+    () => SpatMapDebug.state.farms.length === 1 && SpatMapDebug.state.farms[0].name === 'Brightside Oyster Co.',
+    { timeout: 5000 });
+
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;

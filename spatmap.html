@@ -3835,7 +3835,11 @@ function buildOnboardWizard(opts){
         h('button', { class:'btn btn-quiet btn-block', style:{marginTop:'10px'},
           onclick:function(){ loadBrightsideFarm(); } }, 'Explore a demo first'),
         h('div', { class:'fieldHint', style:{textAlign:'center'} },
-          'Loads Brightside Oyster Co. — a full farm you can poke at.')
+          'Loads Brightside Oyster Co. — a full farm you can poke at.'),
+        h('button', { class:'btn btn-quiet btn-block', style:{marginTop:'10px'},
+          onclick:function(){ triggerImport(); } }, 'Restore from backup'),
+        h('div', { class:'fieldHint', style:{textAlign:'center'} },
+          'Have a SpatMap backup file? Bring your farm back.')
       ];
 
       // ── S1: name (gated Next) ──
@@ -10320,13 +10324,116 @@ function harvestLineOneTap(line){
   var farm = getFarm(); if (!farm) return;
   var ids = []; line.cages.forEach(function(c){ if (c.batch) ids.push(c.id); });
   if (!ids.length){ toast('No filled cages on this line'); return; }
-  if (bargeHasContent(farm.barge)){
-    var undo1 = pullSelectedCages(ids);
-    toast('Added to tub — tap the tub to harvest', undo1 ? { label:'Undo', onAction:undo1 } : null);
+  // EMPTY-tub fast path (unchanged): pull the line to the tub, then the quick count popup harvests the pile.
+  if (!bargeHasContent(farm.barge)){
+    var undo2 = pullSelectedCages(ids);
+    openSheet(function(){ return buildHarvestQuick(getFarm(), { onCancel:function(){ closeSheet(); if (undo2) undo2(); } }); });
     return;
   }
-  var undo2 = pullSelectedCages(ids);
-  openSheet(function(){ return buildHarvestQuick(getFarm(), { onCancel:function(){ closeSheet(); if (undo2) undo2(); } }); });
+  // OCCUPIED tub (F9): the shared tub already holds OTHER content, so pulling this line in would comingle it.
+  // Instead, still show the number popup — but harvest THIS line DIRECTLY with its own provenance, leaving the
+  // tub's existing content untouched and never mixing two sources into one harvest entry.
+  openSheet(function(){ return buildLineHarvestQuick(getFarm(), line); });
+}
+
+// lineHarvestPool(line) — pool the line's filled cages into harvest facts the same honest way pullSelectedCages
+// pools onto the tub: counts add (null if any uncounted), grade/size collapse only when every source agrees,
+// origin is the union of source batchIds / cage labels / line name. No mutation — just a read for the popup.
+function lineHarvestPool(line){
+  var cages = []; line.cages.forEach(function(c){ if (c.batch) cages.push(c); });
+  var total = 0, anyUncounted = false;
+  var sizes = {}, grades = {}, parentIds = [], cageLabels = [], lineNames = [];
+  cages.forEach(function(c){
+    var b = c.batch;
+    if (b.count == null) anyUncounted = true; else total += b.count;
+    var sz = latestSize(c); if (typeof sz === 'number') sizes[sz] = sz;
+    if (b.grade) grades[b.grade] = 1;
+    if (b.id && parentIds.indexOf(b.id) < 0) parentIds.push(b.id);
+    if (c.label && cageLabels.indexOf(c.label) < 0) cageLabels.push(c.label);
+  });
+  if (line.name && lineNames.indexOf(line.name) < 0) lineNames.push(line.name);
+  var gk = Object.keys(grades), sk = Object.keys(sizes);
+  return {
+    cages: cages,
+    count: anyUncounted ? null : total,
+    grade: (gk.length === 1) ? gk[0] : null,
+    sizeMm: (sk.length === 1) ? sizes[sk[0]] : null,
+    origin: { parentBatchIds: parentIds, cageLabels: cageLabels, lineNames: lineNames, pulledDate: todayISO() }
+  };
+}
+
+// buildLineHarvestQuick(farm, line) — one-field count popup prefilled to the line's pooled count, used when the
+// tub is busy. Confirming logs a harvest off THIS line (its own provenance) without touching the tub.
+function buildLineHarvestQuick(farm, line){
+  farm = farm || getFarm();
+  var pool = lineHarvestPool(line);
+  var kids = sheetHead('Harvest line');
+  var prov = bargeOriginText({ origin: pool.origin });
+  kids.push(h('div',{class:'sheetSub'}, (pool.count!=null
+    ? '~'+fmtCompact(pool.count)+' on this line'+(prov?' · '+prov:'')
+    : 'Uncounted line'+(prov?' · '+prov:''))));
+  var countIn = h('input',{ type:'number', inputmode:'numeric', min:'1',
+    value:(pool.count!=null?pool.count:''), max:(pool.count!=null?pool.count:null), placeholder:'How many' });
+  kids.push(field('How many harvested', countIn, pool.count!=null?('Up to '+fmtCompact(pool.count)+' on this line.'):'The line is uncounted.'));
+  kids.push(h('div',{class:'btnRow'},
+    h('button',{class:'btn btn-quiet', onclick:closeSheet},'Cancel'),
+    h('button',{class:'btn btn-barge', onclick:function(){ harvestLineDirect(line, countIn.value); }},'Harvest')));
+  return kids;
+}
+
+// harvestLineDirect(line, countVal) — log a harvest straight off a line (no tub) so it never comingles with the
+// tub's existing pile. Empties the line's cages greedily to satisfy the count: a cage smaller than what's left
+// is fully harvested; a larger one is decremented and STAYS stocked. Undoable.
+function harvestLineDirect(line, countVal){
+  var farm = getFarm(); if (!farm) return;
+  var pool = lineHarvestPool(line);
+  if (!pool.cages.length){ toast('No filled cages on this line'); return; }
+  var take = parseCount(countVal);
+  if (take == null || take <= 0){ toast('Enter how many you harvested'); return; }
+  if (pool.count != null && take > pool.count) take = pool.count;
+
+  var price = priceForGrade(farm, pool.grade);
+  var revenue = (price != null) ? take * price : null;
+  var snaps = pool.cages.map(function(c){ return { id:c.id, batch:JSON.parse(JSON.stringify(c.batch)), evLen:c.events.length }; });
+
+  var entry = {
+    id: uid(), date: todayISO(), count: take, grade: pool.grade,
+    sizeMm: (typeof pool.sizeMm === 'number' ? pool.sizeMm : null),
+    origin: pool.origin, note: null, photoIds: [],
+    pricePerOyster: price, revenue: revenue
+  };
+  farm.harvestLog.push(entry);
+
+  var remaining = take;
+  pool.cages.forEach(function(c){
+    var b = c.batch; if (!b) return;
+    if (b.count == null){
+      var ev = newEvent('harvested', b.id, { count: null });
+      if (b.photoIds && b.photoIds.length) ev.photoIds = b.photoIds.slice();
+      c.events.push(ev); c.batch = null; return;
+    }
+    if (remaining <= 0) return;
+    if (b.count <= remaining){
+      remaining -= b.count;
+      var ev2 = newEvent('harvested', b.id, { count: b.count });
+      if (b.photoIds && b.photoIds.length) ev2.photoIds = b.photoIds.slice();
+      c.events.push(ev2); c.batch = null;
+    } else {
+      b.count -= remaining;                                   // partial — cage keeps its (smaller) batch
+      c.events.push(newEvent('harvested', b.id, { count: remaining }));
+      remaining = 0;
+    }
+  });
+
+  closeSheet();
+  commit();
+  buzz([12,40,12]);   // Harvest committed
+  undoable('Harvest logged · ' + fmtCompact(take), function(){
+    var f = getFarm();
+    var ei = f.harvestLog.indexOf(entry); if (ei >= 0) f.harvestLog.splice(ei, 1);
+    snaps.forEach(function(s){ var c = cageById(s.id); if (c){ c.batch = s.batch; c.events.length = s.evLen; } });
+    commit();
+  });
 }
 
 /* ── BATCH-SPLIT — carve the unsorted remainder pile into named sub-batches.
