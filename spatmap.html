@@ -1516,6 +1516,13 @@ function fmtCompact(n){
   }
   return (n/1000000).toFixed(1).replace(/\.0$/, '') + 'M';
 }
+// fmtMoney(n) — EXACT whole-dollar money for headlines/records: "$1,680", not fmtCompact's "$1.7k".
+// Rounds to the nearest dollar (cents live only in the CSV). Locale-free thousands grouping. null/NaN -> "—".
+function fmtMoney(n){
+  if (n == null || isNaN(n)) return '—';
+  var r = Math.round(n), neg = r < 0; r = Math.abs(r);
+  return (neg ? '-$' : '$') + String(r).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
 // parseNum — '' / bad → null; otherwise a finite number
 function parseNum(v){
   if (v == null) return null;
@@ -2781,6 +2788,67 @@ function priceForGrade(farm, grade){
   if (grade != null && typeof gp[grade] === 'number' && gp[grade] >= 0) return gp[grade];
   var dp = farm && farm.settings ? farm.settings.defaultPrice : null;
   return (typeof dp === 'number' && dp >= 0) ? dp : null;
+}
+// tubEntries(farm) — flat list of what is physically in the tub: the unsorted remainder (state==='pile')
+// as ONE entry, then each sorted split. Each: { kind:'remainder'|'split', label, count, sizeMm, grade }.
+// grade is RAW (null when ungraded — callers label it). count may be null (uncounted), NEVER coerced to 0.
+// Guards missing/legacy barge + missing splits[]. Pure reader; writes nothing.
+function tubEntries(farm){
+  var b = farm && farm.barge, out = [];
+  if (!b) return out;
+  if (b.state === 'pile'){
+    out.push({ kind:'remainder', label:'Tub (unsorted)',
+      count:(b.count != null ? b.count : null),
+      sizeMm:(typeof b.sizeMm === 'number' ? b.sizeMm : null),
+      grade:(b.grade || null) });
+  }
+  if (Array.isArray(b.splits)){
+    b.splits.forEach(function(s, ix){
+      out.push({ kind:'split', label:('Tub · ' + splitChipName(s, ix)),
+        count:(s.count != null ? s.count : null),
+        sizeMm:(typeof s.sizeMm === 'number' ? s.sizeMm : null),
+        grade:(s.grade || null) });
+    });
+  }
+  return out;
+}
+
+// tubInventoryByGrade(farm) — { gradeKey: oysters } folded over tubEntries; null grade -> 'Ungraded'.
+// Uncounted portions contribute nothing.
+function tubInventoryByGrade(farm){
+  var out = {};
+  tubEntries(farm).forEach(function(e){
+    if (e.count == null) return;
+    var g = e.grade || 'Ungraded';
+    out[g] = (out[g] || 0) + e.count;
+  });
+  return out;
+}
+
+// tubValue(farm) — { value, priced, unpriced }. value = Σ count×priceForGrade over priceable tub stock
+// (needs BOTH a known count AND a known price, mirroring farmDashboard.cropValue). unpriced = counted tub
+// oysters with no resolvable price.
+function tubValue(farm){
+  var out = { value:0, priced:0, unpriced:0 };
+  tubEntries(farm).forEach(function(e){
+    if (e.count == null) return;
+    var price = priceForGrade(farm, e.grade);   // raw null grade -> default price, exactly like a cage
+    if (price != null){ out.value += e.count * price; out.priced += e.count; }
+    else out.unpriced += e.count;
+  });
+  return out;
+}
+
+// entryPrice/entryRevenue — realized $ when stamped on a harvest-log entry, else fall back to the grade's
+// CURRENT price. Keeps the honest "—" when neither exists. Read-only; never mutates the log.
+function entryPrice(farm, e){
+  if (e && typeof e.pricePerOyster === 'number' && e.pricePerOyster >= 0) return e.pricePerOyster;
+  return priceForGrade(farm, e ? e.grade : null);
+}
+function entryRevenue(farm, e){
+  if (e && typeof e.revenue === 'number' && e.revenue >= 0) return e.revenue;   // stamped realized sale
+  var p = entryPrice(farm, e);
+  return (p != null && e && typeof e.count === 'number') ? e.count * p : null;
 }
 // farmDashboard(farm) — pure money + readiness snapshot for the WHOLE farm. No DOM. Guards every null.
 //   oysters     Σ known counts (cages with a numeric batch.count)
