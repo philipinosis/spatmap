@@ -285,7 +285,7 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .ovSeg{ flex:0 0 auto; display:inline-flex; background:rgba(255,255,255,.14); border-radius:999px;
   padding:2px; gap:2px; }
 .ovSegBtn{ appearance:none; border:0; background:transparent; color:rgba(255,255,255,.78);
-  font:700 13px/1 var(--font-ui); padding:7px 13px; border-radius:999px; min-height:32px; cursor:pointer;
+  font:700 13px/1 var(--font-ui); padding:7px 13px; border-radius:999px; min-height:44px; cursor:pointer;
   white-space:nowrap; }
 .ovSegBtn.active{ background:var(--ink); color:var(--deep); }
 .ovSegBtn:not(.active):active{ background:rgba(255,255,255,.10); }
@@ -319,7 +319,7 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .lp-crumb{ position:absolute; left:50%; top:12px; transform:translateX(-50%); z-index:6;
   display:inline-flex; align-items:center; gap:2px; appearance:none; border:0; cursor:pointer;
   background:var(--toast-bg); color:#fff; font:600 13px/1 var(--font-ui);
-  padding:8px 15px; min-height:34px; border-radius:999px; box-shadow:0 2px 10px rgba(0,0,0,.32);
+  padding:8px 15px; min-height:44px; border-radius:999px; box-shadow:0 2px 10px rgba(0,0,0,.32);
   white-space:nowrap; max-width:calc(100% - 24px); overflow:hidden; text-overflow:ellipsis; }
 .lp-crumb[hidden]{ display:none; }
 .lp-crumb:active{ background:var(--toast-bg); filter:brightness(1.12); }
@@ -431,7 +431,7 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .lineRow + .lineRow{ margin-top:var(--row-gap); }
 .lineHead{ display:flex; align-items:center; gap:8px; margin:0 2px 7px 2px; }
 .lineHead .eyebrow{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.lineHead .lineMenu{ flex:0 0 auto; width:32px; height:32px; border-radius:8px; color:var(--ink-2);
+.lineHead .lineMenu{ flex:0 0 auto; width:44px; height:44px; border-radius:8px; color:var(--ink-2);
   display:flex; align-items:center; justify-content:center; font-size:20px; line-height:1; }
 .lineHead .lineMenu:active{ background:var(--hair); }
 .lineBody{ display:flex; align-items:stretch; gap:5px; position:relative; }
@@ -1540,6 +1540,7 @@ var state = null;                       // module global root: {v, farms, active
 // LAYOUT EDITOR runtime-only view state (NOT persisted; reload returns to whole-farm work map). (LAYOUT §4)
 var viewMode = 'work';                   // 'overview' (read-only whole-farm map) | 'work' (today's labor list) | 'layout' (SVG editor)
 var viewScope = null;                    // null = whole farm | { plotId, areaId } = drilled into one area
+var overviewTab = 'map';                 // 'map' | 'data' — overview sub-tab when unscoped (Map canvas vs Data totals)
 // pendingFocusCageId — TRANSIENT one-shot: the cage to scroll-to + cosmetically pulse after a drill
 // from Overview ("bump into" Work). NOT persisted, NOT on history state (must not survive Back).
 // Set by drillToCage(); consumed exactly once by the Work render branch, which nulls it immediately.
@@ -1683,6 +1684,7 @@ function migrateFarm(f){
     // any other stored name is a USER RENAME and is preserved. Backfill once (older farms predate the flag).
     if (typeof l.auto !== 'boolean')
       l.auto = (l.name === '' || /^Line \d+[a-z]*$/i.test(l.name) || /^\d+[A-Z]+$/.test(l.name));
+    if (typeof l.free !== 'boolean') l.free = false;                       // free flag backfill (additive/idempotent)
     l.order = li;                                                           // explicit flat order (renumber)
     delete l.section; delete l.vert; delete l.pulled;                       // drop legacy hierarchy bits
     if (!Array.isArray(l.cages)) l.cages = [];                              // cages array
@@ -1966,7 +1968,7 @@ function buildLinesForArea(farm, area, lineCount, cagesPerLine){
   for (var li=0; li<n; li++){
     var globalIdx = baseOrder + li;
     var line = { id:uid(), name:'', auto:true, order:globalIdx, cages:[],
-      plotId:plotId, areaId:area.id };                                     // name/labels DERIVED in reindexLines
+      plotId:plotId, areaId:area.id, free:false };                         // name/labels DERIVED in reindexLines
     for (var ci=0; ci<per; ci++) line.cages.push(newCage(typeId, globalIdx, ci));
     farm.lines.push(line);
     created.push(line);
@@ -2010,16 +2012,32 @@ function lineHasStock(line){
 //          nothing changes) — a stocked line + its batches are never destroyed.
 // Always reconciles area.lineCount to the real count (migrated areas carry lineCount 0 but hold
 // lines via lineIds, so the actual count = linesInArea(...).length is the truth). (LAYOUT §4)
-function setAreaLineCount(farm, area, target){
+function setAreaLineCount(farm, area, target, force){
   if (!farm || !area) return false;
   var per = Math.max(0, Math.floor(area.cagesPerLine || 10));
-  var current = linesInArea(farm, area.id).length;       // ACTUAL count (lineIds-backed, truth)
+  var grid = linesInArea(farm, area.id).filter(function(l){ return !l.free; });  // GRID lines only (free never counted/removed)
+  var current = grid.length;                             // ACTUAL grid count (truth)
   target = Math.max(0, Math.floor(target));
-  if (target === current){ area.lineCount = current; persist(); return false; }
+  // force (Fill/stepper): snapshot the grid's pre-reflow a/b so undo restores the exact geometry.
+  var beforeGeom = force ? snapLineSetGeom(grid.filter(validAB).map(function(l){
+    return { id:l.id, a:{x:l.a.x,y:l.a.y}, b:{x:l.b.x,y:l.b.y} }; })) : null;
+
+  if (target === current){
+    if (!force){ area.lineCount = current; persist(); return false; }
+    relayoutAreaLines(farm, area, true);                 // force re-even the existing grid to the rect
+    area.lineCount = linesInArea(farm, area.id).filter(function(l){ return !l.free; }).length;
+    commit();
+    undoable('Lines updated', function(){
+      var f = getFarm(); if (beforeGeom) beforeGeom.restore(f);
+      commit(); layoutRedraw();
+    });
+    return true;
+  }
 
   if (target > current){
     var created = buildLinesForArea(farm, area, target - current, per);
-    area.lineCount = linesInArea(farm, area.id).length;  // reconcile to the new real count
+    if (force) relayoutAreaLines(farm, area, true);      // force re-even the whole grid to the new count
+    area.lineCount = linesInArea(farm, area.id).filter(function(l){ return !l.free; }).length;  // reconcile grid count
     commit();
     undoable('Lines updated', function(){
       var f = getFarm();
@@ -2028,16 +2046,17 @@ function setAreaLineCount(farm, area, target){
       reindexLines(f);
       rebuildLineIds(f);
       if (fa) relayoutAreaLines(f, fa.area);             // undo re-derives a/b for any now-missing line (guarded)
-      if (fa) fa.area.lineCount = linesInArea(f, fa.area.id).length;
+      if (fa && beforeGeom) beforeGeom.restore(f);       // force: restore the re-evened survivors' a/b
+      if (fa) fa.area.lineCount = linesInArea(f, fa.area.id).filter(function(l){ return !l.free; }).length;
       commit();
       layoutRedraw();
     });
     return true;
   }
 
-  // REDUCE — only the highest-index EMPTY lines, and only if NONE of them hold stock.
-  var inArea = linesInArea(farm, area.id);               // global order
-  var toRemove = inArea.slice(target);                   // the (current-target) highest-index lines
+  // REDUCE — only the highest-index EMPTY GRID lines, and only if NONE of them hold stock. Free lines
+  // are never in toRemove → a stocked/custom free line is never a removal candidate.
+  var toRemove = grid.slice(target);                     // the (current-target) highest-index GRID lines
   if (toRemove.some(lineHasStock)){ toast('Line has stock — empty it first'); return false; }
   var removed = toRemove.map(function(line){
     return { line:line, idx:farm.lines.indexOf(line) };  // remember slot for exact undo
@@ -2045,8 +2064,8 @@ function setAreaLineCount(farm, area, target){
   removed.forEach(function(r){ var i = farm.lines.indexOf(r.line); if (i >= 0) farm.lines.splice(i, 1); });
   reindexLines(farm);
   rebuildLineIds(farm);
-  relayoutAreaLines(farm, area);                         // stamp a/b on survivors (guarded: keeps placed lines)
-  area.lineCount = linesInArea(farm, area.id).length;
+  relayoutAreaLines(farm, area, force);                  // stamp a/b on survivors (force re-evens the whole grid)
+  area.lineCount = linesInArea(farm, area.id).filter(function(l){ return !l.free; }).length;
   commit();
   undoable('Lines updated', function(){
     var f = getFarm();
@@ -2059,7 +2078,8 @@ function setAreaLineCount(farm, area, target){
     reindexLines(f);
     rebuildLineIds(f);
     if (fa) relayoutAreaLines(f, fa.area);             // undo re-derives a/b for any now-missing line (guarded)
-    if (fa) fa.area.lineCount = linesInArea(f, fa.area.id).length;
+    if (fa && beforeGeom) beforeGeom.restore(f);       // force: restore the re-evened survivors' a/b
+    if (fa) fa.area.lineCount = linesInArea(f, fa.area.id).filter(function(l){ return !l.free; }).length;
     commit();
     layoutRedraw();
   });
@@ -2554,7 +2574,7 @@ function render(){
   // path (Work toggle, drill, exit) must reset that floating host — otherwise a pinned peek card leaks
   // over the next surface. Catch-all: whenever we're not rendering the unscoped overview, clear any
   // active overview peek/highlight. Idempotent + no-throw when nothing is pinned.
-  if (!(viewMode === 'overview' && !viewScope)) clearCageHighlight();
+  if (!(viewMode === 'overview' && !viewScope && overviewTab === 'map')) clearCageHighlight();
 
   // no farms → onboarding (this early return wins FIRST — before any layout branch)
   if (!state || !state.farms.length){
@@ -2580,6 +2600,10 @@ function render(){
   // absent (it guards), so it's safe to keep.
   if (viewMode === 'overview' && !viewScope){
     hidePopup();
+    if (overviewTab === 'data'){                            // A1: Data tab — totals from known-good renderDashboardCard
+      app.appendChild(buildDataTab(farm));
+      return;
+    }
     app.appendChild(buildOverview(farm));                  // SVG canvas home (was: buildDashboard)
     app.appendChild(renderBarge(farm));                    // barge HUD floats over the canvas (position:fixed)
     if (typeof renderConditionsBar === 'function') renderConditionsBar();    // USGS water conditions bar (no-ops if host absent)
@@ -2832,7 +2856,7 @@ function renderDashboardCard(farm){
   } else {
     // no prices yet → the big number is a tappable affordance into settings (never show "$0")
     moneyKids = [ h('button', { class:'dc-setprice', type:'button',
-        onclick:function(){ openSheet(buildSettings); } }, 'Set oyster prices ',
+        onclick:function(){ openSheet(typeof buildPrices === 'function' ? buildPrices : buildSettings); } }, 'Set oyster prices ',
         h('span', { class:'dc-chev' }, '›')) ];
   }
   var money = h('div', { class:'dc-stat dc-money' }, moneyKids);
@@ -3080,6 +3104,11 @@ function buildForecast(){
     });
     kids.push(gc);
   }
+  // D3: prices live in their own sheet now; surface them here next to the crop they value.
+  kids.push(h('button', { class:'menuItem', style:{marginTop:'14px'}, onclick:function(){ openSheet(buildPrices); } },
+    h('span', { class:'mi-ic', html:icon('grade', 24) }),
+    h('span', { class:'mi-t' }, h('div', null, 'Oyster prices'), h('div', { class:'mi-sub' }, 'Set $/oyster per grade — drives crop value')),
+    h('span', { class:'mi-chev', html:icon('chevron', 18) })));
   return kids;
 }
 
@@ -3163,10 +3192,11 @@ function addLine(p0, p1){
   var perLine = seqLines.length ? seqLines[seqLines.length-1].cages.length : 10;
   if (!perLine) perLine = 10;
   var typeId = farm.cageTypes[0].id;
-  var line = { id:uid(), name:'', auto:true, order:seqLines.length, cages:[] };  // name/labels DERIVED in reindexLines
+  var line = { id:uid(), name:'', auto:true, order:seqLines.length, cages:[], free:false };  // name/labels DERIVED in reindexLines
   for (var i=0; i<perLine; i++) line.cages.push(newCage(typeId, seqLines.length, i));
   var freeDraw = !!(p0 && p1);
   if (freeDraw){
+    line.free = true;                                   // free-drawn line: never grid-snapped/re-evened
     line.a = { x:p0.x, y:p0.y }; line.b = { x:p1.x, y:p1.y };
     var mx = (p0.x + p1.x)/2, my = (p0.y + p1.y)/2;
     var host = plotAtWorld(farm, mx, my);                // areaId by containment-at-birth, then FROZEN
@@ -3338,10 +3368,17 @@ function renderBarge(farm){
     requestAnimationFrame(function(){ applyPileLevel(document.querySelector('.barge'), lvl); });
   }
 
-  // tap anywhere on the barge → Harvest sheet (§3.8)
-  wrap.addEventListener('click', function(){ openSheet(function(){ return buildHarvestSheet(getFarm()); }); });
-  wrap.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); openSheet(function(){ return buildHarvestSheet(getFarm()); }); } });
+  // tap anywhere on the barge → Harvest sheet (§3.8). D1: a plain pile opens the quick
+  // count confirm; a split/sorted tub still opens the full sheet.
+  wrap.addEventListener('click', openTubSheet);
+  wrap.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); openTubSheet(); } });
   return wrap;
+}
+
+// D1: route the tub tap — plain pile → quick harvest confirm; sorted/split tub → full sheet.
+function openTubSheet(){
+  var b = getFarm().barge, quick = (b.state==='pile' && !(b.splits && b.splits.length));
+  openSheet(function(){ return quick ? buildHarvestQuick(getFarm()) : buildHarvestSheet(getFarm()); });
 }
 
 // applyPileLevel — scale the #oysterPile group up from the deck line + gate the depth bands
@@ -3760,8 +3797,8 @@ function buildEditAreaSheet(area){
   var fa = findAreaById(farm, area.id);
   if (!fa){ return sheetHead('Area').concat(h('div', { class:'sheetSub' }, 'This area no longer exists.')); }
   area = fa.area;
-  var actual = linesInArea(farm, area.id).length;          // the TRUTH (migrated areas: lineCount 0)
-  if (area.lineCount !== actual) area.lineCount = actual;  // reconcile the raw field to reality
+  var gridCount = linesInArea(farm, area.id).filter(function(l){ return !l.free; }).length;  // GRID lines only (custom free lines not counted)
+  if (area.lineCount !== gridCount) area.lineCount = gridCount;  // reconcile the raw field to the grid count
 
   var frag = sheetHead('Edit area', fa.plot.name);
 
@@ -3776,22 +3813,25 @@ function buildEditAreaSheet(area){
     } });
   frag.push(field('Area name', nameIn));
 
-  // ── Lines (stepper showing the ACTUAL count) ──
+  // ── Lines (grid) — stepper showing the GRID count (custom free lines aren't counted/changed here) ──
+  function gridLineCount(){ return linesInArea(getFarm(), area.id).filter(function(l){ return !l.free; }).length; }
   var linesVal = h('input', { class:'num-in stp-val', type:'number', inputmode:'numeric', min:'0',
-    value:actual });
+    value:gridCount });
   function applyLines(target){
     target = Math.max(0, Math.floor(target || 0));
-    setAreaLineCount(getFarm(), area, target);            // grow / blocked-reduce, self-commits + undoable
-    refreshSheet();                                       // re-read the live count into the stepper
+    setAreaLineCount(getFarm(), area, target, true);      // force re-even grid; grow / blocked-reduce, self-commits + undoable
+    refreshSheet();                                       // re-read the live grid count into the stepper
   }
   var linesStep = h('div', { class:'stepper' },
     h('button', { class:'stp-btn', 'aria-label':'Remove a line',
-      onclick:function(){ applyLines(linesInArea(getFarm(), area.id).length - 1); } }, '−'),
+      onclick:function(){ applyLines(gridLineCount() - 1); } }, '−'),
     linesVal,
     h('button', { class:'stp-btn', 'aria-label':'Add a line',
-      onclick:function(){ applyLines(linesInArea(getFarm(), area.id).length + 1); } }, '+'));
+      onclick:function(){ applyLines(gridLineCount() + 1); } }, '+'));
   linesVal.addEventListener('change', function(){ applyLines(parseNum(this.value)); });
-  frag.push(field('Lines', linesStep, 'Adds empty lines; reducing removes empty lines from the end.'));
+  frag.push(field('Lines (grid)', linesStep, 'Evenly-spaced grid lines that fill the area. Custom lines you draw aren\'t counted here.'));
+  frag.push(h('button', { class:'btn btn-quiet', style:{ marginTop:'4px' },
+    onclick:function(){ applyLines(autoGridLineCount(area)); } }, 'Fill to rectangle'));
 
   // ── Cages per line (seed for newly-added lines) ──
   var cagesIn = h('input', { class:'num-in', type:'number', inputmode:'numeric', min:'1',
@@ -4093,6 +4133,8 @@ function zoomBy(factor){
   LAYOUT.view.tx = mid.x - wf.x*nk;
   LAYOUT.view.ty = mid.y - wf.y*nk;
   scheduleApplyView();
+  // A1: a +/- zoom that lands scoped into a plot owns the single zoom-out marker (same guard as onUp).
+  if (viewMode === 'overview' && getFarm()) ensureZoomHistory(getFarm());
 }
 
 // layoutContentBounds(farm) — world-space bbox of all plots, or null if none. (shared by fit + clamp)
@@ -4179,6 +4221,34 @@ function toggleOverviewWork(target){
     viewMode = 'overview'; viewScope = null; LAYOUT.mode = 'view'; LAYOUT.entered = false;
     render();
   }
+}
+
+// goToDataTab() / backToMap() — the [Map|Data] overview sub-tab flip (A1). Going TO Data pushes an owned
+// history entry so device Back returns to the Map canvas (restoreFromState's overview branch restores it);
+// going back to Map pops that entry if it's on top, else re-renders the Map canvas directly.
+function goToDataTab(){ clearSelection(); pushView({ view:'overview', tab:'data' }); overviewTab = 'data'; render(); }
+function backToMap(){
+  if (history.state && history.state.view === 'overview' && history.state.tab === 'data'){ history.back(); return; }
+  overviewTab = 'map'; render();
+}
+
+// buildDataTab(farm) — the "Data" half of the [Map|Data] toggle (A1). NOT a buildDashboard resurrection:
+// it is just the KNOWN-GOOD renderDashboardCard (crop value + sale-ready + recent activity, with its own
+// buildForecast / buildWorkQueue CTAs) under a topbar whose toggle flips back to the Map canvas. The
+// sticky topbar + normal-flow card scroll exactly like the work view (no new CSS).
+function buildDataTab(farm){
+  farm = farm || getFarm();
+  var page = h('div', { class:'layoutPage' });
+  var seg = h('div', { class:'ovSeg', role:'tablist', 'aria-label':'Map mode' },
+    h('button', { class:'ovSegBtn', role:'tab', 'aria-selected':'false',
+      onclick:function(){ backToMap(); } }, 'Map'),
+    h('button', { class:'ovSegBtn active', role:'tab', 'aria-selected':'true' }, 'Data'));
+  var ovTitle = h('div', { class:'lp-title ovTitle' }, farm.name);
+  var menuBtn = h('button', { class:'menuBtn', 'aria-label':'Menu', html:icon('menu', 24),
+    onclick:function(){ openSheet(buildMenu); } });
+  page.appendChild(h('div', { class:'topbar layoutTop ovTop' }, seg, ovTitle, menuBtn));
+  page.appendChild(renderDashboardCard(farm));
+  return page;
 }
 
 // buildOverview(farm) — the HOME page (Component 2): a zoomed-out, READ-ONLY whole-farm map. Reuses
@@ -5575,23 +5645,24 @@ function buildLayoutEditor(farm, mode){
   var page = h('div', { class:'layoutPage' });
 
   if (isView){
-    // ── OVERVIEW topbar: segmented [Overview | Work] toggle (left) · farm name · menu (right) ──
-    // The toggle is the escape hatch to the WHOLE-FARM daily work list, preserving the old home.
+    // ── OVERVIEW topbar: segmented [Map | Data] toggle (left) · farm name · edit-layout gear · menu (right) ──
+    // Map = this canvas (active); Data flips to the totals tab (goToDataTab). The gear opens the layout editor.
     var seg = h('div', { class:'ovSeg', role:'tablist', 'aria-label':'Map mode' },
-      h('button', { class:'ovSegBtn active', role:'tab', 'aria-selected':'true' }, 'Overview'),
+      h('button', { class:'ovSegBtn active', role:'tab', 'aria-selected':'true' }, 'Map'),
       h('button', { class:'ovSegBtn', role:'tab', 'aria-selected':'false',
-        onclick:function(){ toggleOverviewWork('work'); } },
-        'Work'));
+        onclick:function(){ goToDataTab(); } },
+        'Data'));
     var ovTitle = h('div', { class:'lp-title ovTitle' }, farm.name);
+    var editBtn = h('button', { class:'menuBtn', 'aria-label':'Edit layout', html:icon('gear', 24),
+      onclick:function(){ enterLayoutView(); } });
     var menuBtn = h('button', { class:'menuBtn', 'aria-label':'Menu', html:icon('menu', 24),
       onclick:function(){ openSheet(buildMenu); } });
-    page.appendChild(h('div', { class:'topbar layoutTop ovTop' }, seg, ovTitle, menuBtn));
+    page.appendChild(h('div', { class:'topbar layoutTop ovTop' }, seg, ovTitle, editBtn, menuBtn));
     // BIT C conditions strip (NOAA/USGS water·tide·weather) — re-homed onto the map home (owner ask).
     // Empty host; render()'s renderConditionsBar() fills it (no-op safe when absent / in the editor).
     page.appendChild(h('div', { id:'conditionsBar', class:'condbar' }));
-    // DASHBOARD: money + readiness HUD — UNSCOPED whole-farm overview ONLY (the scoped Work list keeps
-    // its plain renderStatStrip). Sits above the canvas in normal flow; reads farmDashboard (pure).
-    if (!viewScope) page.appendChild(renderDashboardCard(farm));
+    // DASHBOARD (money + readiness HUD) MOVED to the Data tab (buildDataTab → renderDashboardCard). The
+    // Map canvas no longer mounts it inline; the [Map|Data] toggle is the path to those totals.
   } else {
     var title = h('div', { class:'lp-title' }, farm.name);
     if (obLayoutFirstRun){
@@ -5636,9 +5707,9 @@ function buildLayoutEditor(farm, mode){
         LAYOUT.sel = null;
         if (isScopedIntoArea(f)){
           var sp = currentScopePlot(f);
-          if (sp){ zoomToShape(f, sp); return; }
+          if (sp){ zoomToShape(f, sp); return; }          // area → plot stays camera-only
         }
-        zoomToShape(f);                                    // → all plots
+        zoomOutToAllPlots(f);                              // → all plots (heals the back stack)
       } });
     canvasWrap.appendChild(crumb);
     // WP9 #5: first-run "drag to the next plot →" coachmark (reuses the .lp-zoomhint pill look). Hidden
@@ -5668,9 +5739,10 @@ function buildLayoutEditor(farm, mode){
   // ── persistent bottom controls ──
   var zoomCluster = h('div', { class:'lp-zoom' },
     h('button', { class:'lp-zbtn', 'aria-label':'Zoom in', html:icon('plus', 22), onclick:function(){ zoomBy(1.3); } }),
-    h('button', { class:'lp-zbtn', 'aria-label':'Zoom out', html:'<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>', onclick:function(){ zoomBy(1/1.3); } }),
-    h('button', { class:'lp-zbtn', 'aria-label':'Fit all', html:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
-      onclick:function(){ LAYOUT.sel = null; fitToContent(getFarm()); } }));
+    h('button', { class:'lp-zbtn', 'aria-label':'Zoom out', html:'<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>', onclick:function(){ zoomBy(1/1.3); } }));
+    // note 8: the "Fit all" / full-screen button was removed (owner: "take it away"). Recovery = the
+    // breadcrumb zoom-out (view) + double-tap empty water → fit (both modes). zoomOutToAllPlots stays
+    // (the breadcrumb uses it).
   page.appendChild(zoomCluster);
 
   // editing affordances are EDIT-only: the create toolbar + the selection-driven action bar mount.
@@ -5678,7 +5750,7 @@ function buildLayoutEditor(farm, mode){
     // C7: segmented tool toolbar. Select = pan/select/drag; +Plot/+Area/+Line arm a rubber-band create
     // (drag on the canvas to draw the shape; one-shot auto-returns to Select on release).
     var tools = h('div', { class:'lp-toolbar ovSeg', role:'tablist', 'aria-label':'Tool' });
-    [['select','Select'],['plot','+ Plot'],['area','+ Area'],['line','+ Line']].forEach(function(t){
+    [['select','Select'],['plot','+ Plot'],['area','+ Area'],['line','+ Line'],['box','Box']].forEach(function(t){
       tools.appendChild(h('button', { class:'ovSegBtn' + (LAYOUT.tool === t[0] ? ' active' : ''),
         role:'tab', 'aria-selected': LAYOUT.tool === t[0] ? 'true' : 'false',
         onclick:function(){ if (layoutHasEditing()) setLayoutTool(t[0]); else toast('Editing lands in the next build'); } }, t[1]));
@@ -6295,6 +6367,16 @@ function drawLine(farm, line){
   g.appendChild(s('line', { x1:0, y1:-0.6, x2:len, y2:-0.6, stroke:'#B18B53', 'stroke-width':1,
     'stroke-linecap':'round', 'pointer-events':'none' }));
 
+  // VIEW-mode rope hit target — a tap on the rope gutter opens the Line work sheet (buildLineMenu,
+  // Plan D one-tap Harvest host). Append BEFORE the cells so cells paint on top and win cage taps;
+  // the rope catches only the ~44px band between cells. Exists at area/work tier for ALL farm sizes
+  // so the rope stays tappable even when per-cage cells are capped on a large farm.
+  if (layoutIsView() && (tier === 'area' || tier === 'work')){
+    g.appendChild(s('line', { x1:0, y1:0, x2:len, y2:0, stroke:'transparent',
+      'stroke-width':(HANDLE_HIT*2)/k, 'stroke-linecap':'round',
+      'data-line-id':line.id, 'data-line-body':line.id, class:'lp-linehit' }));
+  }
+
   // per-cage cells — SAME LOD gate drawCageCells used: VIEW only, and small-farm OR zoomed-in (area/work).
   if (layoutIsView() && (farmIsSmall(farm) || tier === 'area' || tier === 'work')){
     var pitch = linePitch(farm, line);
@@ -6620,6 +6702,16 @@ function rowBand(area, n){
   return { usable:usable, pad:(cross - usable) / 2 };
 }
 
+// autoGridLineCount(area) — default grid density for an area: pack ~1 line per LINE_PITCH_MAX of the
+// usable cross-axis span (same spacing math as rowBand), clamped 1..50. Scales the grid to the rect so
+// a drawn/resized area auto-fills instead of always seeding the old fixed 4.
+function autoGridLineCount(area){
+  var horiz = area.axis !== 'v';
+  var cross = horiz ? area.h : area.w;
+  var usable = cross * (1 - Math.max(0, Math.min(0.9, area.spacing || 0)) * 0.4);
+  return Math.max(1, Math.min(50, Math.round(usable / LINE_PITCH_MAX)));
+}
+
 // deriveLineAB(area,i,n) — the SINGLE source of truth for a line's world endpoints. Reproduces the
 // EXACT row math drawArea + drawCageCells use: rowBand pad/usable, frac (i+.5)/n, 6%/94% span — then
 // BAKES area.rot via rotPt (old strokes drew inside drawArea's rotate(area.rot cx cy) group). Hoisted
@@ -6636,11 +6728,30 @@ function deriveLineAB(area, i, n){
   var A = rotPt(x1, y1, cx, cy, rot), B = rotPt(x2, y2, cx, cy, rot);   // bake rot (drawArea group)
   return { a:{ x:A.x, y:A.y }, b:{ x:B.x, y:B.y } };
 }
-// relayoutAreaLines — re-even EVERY line of an area (count-change parity w/ the old derived render).
-function relayoutAreaLines(farm, area){
+// relayoutAreaLines — re-even an area's GRID lines (free-drawn lines are never re-evened/grid-snapped).
+// force=true re-derives every grid line's a/b (even placed ones); default keeps already-placed lines.
+function relayoutAreaLines(farm, area, force){
   if (!farm || !area) return;
-  var lns = linesInArea(farm, area.id), n = lns.length;
-  lns.forEach(function(l, i){ if (validAB(l)) return; var g = deriveLineAB(area, i, n); l.a = g.a; l.b = g.b; });
+  var grid = linesInArea(farm, area.id).filter(function(l){ return !l.free; });
+  var n = grid.length;
+  grid.forEach(function(l, i){ if (!force && validAB(l)) return; var g = deriveLineAB(area, i, n); l.a = g.a; l.b = g.b; });
+}
+// refitLinesToResizedArea — after an area rect changes: GRID lines re-even to the new rect; FREE lines are
+// remapped proportionally from their start snapshot (lineStart) so they stay inside the rect, never snapped.
+function refitLinesToResizedArea(farm, area, startRect, lineStart){
+  var lns = linesInArea(farm, area.id);
+  var grid = lns.filter(function(l){ return !l.free; });
+  var n = grid.length;
+  grid.forEach(function(l, i){ var g = deriveLineAB(area, i, n); l.a = g.a; l.b = g.b; });   // GRID re-even
+  if (!lineStart) return;
+  var rot = area.rot || 0,
+      oc = { x:startRect.x + startRect.w/2, y:startRect.y + startRect.h/2 },
+      nc = { x:area.x + area.w/2, y:area.y + area.h/2 };
+  var byId = {}; lineStart.forEach(function(sn){ byId[sn.id] = sn; });
+  function remap(p){ var loc = rotPt(p.x, p.y, oc.x, oc.y, -rot);
+    var u = startRect.w ? (loc.x - startRect.x)/startRect.w : 0.5, v = startRect.h ? (loc.y - startRect.y)/startRect.h : 0.5;
+    return rotPt(area.x + u*area.w, area.y + v*area.h, nc.x, nc.y, rot); }
+  lns.filter(function(l){ return l.free; }).forEach(function(l){ var sn = byId[l.id]; if (!sn) return; l.a = remap(sn.a); l.b = remap(sn.b); }); // FREE proportional, never grid-snapped
 }
 // validAB — finite endpoints present (idempotency / self-heal guard).
 function validAB(l){
@@ -6714,36 +6825,8 @@ function drawArea(farm, plot, area, tier){
   g.appendChild(s('text', { x:area.x + 8, y:area.y + 15, fill:'#3D5A60', 'font-size':11, 'font-weight':700,
     'font-family':'inherit', 'data-area-label':area.id, 'data-area-id':area.id, style:'cursor:text' }, area.name));
 
-  // Bug B1 (round-9): VIEW-mode drill affordance. In overview/plot-zoom the per-cage hit-rects blanket
-  // most of the area, so the area-body drill is hard to hit and there's no visible "how do I drill?" cue.
-  // Render a small "Open ›" chip at the TOP-RIGHT corner — clear of the cage cells (which sit in the body
-  // along the rope rows) — sized in WORLD units so it lands at ~40px on screen at the current zoom (a
-  // reliable touch target on iPhone). It carries data-open-area-id; handleLayoutTap's view branch routes
-  // a tap straight to drillIntoArea. Appended LAST inside `g` so it paints ABOVE the hit-rects, and given
-  // pointer-events:auto so a cell hit-rect can't swallow its tap. Skipped only for areas too small to host
-  // it without covering the footprint (then the area-body / margin drill + pinch-in cover the case). NOT
-  // shown in edit mode (the selected-area edit chip below owns that), so the two never duplicate.
-  if (layoutIsView()){
-    var k = (LAYOUT.view && LAYOUT.view.k) ? LAYOUT.view.k : 1;
-    var vChipW = Math.max(44, 64) / k;                            // ~64px wide on screen (≥44px touch)
-    var vChipH = 38 / k;                                          // ~38px tall on screen
-    var pad = 4 / k;                                              // small inset from the area edge
-    // only render if it fits the card without blanketing it (leave room for the label + cells)
-    if (vChipW <= area.w - 2*pad && vChipH <= area.h * 0.55){
-      var vcx = area.x + area.w - vChipW - pad, vcy = area.y + pad;
-      var fs = Math.max(8, 13 / k);
-      var vchip = s('g', { 'data-open-area-id':area.id, class:'lp-openchip lp-openchip-view',
-        style:'cursor:pointer; pointer-events:auto;' });
-      vchip.appendChild(s('rect', { x:vcx, y:vcy, width:vChipW, height:vChipH,
-        rx: Math.min(vChipH/2, 13/k), ry: Math.min(vChipH/2, 13/k),
-        fill:'#0E7C8B', 'fill-opacity':0.95, stroke:'#FFFFFF', 'stroke-width':1.2/k,
-        'data-open-area-id':area.id }));
-      vchip.appendChild(s('text', { x:vcx + vChipW/2, y:vcy + vChipH/2 + fs*0.34,
-        fill:'#FFFFFF', 'font-size':fs, 'font-weight':700, 'font-family':'inherit',
-        'text-anchor':'middle', 'pointer-events':'none' }, 'Open ›'));
-      g.appendChild(vchip);
-    }
-  }
+  // (VIEW-mode "Open ›" drill chip removed in the canvas-nav rework: an area is entered by tapping it
+  // — progressive camera zoom farm→plot→area — or by tapping a cage/line for its work sheet. No chip.)
 
   // Open › chip on the selected area (the explicit drill-in handoff) (LAYOUT §4)
   if (selected){
@@ -6933,13 +7016,16 @@ function drawCreatePreview(p0, p1, tool){
       'stroke-width':3/Math.max(0.0001,LAYOUT.view.k), 'stroke-dasharray':(5*sw)+' '+(4*sw), 'pointer-events':'none' }));
   } else {
     var x=Math.min(p0.x,p1.x), y=Math.min(p0.y,p1.y), w=Math.abs(p1.x-p0.x), hh=Math.abs(p1.y-p0.y);
+    var isBox=(tool==='box');
     layer.appendChild(s('rect', { x:x, y:y, width:w, height:hh, rx:8, ry:8,
-      fill:(tool==='plot'?'#13303A':'#0F2229'), 'fill-opacity':0.35, stroke:'#34B3C4',
+      fill:(isBox?'#34B3C4':(tool==='plot'?'#13303A':'#0F2229')),
+      'fill-opacity':(isBox?0.14:0.35), stroke:'#34B3C4',
       'stroke-width':sw, 'stroke-dasharray':(5*sw)+' '+(4*sw), 'pointer-events':'none' }));
   }
 }
 // commitCreate — map the released rubber band to the extended add* cores. F-D8: min-length/size guards.
 function commitCreate(tool, p0, p1){
+  if (tool === 'box'){ marqueeSelectLines(p0, p1); return; }
   if (tool === 'line'){
     if (Math.hypot(p1.x-p0.x, p1.y-p0.y) < EDIT_MIN_W){ toast('Drag to draw a line'); return; }
     addLine(p0, p1); return;
@@ -6950,6 +7036,28 @@ function commitCreate(tool, p0, p1){
   var host = plotAtWorld(getFarm(), x + w/2, y + hh/2);     // area drops into the plot under its center
   if (!host){ toast('Drop the area inside a plot'); return; }
   addAreaToPlot(host, { x:x, y:y, w:w, h:hh });
+}
+// marqueeSelectLines — replace selLines with every line whose rope touches the dragged box (C2).
+function marqueeSelectLines(p0, p1){
+  var farm = getFarm();
+  var r = { x:Math.min(p0.x,p1.x), y:Math.min(p0.y,p1.y), w:Math.abs(p1.x-p0.x), h:Math.abs(p1.y-p0.y) };
+  LAYOUT.sel = null;
+  if (!LAYOUT.selLines) LAYOUT.selLines = new Set();
+  LAYOUT.selLines.clear();
+  (farm.lines||[]).forEach(function(l){ if (validAB(l) && segHitsRect(l.a,l.b,r)) LAYOUT.selLines.add(l.id); });
+  if (!LAYOUT.selLines.size) toast('No lines in the box');
+  layoutRedraw();
+}
+function segHitsRect(a, b, r){   // Liang–Barsky clip — true if any part of a→b inside AABB
+  var x0=r.x,y0=r.y,x1=r.x+r.w,y1=r.y+r.h, dx=b.x-a.x,dy=b.y-a.y,t0=0,t1=1;
+  var p=[-dx,dx,-dy,dy], q=[a.x-x0,x1-a.x,a.y-y0,y1-a.y];
+  for (var i=0;i<4;i++){
+    if (p[i]===0){ if (q[i]<0) return false; }
+    else { var t=q[i]/p[i];
+      if (p[i]<0){ if (t>t1) return false; if (t>t0) t0=t; }
+      else { if (t<t0) return false; if (t<t1) t1=t; } }
+  }
+  return t0<=t1;
 }
 
 // renderLayoutActionBar — bottom-docked action bar for the current selection (read-only Builder 2:
@@ -6984,6 +7092,7 @@ function renderLayoutActionBar(farm){
     var p = (farm.plots || []).filter(function(pp){ return pp.id === LAYOUT.sel.plotId; })[0];
     if (!p){ LAYOUT.sel = null; bar.classList.remove('show'); return; }
     bar.appendChild(h('span', { class:'lp-abtitle' }, p.name));
+    bar.appendChild(h('button', { class:'btn btn-quiet', onclick:function(){ openSheet(function(){ return buildRenameSheet('plot', p.id); }); } }, 'Rename'));
     if (!obLayoutFirstRun) bar.appendChild(h('button', { class:'btn btn-danger', onclick:function(){ removePlotFromFarm(p); } },
       'Remove'));
     bar.appendChild(h('button', { class:'btn btn-quiet', onclick:function(){
@@ -7120,8 +7229,10 @@ function editStartFromHandle(hit){
   }
   if (plotId){
     var p = (farm.plots||[]).filter(function(q){ return q.id===plotId; })[0]; if (!p) return null;
+    var plotLineStart = (farm.lines || []).filter(function(l){ return l.plotId === plotId; })
+      .map(function(l){ return { id:l.id, a:{x:l.a.x,y:l.a.y}, b:{x:l.b.x,y:l.b.y} }; });  // snapshot for grid-refit undo
     return { mode:'resize', kind:'plot', plotId:plotId, handle:handle,
-      start:{ x:p.x, y:p.y, w:p.w, h:p.h }, moved:false };
+      start:{ x:p.x, y:p.y, w:p.w, h:p.h }, lineStart:plotLineStart, moved:false };
   }
   return null;
 }
@@ -7262,6 +7373,7 @@ function editApply(ed, ptWorld){
       var fa2 = findAreaById(farm, ed.areaId); if (!fa2) return;
       var r = resizeAreaLocal(ed.start, ed.handle, ptWorld);
       fa2.area.x = r.x; fa2.area.y = r.y; fa2.area.w = r.w; fa2.area.h = r.h;
+      refitLinesToResizedArea(farm, fa2.area, ed.start, ed.lineStart);   // grid re-evens; free remaps inside rect
     } else {
       resizePlot(farm, ed, ptWorld, tolW);
     }
@@ -7315,10 +7427,12 @@ function resizePlot(farm, ed, ptWorld, tolW){
   p.x = L; p.y = T; p.w = R - L; p.h = B - T;
   // keep contained areas inside the new plot bounds (clamp size + position; don't rescale contents)
   p.areas.forEach(function(a){
+    var bx = a.x, by = a.y, bw = a.w, bh = a.h;
     if (a.w > p.w) a.w = Math.max(EDIT_MIN_W, p.w);
     if (a.h > p.h) a.h = Math.max(EDIT_MIN_H, p.h);
     a.x = Math.max(p.x, Math.min(p.x + p.w - a.w, a.x));
     a.y = Math.max(p.y, Math.min(p.y + p.h - a.h, a.y));
+    if (a.x!==bx || a.y!==by || a.w!==bw || a.h!==bh) relayoutAreaLines(farm, a, true);  // re-even grid into clamped rect (free lines may residually poke — known limit)
   });
 }
 
@@ -7683,6 +7797,8 @@ function wireLayoutPointers(svg){
     LAYOUT.ptrs.delete(e.pointerId);
     try { svg.releasePointerCapture(e.pointerId); } catch (err){}
     if (LAYOUT.ptrs.size < 2) LAYOUT.pinch = null;
+    // A1: a settled pan/pinch in the overview that lands scoped into a plot owns the single zoom-out marker.
+    if (viewMode === 'overview' && getFarm()) ensureZoomHistory(getFarm());
 
     // C7: finish a rubber-band create — commit the drawn shape, then one-shot return to the Select tool.
     var wasCreate = LAYOUT.create;
@@ -8103,7 +8219,7 @@ function handleLayoutTap(e, target){
           if (!zPlot && zAreaId){ var zfa0 = findAreaById(farm, zAreaId); if (zfa0) zPlot = zfa0.plot; }
           if (zPlot){
             if (LAYOUT.hlCage || LAYOUT.hlGroup) clearCageHighlight();
-            LAYOUT.sel = null; zoomToShape(farm, zPlot);
+            ensureZoomHistory(farm); LAYOUT.sel = null; zoomToShape(farm, zPlot);
           }
           return;                                          // tapped a plot → zoomed in; tapped open water → no-op
         } else {
@@ -8183,9 +8299,8 @@ function handleLayoutTap(e, target){
         if (LAYOUT.tapTimer){ clearTimeout(LAYOUT.tapTimer); LAYOUT.tapTimer = null; }
         LAYOUT.lastTapCageId = null; LAYOUT.lastTapCageXY = null;
         clearCageHighlight();
-        // "Bump into" Work: drill into this cage's area + focus-pulse the cell (was: buildCageDetail modal,
-        // a dead-end disconnected from Work). openId was captured above, before the clears.
-        drillToCage(openId);
+        // Open the cage work sheet (matches the desktop single-click). openId was captured above, before the clears.
+        openSheet(function(){ return buildCageDetail(cageById(openId)); });
         return;
       }
       // FIRST tap on a cell → peek + pinned highlight; arm the window for the second tap.
@@ -8201,6 +8316,21 @@ function handleLayoutTap(e, target){
       }
       return;                                              // a touch cell tap NEVER also drills
       } // end TOUCH cell branch (B5)
+    }
+    // VIEW rope tap → open the Line work sheet (buildLineMenu; host for Plan D one-tap Harvest). The
+    // cell branch above already returned, so a tap that resolves to a rope hit-stroke (data-line-body,
+    // drawLine VIEW-only) landed on the gutter between cells. Order: cage cell → rope → area bg.
+    var rLineId = null, rEl = target;
+    while (rEl && rEl !== LAYOUT.svg){ if (rEl.getAttribute && !rLineId) rLineId = rEl.getAttribute('data-line-body'); if (rLineId) break; rEl = rEl.parentNode; }
+    if (rLineId){
+      var rLine = lineByIdLocal(farm, rLineId);
+      if (rLine){
+        if (LAYOUT.tapTimer){ clearTimeout(LAYOUT.tapTimer); LAYOUT.tapTimer = null; }
+        LAYOUT.lastTapCageId = null; LAYOUT.lastTapCageXY = null;
+        if (LAYOUT.hlCage || LAYOUT.hlGroup) clearCageHighlight();
+        openSheet(function(){ return buildLineMenu(rLine); });
+        return;
+      }
     }
     // (B5) a MOUSE click that only hit the invisible hit-rect over empty water reaches here and falls
     // through to the area-drill resolution below, exactly like a click on bare area background.
@@ -8220,8 +8350,8 @@ function handleLayoutTap(e, target){
       var nearId = LAYOUT.lastTapCageId;                  // capture BEFORE the null below
       LAYOUT.lastTapCageId = null; LAYOUT.lastTapCageXY = null;
       clearCageHighlight();
-      // "Bump into" Work: drill into the pinned cage's area + focus-pulse it (was: buildCageDetail modal).
-      drillToCage(nearId);
+      // Open the cage work sheet (matches the desktop single-click). nearId captured above, before the clears.
+      openSheet(function(){ return buildCageDetail(cageById(nearId)); });
       return;
     }
     // B6 (touch dismiss-first): on TOUCH, when a cage is currently pinned (lastTapCageId set) and this
@@ -8247,8 +8377,7 @@ function handleLayoutTap(e, target){
       if (LAYOUT.tapTimer){ clearTimeout(LAYOUT.tapTimer); LAYOUT.tapTimer = null; }
       LAYOUT.lastTapCageId = null; LAYOUT.lastTapCageXY = null;
       if (LAYOUT.hlCage || LAYOUT.hlGroup) clearCageHighlight();
-      var b4fa = findAreaById(farm, nearAreaId);
-      if (b4fa){ drillIntoArea(b4fa.area); return; }       // tap an area (after a cage pin) → open its clean work list
+      return;                                              // canvas-nav rework: tap an area after a cage pin just clears the pin (no drill)
     }
     // otherwise → clear any active cell pin, then the original area-drill / fit behavior
     if (LAYOUT.hlCage || LAYOUT.hlGroup) clearCageHighlight();
@@ -8262,13 +8391,14 @@ function handleLayoutTap(e, target){
       // null) used to fall here and run fitToContent — a dead no-op for the user, who wanted to drill. Make
       // the fast path match the slow path: single area tap drills, double area tap drills too. EMPTY CANVAS
       // (no area) keeps fit-all (zoom-fit) as before.
-      if (dvAid){ var dvfa = findAreaById(farm, dvAid); if (dvfa){ drillIntoArea(dvfa.area); return; } }  // double-tap area → open its clean work list
+      if (dvAid){ var dvfa = findAreaById(farm, dvAid); if (dvfa){ LAYOUT.sel = null; fitToContent(farm, dvfa.area); return; } }  // double-tap area → camera-fit to it (canvas-nav rework; no drill)
       LAYOUT.sel = null; fitToContent(farm); return;
     }
     var vAreaId = null, vEl = target;
     while (vEl && vEl !== LAYOUT.svg){ if (vEl.getAttribute && !vAreaId) vAreaId = vEl.getAttribute('data-area-id'); if (vAreaId) break; vEl = vEl.parentNode; }
-    if (vAreaId){ var vfa = findAreaById(farm, vAreaId); if (vfa) drillIntoArea(vfa.area); }  // tap a plot/area on the map → open its clean work list
-    return;                                                 // tapped empty water in the overview → no-op
+    // canvas-nav rework: a bare single tap on an area no longer drills — camera zoom (above) is the way in,
+    // and a cage/line tap opens its work sheet. Falling here = empty water or an already-scoped area body → no-op.
+    return;                                                 // tapped empty water / bare area in the overview → no-op
   }
 
   // C4 (F-D5): any EDIT-mode tap that reaches here selects a shape/chip/label or empty water — never a
@@ -8427,9 +8557,10 @@ function addAreaToPlot(plot, rect){
   }
   var area = { id:uid(), name:'Area ' + (plot.areas.length + 1), order:plot.areas.length,
     x:ax, y:ay, w:W, h:H, rot:0,
-    lineCount:4, cagesPerLine:10, spacing:0.2,
+    lineCount:0, cagesPerLine:10, spacing:0.2,
     axis:autoAxis(W, H),                                    // C6: orient to fit MORE lines (rows across the longer side)
     lineIds:[] };
+  area.lineCount = autoGridLineCount(area);                 // seed a grid scaled to the rect (not a fixed 4)
   plot.areas.push(area);
   reindexPlots(farm);
 
@@ -8855,7 +8986,7 @@ function buildMenu(){
   list.appendChild(item('grade', 'Grades', farm.grades.length ? farm.grades.join(', ') : 'None yet', function(){ openSheet(buildGrades); }));
   list.appendChild(item('gear', 'Gear', 'Cage & basket types — shape and mesh', function(){ openSheet(buildGear); }));
   list.appendChild(item('grade', 'Map key', 'What the colors & shapes mean', function(){ openSheet(buildLegend); }));
-  list.appendChild(item('gear', 'Settings', 'Market size, alerts, prices', function(){ openSheet(buildSettings); }));
+  list.appendChild(item('gear', 'Settings', 'Market size, alerts', function(){ openSheet(buildSettings); }));
   list.appendChild(item('data', 'Data', 'Export / import backup', function(){ openSheet(buildDataMenu); }));
   if (state.farms.length > 1){
     list.appendChild(item('anchor', 'Switch farm', state.farms.length + ' farms', function(){ openSheet(buildFarmSwitcher); }));
@@ -8873,6 +9004,10 @@ function newFarmFlow(){ openSheet(buildOnboarding); }
 function buildLineMenu(line){
   var farm = getFarm();
   var kids = sheetHead(line.name);
+  // D1: one-tap harvest at the top — only when the line has filled cages to pull.
+  var filled = line.cages.filter(function(c){ return c.batch; }).length;
+  if (filled) kids.push(h('button', { class:'btn btn-barge btn-block', style:{marginBottom:'12px'},
+    onclick:function(){ harvestLineOneTap(line); } }, 'Harvest this line'));
   // rename
   var nameIn = h('input', { type:'text', value:line.name, oninput:function(){ line.name = this.value; persist(); } });
   kids.push(field('Line name', nameIn));
@@ -9138,24 +9273,33 @@ function buildGrades(){
 // buildSettings — market size + neglect interval (edits farm.settings).
 function buildSettings(){
   var farm = getFarm();
-  var kids = sheetHead('Settings', 'Market size, alerts, prices.');
+  var kids = sheetHead('Settings', 'Market size, alerts.');
   // Cage/gear-type management now lives in its own Gear sheet (Menu → Gear); buildGear edits the same
-  // farm.cageTypes via buildCageTypesEditor. Settings keeps market size, neglect alert, and prices.
+  // farm.cageTypes via buildCageTypesEditor. Settings keeps market size and the neglect alert; prices
+  // now live in their own Oyster prices sheet (dashboard money slot / Forecast → Oyster prices).
   var marketIn = h('input', { type:'number', inputmode:'decimal', min:'1', value:farm.settings.marketSizeMm,
     oninput:function(){ var v = parseNum(this.value); if (v != null && v > 0){ farm.settings.marketSizeMm = v; persist(); } } });
   kids.push(field('Market size (mm)', marketIn, 'The size you sell at — used to project harvest dates.'));
   var alertIn = h('input', { type:'number', inputmode:'numeric', min:'1', value:farm.settings.neglectIntervalDays,
     oninput:function(){ var v = parseNum(this.value); if (v != null && v > 0){ farm.settings.neglectIntervalDays = v; persist(); } } });
   kids.push(field('Needs-work alert (days)', alertIn, 'Flag a cage that hasn’t been worked in this long.'));
-  // ── PRICE PER OYSTER (DASHBOARD): one input per grade + a default for ungraded/unpriced cages. Drives
-  // "$X on the water" on the overview. Empty clears the price (back to "no price"); persist() on input. ──
-  kids.push(buildPriceEditor(farm));
   // ── Water conditions over time (USGS history + oyster insight) ──
   kids.push(h('button', { class:'menuItem', style:{marginTop:'14px'}, onclick:function(){ openSheet(buildCondHistory); } },
     h('span', { class:'mi-ic', html:icon('data', 24) }),
     h('span', { class:'mi-t' }, h('div', null, 'Water conditions over time'), h('div', { class:'mi-sub' }, 'Temp · salinity · level — 30-day trends + what they mean')),
     h('span', { class:'mi-chev', html:icon('chevron', 18) })));
   kids.push(h('button', { class:'btn btn-primary btn-block', style:{marginTop:'18px'}, onclick:function(){ closeSheet(); render(); } }, 'Done'));
+  return kids;
+}
+
+// D3: prices now have their own home. Reached from the dashboard money slot (A), the Forecast sheet,
+// and harvest. Reuses buildPriceEditor verbatim — only the call site moved out of Settings.
+function buildPrices(){
+  var farm = getFarm();
+  var kids = sheetHead('Oyster prices', 'Your $/oyster by grade — drives the crop value on your dashboard.');
+  kids.push(buildPriceEditor(farm));
+  kids.push(h('button',{class:'btn btn-primary btn-block', style:{marginTop:'18px'},
+    onclick:function(){ closeSheet(); render(); }},'Done'));
   return kids;
 }
 
@@ -9927,7 +10071,8 @@ function pullSelectedCages(cageIds){
   clearSelection();
   commit();
   buzz([12,40,12]);   // Pull committed
-  undoable('Pulled ' + sources.length + (sources.length === 1 ? ' cage to the tub' : ' cages to the tub'), function(){
+  var seqAt = commit.seq;   // D1: snapshot for the returned guarded-undo closure
+  function doUndo(){
     var f = getFarm();
     f.barge = snapBarge;
     snapSources.forEach(function(s){
@@ -9938,7 +10083,26 @@ function pullSelectedCages(cageIds){
       }
     });
     commit();
-  });
+  }
+  undoable('Pulled ' + sources.length + (sources.length === 1 ? ' cage to the tub' : ' cages to the tub'), doUndo);
+  return function(){ if (commit.seq !== seqAt){ toast('Too late to undo'); return; } doUndo(); };
+}
+
+/* ── D1: line-level one-tap harvest. Pull the line's filled cages to the tub, then
+      open the quick count sheet prefilled from the pooled barge count. D2 gate: if the
+      tub already has content, fall back to a plain Pull + guidance toast (never auto-
+      harvest a comingled pile). ── */
+function harvestLineOneTap(line){
+  var farm = getFarm(); if (!farm) return;
+  var ids = []; line.cages.forEach(function(c){ if (c.batch) ids.push(c.id); });
+  if (!ids.length){ toast('No filled cages on this line'); return; }
+  if (bargeHasContent(farm.barge)){
+    var undo1 = pullSelectedCages(ids);
+    toast('Added to tub — tap the tub to harvest', undo1 ? { label:'Undo', onAction:undo1 } : null);
+    return;
+  }
+  var undo2 = pullSelectedCages(ids);
+  openSheet(function(){ return buildHarvestQuick(getFarm(), { onCancel:function(){ closeSheet(); if (undo2) undo2(); } }); });
 }
 
 /* ── BATCH-SPLIT — carve the unsorted remainder pile into named sub-batches.
@@ -10468,6 +10632,28 @@ function splitChipName(s, index){
   if (s.label) return s.label;
   if (typeof s.sizeMm === 'number' && isFinite(s.sizeMm)) return '≈' + s.sizeMm + ' mm';
   return 'Batch ' + (index + 1);
+}
+/* ── D1: quick harvest sheet — a one-field count confirm prefilled from the tub's pooled
+      count. Falls back to the full buildHarvestSheet when the tub isn't a plain pile, and
+      links out to it via "More options ›". opts.onCancel lets the one-tap path undo the
+      pull when the farmer backs out. ── */
+function buildHarvestQuick(farm, opts){
+  farm = farm || getFarm(); opts = opts || {};
+  var b = farm.barge;
+  if (!b || b.state !== 'pile') return buildHarvestSheet(farm);
+  var kids = sheetHead('Harvest');
+  kids.push(h('div',{class:'sheetSub'}, (b.count!=null
+    ? '~'+fmtCompact(b.count)+' in the tub'+(bargeOriginText(b)?' · '+bargeOriginText(b):'')
+    : 'Uncounted pile')));
+  var countIn = h('input',{ type:'number', inputmode:'numeric', min:'1',
+    value:(b.count!=null?b.count:''), max:(b.count!=null?b.count:null), placeholder:'How many' });
+  kids.push(field('How many harvested', countIn, b.count!=null?('Up to '+fmtCompact(b.count)+' in the tub.'):'The pile is uncounted.'));
+  kids.push(h('div',{class:'btnRow'},
+    h('button',{class:'btn btn-quiet', onclick:(opts.onCancel||closeSheet)},'Cancel'),
+    h('button',{class:'btn btn-barge', onclick:function(){ harvestFromBarge(countIn.value); }},'Harvest')));
+  kids.push(h('button',{class:'btn btn-block btn-quiet', style:{marginTop:'10px'},
+    onclick:function(){ openSheet(function(){ return buildHarvestSheet(getFarm()); }); }},'More options ›'));
+  return kids;
 }
 function buildHarvestSheet(farm){
   farm = farm || getFarm();
@@ -12350,6 +12536,21 @@ document.getElementById('overlay').addEventListener('click', function(e){
 // state with no entry above it is the home, and Back from the bare home leaves the page (standard SPA).
 function pushView(st){ try { history.pushState(st, ''); } catch (e){} }
 
+// A1 zoom Back model: the all-plots overview is the history ROOT (no entry). The FIRST time the camera is
+// scoped into a plot we push ONE marker {view:'overview',zoomed:true}; from any deeper zoom a Back animates
+// back to all-plots. ensureZoomHistory is idempotent — its top-of-stack guard prevents duplicate markers.
+function ensureZoomHistory(farm){
+  if (!farm) return;
+  if (history.state && history.state.view === 'overview' && history.state.zoomed) return;
+  if (isScopedIntoPlot(farm)) pushView({ view:'overview', zoomed:true });
+}
+// zoomOutToAllPlots — the affordances (breadcrumb all-plots step, Fit-all) heal the back stack: if the zoom
+// marker is on top, pop it (popstate → restoreFromState animates out); otherwise camera-only fit to all plots.
+function zoomOutToAllPlots(farm){
+  if (history.state && history.state.view === 'overview' && history.state.zoomed){ history.back(); return; }
+  LAYOUT.sel = null; zoomToShape(farm);
+}
+
 // restoreFromState(st) — drive viewMode/viewScope/LAYOUT to match a pushed state object (or the home when
 // st is null/unknown). The single source of truth for "what view does this history entry mean".
 function restoreFromState(st){
@@ -12358,6 +12559,15 @@ function restoreFromState(st){
   if (st && st.view === 'layout'){
     // Re-enter the layout editor. (We don't restore its prior scope; the editor is whole-farm.)
     viewScope = null; viewMode = 'layout'; LAYOUT.mode = 'edit'; LAYOUT.entered = false; render(); return;
+  }
+  if (st && st.view === 'overview'){
+    // The overview map (A1). The zoom marker / Data tab restore here. For the Data tab rebuild; for the map,
+    // only rebuild if the canvas isn't already mounted (a live zoom marker keeps its camera).
+    viewScope = null; viewMode = 'overview'; LAYOUT.mode = 'view';
+    if (st.tab === 'data'){ overviewTab = 'data'; LAYOUT.entered = false; render(); return; }
+    overviewTab = 'map';
+    if (!(LAYOUT.svg && document.body.contains(LAYOUT.svg))){ LAYOUT.entered = false; render(); }
+    return;
   }
   if (st && st.view === 'work' && st.scope){
     // A drilled, scoped daily-work map.
@@ -12370,7 +12580,20 @@ function restoreFromState(st){
   }
   // No (recognized) state → we're at the history root: the session HOME (overview for a laid-out farm,
   // else the work list). homeMode is untouched.
+  // A1 camera-aware: if we Back onto the root while the overview map canvas is already mounted (e.g. popping
+  // the zoom marker from a scoped-in plot), animate the camera out to all-plots instead of tearing the SVG
+  // down and rebuilding it. Coming from the editor (LAYOUT.mode 'edit') or the Data tab (canvas unmounted)
+  // falls through to the full render so those views rebuild correctly.
+  var wasOverviewCanvas = (viewMode === 'overview' && LAYOUT.mode === 'view'
+    && LAYOUT.svg && document.body.contains(LAYOUT.svg));
+  overviewTab = 'map';
   viewScope = null; viewMode = homeMode; LAYOUT.mode = (homeMode === 'overview') ? 'view' : 'edit';
+  if (homeMode === 'overview' && wasOverviewCanvas){
+    LAYOUT.sel = null;
+    if (LAYOUT.hlCage || LAYOUT.hlGroup) clearCageHighlight();
+    zoomToShape(getFarm());
+    return;
+  }
   LAYOUT.entered = false; render();
 }
 
