@@ -63,6 +63,65 @@ test('T1-helpers', async (ctx) => {
   assert(errors.length === 0, 'no JS errors expected on boot/render, got: ' + errors.join(' | '));
 });
 
+// T2 — "Work" segment on the read-only OVERVIEW routes into the drag-select WORK map.
+// A "Work" .ovSegBtn is appended to the overview seg ([Map|Data] → [Map|Data|Work]) and to the
+// Data sub-tab seg. It calls toggleOverviewWork('work') (viewMode→'work', pushView, no homeMode
+// mutation). Pre-fix the overview had no tap route into the work map, so the hasWork assert fails.
+test('T2-nav', async (ctx) => {
+  const { page, errors, assert } = ctx;
+
+  await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    SpatMapDebug.save();
+    SpatMapDebug.enterOverview();
+  });
+  await page.waitForSelector('.ovSegBtn', { timeout: 5000 });
+
+  // on the read-only overview, and the new tap route exists
+  assert(await page.evaluate(() => SpatMapDebug.getViewMode()) === 'overview', 'should start on the overview');
+  const hasWork = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.ovSegBtn')).some(b => b.textContent.trim() === 'Work'));
+  assert(hasWork, 'a "Work" .ovSegBtn should exist on the overview (the missing tap route)');
+
+  // tap Work → the drag-select work map
+  await page.locator('.ovSegBtn').filter({ hasText: 'Work' }).first().tap();
+  await page.waitForSelector('#mapwell', { timeout: 5000 });
+
+  assert(await page.evaluate(() => SpatMapDebug.getViewMode()) === 'work', 'Work seg should land in the work map');
+  const counts = await page.evaluate(() => ({
+    well:  !!document.querySelector('#mapwell'),
+    lines: document.querySelectorAll('#mapwell .cageStrip[data-line-id]').length,
+    cages: document.querySelectorAll('#mapwell .cage[data-cage-id]').length
+  }));
+  assert(counts.well, '#mapwell should be present');
+  assert(counts.lines >= 1, 'work map should have >=1 line strip, got ' + counts.lines);
+  assert(counts.cages >= 2, 'work map should have >=2 cages, got ' + counts.cages);
+
+  // tap two distinct SAME-STATE cages (both filled, or both empty) → multi-cage selection + action popup.
+  // A mixed selection shows only a label (no .pbtn), so pick a same-state pair to exercise the buttons.
+  const ids = await page.evaluate(() => {
+    const cells = Array.from(document.querySelectorAll('#mapwell .cage[data-cage-id]'));
+    const filled = [], empty = [];
+    cells.forEach(c => {
+      const f = c.querySelector('.cellfill');
+      (f && f.classList.contains('empty') ? empty : filled).push(c.getAttribute('data-cage-id'));
+    });
+    return (filled.length >= 2 ? filled : empty).slice(0, 2);
+  });
+  assert(ids.length === 2, 'need two same-state cages to select, got ' + ids.length);
+  for (const id of ids) await page.locator('#mapwell .cage[data-cage-id="' + id + '"]').first().tap();
+  await page.waitForSelector('#popupMount .popup', { timeout: 5000 });
+
+  const sel = await page.evaluate(() => ({
+    selCount: document.querySelectorAll('.cage.sel').length,
+    pbtns:    document.querySelectorAll('#popupMount .popup .pbtn').length
+  }));
+  assert(sel.selCount === 2, 'two cages should be selected, got ' + sel.selCount);
+  assert(sel.pbtns >= 1, 'multi-cage action popup should show .pbtn buttons, got ' + sel.pbtns);
+
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;

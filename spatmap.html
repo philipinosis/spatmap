@@ -2297,6 +2297,7 @@ function undoable(msg, doUndo){
    ───────────────────────────────────────────────────────────────── */
 var sheetBuildFn = null;          // the active build function
 var sheetURLs = [];               // object URLs created for this sheet render
+var sheetEntryOpen = false;       // FA1: a {view:'sheet'} history entry is live for the open sheet
 function trackURL(u){ sheetURLs.push(u); return u; }
 
 function openSheet(buildFn){
@@ -2314,16 +2315,32 @@ function openSheet(buildFn){
   renderSheet();
   document.getElementById('overlay').classList.add('open');
   document.body.style.overflow = 'hidden';
+  // FA1 (F1): give the open sheet its own history entry so device/swipe Back (and Escape/backdrop via
+  // dismissSheet) CLOSES the sheet instead of popping the underlying map view / exiting the PWA. Reuse an
+  // existing sheet entry (a closeSheet();openSheet() swap leaves one on top) so chained sheets don't stack.
+  if (!(history.state && history.state.view === 'sheet')) pushView({ view:'sheet' });
+  sheetEntryOpen = true;
 }
 function refreshSheet(){ if (sheetBuildFn) renderSheet(); }
+// closeSheet — pure DOM teardown. Does NOT touch history (many callers do closeSheet();<navigation/pushView>,
+// so popping here would race the synchronous push). The sheet's history entry is consumed by the popstate
+// handler (device/swipe Back) or by dismissSheet() (user X / backdrop / Escape). (FA1 F1)
 function closeSheet(){
   var ov = document.getElementById('overlay');
   ov.classList.remove('open');
   sheetBuildFn = null;
+  sheetEntryOpen = false;
   document.body.style.overflow = '';
   // revoke this sheet's URLs after the close transition
   setTimeout(function(){ sheetURLs.forEach(function(u){ URL.revokeObjectURL(u); }); sheetURLs = []; }, 260);
   save();                         // persist any transient edits flushed during the sheet
+}
+// dismissSheet — the USER-initiated close (X button, backdrop tap, Escape). Consumes the sheet's history
+// entry with history.back() (→ popstate → closeSheet) so the stack stays balanced; falls back to a direct
+// teardown when no sheet entry is on top. Don't double-pop: popstate's sheetEntryOpen guard does the close. (FA1 F1)
+function dismissSheet(){
+  if (history.state && history.state.view === 'sheet'){ history.back(); return; }
+  closeSheet();
 }
 function renderSheet(){
   var sheet = document.getElementById('sheet');
@@ -2343,7 +2360,7 @@ function renderSheet(){
 function sheetHead(title, sub){
   var head = h('div', { class:'sheetHead' },
     h('h2', null, title),
-    h('button', { class:'closeX', 'aria-label':'Close', html:icon('close', 22), onclick:closeSheet })
+    h('button', { class:'closeX', 'aria-label':'Close', html:icon('close', 22), onclick:dismissSheet })
   );
   return sub ? [head, h('div', { class:'sheetSub' }, sub)] : [head];
 }
@@ -4310,7 +4327,9 @@ function buildDataTab(farm){
   var seg = h('div', { class:'ovSeg', role:'tablist', 'aria-label':'Map mode' },
     h('button', { class:'ovSegBtn', role:'tab', 'aria-selected':'false',
       onclick:function(){ backToMap(); } }, 'Map'),
-    h('button', { class:'ovSegBtn active', role:'tab', 'aria-selected':'true' }, 'Data'));
+    h('button', { class:'ovSegBtn active', role:'tab', 'aria-selected':'true' }, 'Data'),
+    h('button', { class:'ovSegBtn', role:'tab', 'aria-selected':'false',
+      onclick:function(){ toggleOverviewWork('work'); } }, 'Work'));
   var ovTitle = h('div', { class:'lp-title ovTitle' }, farm.name);
   var menuBtn = h('button', { class:'menuBtn', 'aria-label':'Menu', html:icon('menu', 24),
     onclick:function(){ openSheet(buildMenu); } });
@@ -5719,7 +5738,10 @@ function buildLayoutEditor(farm, mode){
       h('button', { class:'ovSegBtn active', role:'tab', 'aria-selected':'true' }, 'Map'),
       h('button', { class:'ovSegBtn', role:'tab', 'aria-selected':'false',
         onclick:function(){ goToDataTab(); } },
-        'Data'));
+        'Data'),
+      h('button', { class:'ovSegBtn', role:'tab', 'aria-selected':'false',
+        onclick:function(){ toggleOverviewWork('work'); } },
+        'Work'));
     var ovTitle = h('div', { class:'lp-title ovTitle' }, farm.name);
     var editBtn = h('button', { class:'menuBtn', 'aria-label':'Edit layout', html:icon('gear', 24),
       onclick:function(){ enterLayoutView(); } });
@@ -12582,7 +12604,7 @@ document.addEventListener('keydown', function(e){
   if (e.key !== 'Escape') return;
   var viewer = document.getElementById('photoViewer');
   if (viewer && viewer.firstChild) return;   // viewer handles its own Escape (Builder 3)
-  if (document.getElementById('overlay').classList.contains('open')){ closeSheet(); return; }
+  if (document.getElementById('overlay').classList.contains('open')){ dismissSheet(); return; }
   // Component 4: no modal open → Escape dismisses an active cage peek/highlight pin.
   if (layoutIsView() && (LAYOUT.hlCage || LAYOUT.hlGroup)){
     if (LAYOUT.tapTimer){ clearTimeout(LAYOUT.tapTimer); LAYOUT.tapTimer = null; }
@@ -12592,7 +12614,7 @@ document.addEventListener('keydown', function(e){
 });
 // Tap the overlay backdrop (not the sheet) → close.
 document.getElementById('overlay').addEventListener('click', function(e){
-  if (e.target === this) closeSheet();
+  if (e.target === this) dismissSheet();
 });
 // ── History / view model (Bug B1) ───────────────────────────────────────────
 // Every non-home in-app view (scoped-work drill, Overview→Work toggle, Farm Layout editor) OWNS exactly
@@ -12699,6 +12721,10 @@ function leaveLayoutView(){
 // (scoped-work / unscoped-work / layout / home). Deterministic for ALL in-app states; sheets close via
 // Escape/backdrop so there is no conflict. (LAYOUT §4 "Back" + Component 2 overview-home coherence)
 window.addEventListener('popstate', function(ev){
+  // FA1 (F1): a sheet is open → this Back/swipe popped the sheet's own entry. Close the sheet and leave
+  // the underlying view untouched (don't fall through to restoreFromState, which would re-navigate / at the
+  // root exit the PWA). closeSheet() is teardown-only here, so it won't re-pop.
+  if (sheetEntryOpen){ closeSheet(); return; }
   restoreFromState((ev && ev.state) || history.state || null);
 });
 
