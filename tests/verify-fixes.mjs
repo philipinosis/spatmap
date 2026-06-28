@@ -160,6 +160,79 @@ test('T3-dashboard-money', async (ctx) => {
   assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
 });
 
+// T4 — realized revenue BACKFILLS at display time. harvestFromBarge stamps revenue at sale time, but when
+// prices are set/edited LATER (or data is imported) the harvest-log total, per-row $, cohort revenue, and CSV
+// must recompute via entryRevenue (stamped value when present, else count × current grade price, else null).
+// Pre-fix they read the stamped field only → "—"/0 even with a live price. harvestFromBarge itself unchanged.
+test('T4-revenue-backfill', async (ctx) => {
+  const { page, errors, assert } = ctx;
+
+  // BEFORE prices: read the REAL demo log; its harvests carry no stamped price → entryRevenue is null for all.
+  const before = await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    const f = SpatMapDebug.getFarm();
+    const log = f.harvestLog || [];
+    return {
+      n: log.length,
+      nullCount: log.filter(e => entryRevenue(f, e) == null).length,
+      total: log.reduce((t, e) => { const r = entryRevenue(f, e); return t + (r == null ? 0 : r); }, 0)
+    };
+  });
+  assert(before.n >= 1, 'Brightside should seed a harvest log, got ' + before.n);
+  assert(before.nullCount === before.n, 'pre-price: every entry entryRevenue should be null, got ' + (before.n - before.nullCount) + ' priced');
+  assert(before.total === 0, 'pre-price: total entryRevenue should be 0/null, got ' + before.total);
+
+  // Set a price for every distinct grade present in the log, then commit.
+  await page.evaluate(() => {
+    const f = SpatMapDebug.getFarm();
+    f.settings = f.settings || {};
+    f.settings.gradePrices = f.settings.gradePrices || {};
+    (f.harvestLog || []).forEach(e => { if (e.grade) f.settings.gradePrices[e.grade] = 1.00; });
+    SpatMapDebug.save();
+    SpatMapDebug.commit();
+  });
+
+  // AFTER: entryRevenue total matches an independent hand check, is > 0, and NO entry is null.
+  const after = await page.evaluate(() => {
+    const f = SpatMapDebug.getFarm();
+    const expected = f.harvestLog.reduce((t, e) => t + (entryRevenue(f, e) || 0), 0);
+    const hand = f.harvestLog.reduce((t, e) => t + (typeof e.revenue === 'number' ? e.revenue : (e.count || 0) * priceForGrade(f, e.grade)), 0);
+    const nulls = f.harvestLog.filter(e => entryRevenue(f, e) == null).length;
+    return { expected, hand, nulls };
+  });
+  assert(after.expected === after.hand, 'entryRevenue total ' + after.expected + ' should equal hand check ' + after.hand);
+  assert(after.expected > 0, 'backfilled revenue total should be > 0, got ' + after.expected);
+  assert(after.nulls === 0, 'no entry entryRevenue should be null after pricing, got ' + after.nulls + ' null');
+
+  // Harvest Log UI: "Revenue to date" now shows an EXACT dollar string (has a digit, not "—", not fmtCompact "k").
+  const revText = await page.evaluate(() => {
+    openSheet(buildHarvestLog);
+    const sheet = document.getElementById('sheet');
+    const cards = Array.from(sheet.querySelectorAll('.card'));
+    const card = cards.find(c => /Revenue to date/.test(c.textContent));
+    const num = card && card.querySelector('.num');
+    return num ? num.textContent.trim() : null;
+  });
+  assert(revText && /\$\d/.test(revText), '"Revenue to date" should show an exact dollar string, got ' + revText);
+  assert(revText !== '—', '"Revenue to date" should no longer be "—"');
+  assert(!/k$/.test(revText), '"Revenue to date" should be exact dollars, not fmtCompact "k", got ' + revText);
+
+  // Cohort: Brightside harvests are unattributed (empty parentBatchIds) → unattributed revenue tally backfills > 0.
+  const cohort = await page.evaluate(() => {
+    const f = SpatMapDebug.getFarm();
+    const cs = cohortStats(f);
+    return {
+      hasUnatt: !!cs.unattributed,
+      unattRev: cs.unattributed ? cs.unattributed.revenue : 0,
+      unattKnown: cs.unattributed ? cs.unattributed.revenueKnown : false
+    };
+  });
+  assert(cohort.hasUnatt, 'Brightside harvests should land in the unattributed cohort tally');
+  assert(cohort.unattKnown && cohort.unattRev > 0, 'unattributed cohort revenue should backfill to >0, got known=' + cohort.unattKnown + ' rev=' + cohort.unattRev);
+
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;
