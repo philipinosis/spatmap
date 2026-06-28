@@ -2876,7 +2876,7 @@ function entryRevenue(farm, e){
 //   recent[]    last 6 events across all cages, newest first: {label, cageLabel, lineName, date}
 function farmDashboard(farm){
   var out = { oysters:0, cropValue:0, valued:false, readyCages:0, readyOysters:0,
-    filled:0, empty:0, tub:0, recent:[] };
+    filled:0, empty:0, tub:0, tubValue:0, tubUnpriced:0, recent:[] };
   if (!farm || !Array.isArray(farm.lines)) return out;
   // valued = any price set anywhere (a per-grade entry OR the default)
   var gp = (farm.settings && farm.settings.gradePrices) || {};
@@ -2916,6 +2916,10 @@ function farmDashboard(farm){
   // moved their count to barge.count and would otherwise vanish from the dashboard total.
   var bt = bargeTotalCount(farm.barge); if (bt != null) out.oysters += bt;
   out.tub = (bt != null) ? bt : 0;
+  var tv = tubValue(farm);
+  out.cropValue += tv.value;      // priced tub stock joins "$ on the water" (it left the cages)
+  out.tubValue = tv.value;
+  out.tubUnpriced = tv.unpriced;
   // newest first; ties broken by later push order (mirrors lastEvent's "later in array wins" feel)
   evs.sort(function(a, b){ return b.ms - a.ms; });
   for (var k=0; k<evs.length && out.recent.length < 6; k++){
@@ -2936,7 +2940,7 @@ function renderDashboardCard(farm){
   var head = h('div', { class:'dc-head' });
   var moneyKids;
   if (d.valued){
-    moneyKids = [ h('span', { class:'dc-big' }, '$' + fmtCompact(d.cropValue)),
+    moneyKids = [ h('span', { class:'dc-big' }, fmtMoney(d.cropValue)),
                   h('span', { class:'dc-cap' }, 'on the water') ];
   } else {
     // no prices yet → the big number is a tappable affordance into settings (never show "$0")
@@ -3802,7 +3806,7 @@ function buildOnboardWizard(opts){
         nameInput.onkeydown = function(e){ if (e.key === 'Enter' && this.value.trim()){ e.preventDefault(); go(2); } };
         // Chrome-aware Back: in a sheet, Back cancels new-farm (closeSheet discards the draft);
         // on the page, Back returns to S0 (welcome + demo). S2/S3/S4 Back is go(step-1) in both chromes.
-        var s1Back = (chrome === 'sheet') ? closeSheet : function(){ go(0); };
+        var s1Back = (chrome === 'sheet') ? dismissSheet : function(){ go(0); };
         return [
           renderDots(),
           h('div', { class:'obTitle' }, 'Name your farm'),

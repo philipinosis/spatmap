@@ -122,6 +122,44 @@ test('T2-nav', async (ctx) => {
   assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
 });
 
+// T3 — dashboard "$ on the water" INCLUDES priced tub stock and renders EXACT dollars (fmtMoney),
+// not fmtCompact's "$1.7k". Pre-fix: the tub value was excluded (so "$0" while $4k sat in the tub) AND
+// the headline was rounded. Dashboard surfaces only — harvest-log/cohort/CSV revenue is a separate task.
+test('T3-dashboard-money', async (ctx) => {
+  const { page, errors, assert } = ctx;
+  const r = await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();                  // tub = 3200 Standard
+    const f = SpatMapDebug.getFarm();
+    f.settings = f.settings || {};
+    f.settings.gradePrices = { Standard: 1.25 };    // 3200 × 1.25 = 4000
+    SpatMapDebug.save();
+    // null every on-line batch → only the tub carries value now (tub adds on top of cages)
+    (f.lines || []).forEach(function(line){
+      ((line && line.cages) || []).forEach(function(c){ if (c) c.batch = null; });
+    });
+    SpatMapDebug.save();
+    const d = farmDashboard(f);
+    // render the REAL dashboard card and read the money headline by its real class (.dc-money .dc-big)
+    const card = renderDashboardCard(f);
+    document.body.appendChild(card);
+    const big = card.querySelector('.dc-money .dc-big');
+    return {
+      cropValue: d.cropValue,
+      tubValue: d.tubValue,
+      tubUnpriced: d.tubUnpriced,
+      headline: big ? big.textContent.trim() : null
+    };
+  });
+  // BEFORE this fix cropValue would be 0 — "$0 with $4k in tub"
+  assert(r.cropValue === 4000, 'tub-only cropValue should be 4000, got ' + r.cropValue);
+  assert(r.tubValue === 4000, 'farmDashboard(f).tubValue should be 4000, got ' + r.tubValue);
+  assert(r.tubUnpriced === 0, 'priced tub → tubUnpriced should be 0, got ' + r.tubUnpriced);
+  // exact grouped dollars in the headline, no "k"
+  assert(r.headline === '$4,000', 'money headline should be exactly "$4,000", got ' + r.headline);
+  assert(/^\$\d{1,3}(,\d{3})*$/.test(r.headline), 'headline must be exact dollars, no "k": ' + r.headline);
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;
