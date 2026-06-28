@@ -579,6 +579,134 @@ test('T10-offline-risk', async (ctx) => {
   assert(jsErrors.length === 0, 'no JS errors expected (offline network noise aside), got: ' + jsErrors.join(' | '));
 });
 
+// T11a — Work sheet ordering. The "Work again reminder" (interval chips + date picker) is hoisted ABOVE the
+// "Log a handling" method chips, so "tumbled + 2 weeks" needs no scroll. Handling chips still submit on tap.
+test('T11a-worksheet', async (ctx) => {
+  const { page, errors, assert } = ctx;
+
+  await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    const f = SpatMapDebug.getFarm();
+    let id = null;
+    (f.lines || []).forEach(l => (l.cages || []).forEach(c => { if (c && c.batch && !id) id = c.id; }));
+    SpatMapDebug.save();
+    openSheet(function(){ return buildWorkSheet([id]); });
+  });
+  await page.waitForSelector('#sheet', { timeout: 5000 });
+
+  const reminder = page.locator('#sheet').getByText('Work again reminder', { exact: true });
+  const handling = page.locator('#sheet').getByText('Log a handling', { exact: true });
+  await reminder.waitFor({ timeout: 5000 });
+  await handling.waitFor({ timeout: 5000 });
+  const rBox = await reminder.boundingBox();
+  const hBox = await handling.boundingBox();
+  assert(rBox && hBox, 'both the reminder and the handling labels should render');
+  assert(rBox.y < hBox.y,
+    '"Work again reminder" (y=' + (rBox && rBox.y) + ') should render ABOVE "Log a handling" (y=' + (hBox && hBox.y) + ')');
+
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
+// T11b — Fill form sticky commit. buildFillSeedForm's primary commit row is a sticky footer (.btnRow.sheet-commit),
+// so the "Fill N cage(s)" button stays in view even scrolled to the top of the optional fields.
+test('T11b-fillbutton', async (ctx) => {
+  const { page, errors, assert } = ctx;
+
+  await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    const f = SpatMapDebug.getFarm();
+    let cell = null;
+    (f.lines || []).forEach(l => (l.cages || []).forEach(c => { if (c && !cell) cell = c; }));
+    if (cell) cell.batch = null;          // ensure the cage is empty → the new-seed Fill form is the right path
+    SpatMapDebug.save();
+    openSheet(function(){ return buildFillSeedForm([cell.id]); });
+  });
+  await page.waitForSelector('#sheet', { timeout: 5000 });
+
+  // wait for the sheet's slide-in transform to settle so getBoundingClientRect is the resting position
+  await page.waitForFunction(() => {
+    const s = document.getElementById('sheet');
+    if (!s) return false;
+    const t = getComputedStyle(s).transform;
+    if (t === 'none') return true;
+    const m = t.match(/matrix\(([^)]+)\)/);
+    if (!m) return true;
+    const p = m[1].split(',').map(Number);
+    return Math.abs(p[5] || 0) < 0.5;     // translateY ≈ 0 → settled
+  }, { timeout: 5000 });
+
+  // scroll the sheet to the TOP (the optional Notes/Photos/Date), away from the commit row
+  await page.evaluate(() => { const s = document.getElementById('sheet'); if (s) s.scrollTop = 0; });
+
+  const r = await page.evaluate(() => {
+    const sheet = document.getElementById('sheet');
+    const btn = Array.from(sheet.querySelectorAll('button')).find(b => /^Fill \d+ cage/.test(b.textContent.trim()));
+    if (!btn) return { found: false };
+    const row = btn.closest('.btnRow');
+    const rect = btn.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    return {
+      found: true,
+      pos: row ? getComputedStyle(row).position : null,
+      hasClass: !!(row && row.classList.contains('sheet-commit')),
+      inView: rect.height > 0 && rect.top >= 0 && rect.bottom <= vh + 2,
+      top: Math.round(rect.top), bottom: Math.round(rect.bottom), vh
+    };
+  });
+  assert(r.found, 'the "Fill N cage(s)" commit button should render');
+  assert(r.hasClass, 'the commit row should carry the sheet-commit class');
+  assert(r.pos === 'sticky', 'the commit row should compute position:sticky, got ' + r.pos);
+  assert(r.inView, 'scrolled to top, the Fill button should stay in viewport (top=' + r.top + ' bottom=' + r.bottom + ' vh=' + r.vh + ')');
+
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
+// T11c — secondary-text contrast. --ink-3 is raised to #8aa0a6 (brighter blue-gray, hue kept, dark theme intact).
+test('T11c-contrast', async (ctx) => {
+  const { page, errors, assert } = ctx;
+  const r = await page.evaluate(() => {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--ink-3').trim().toLowerCase();
+    function relLum(hex){
+      const h = hex.replace('#', '');
+      const ch = i => parseInt(h.slice(i, i + 2), 16) / 255;
+      const lin = c => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+      return 0.2126 * lin(ch(0)) + 0.7152 * lin(ch(2)) + 0.0722 * lin(ch(4));
+    }
+    return { v, newLum: relLum('#8aa0a6'), oldLum: relLum('#6e888f') };
+  });
+  assert(r.v === '#8aa0a6', "--ink-3 should be '#8aa0a6', got '" + r.v + "'");
+  assert(r.newLum > r.oldLum, 'new --ink-3 luminance ' + r.newLum.toFixed(4) + ' should exceed old ' + r.oldLum.toFixed(4));
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
+// T11d — growth calendar no longer overstates winter "fitted" confidence. A near-stall month (Jan/Feb/Dec)
+// fed ONLY by long fall→winter→spring intervals (laundered evidence) is floored toward the stall and NOT
+// flagged fitted. fittedMonths[] is the parallel boolean the card reads.
+test('T11d-growthcal', async (ctx) => {
+  const { page, errors, assert } = ctx;
+  const r = await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    const f = SpatMapDebug.getFarm();
+    // launder evidence: ONLY one long fall→winter→spring growth interval on several cages
+    let touched = 0;
+    (f.lines || []).forEach(l => (l.cages || []).forEach(c => {
+      if (!c || touched >= 8) return;
+      c.events = [];
+      c.events.push({ type: 'growth', date: '2025-09-15', sizeMm: 20 });
+      c.events.push({ type: 'growth', date: '2026-03-15', sizeMm: 55 });
+      touched++;
+    }));
+    delete f._seasonMult;
+    const fit = fittedSeasonMult(f);
+    return { touched, hasFM: Array.isArray(fit.fittedMonths), janFitted: fit.fittedMonths && fit.fittedMonths[0], jan: fit[0] };
+  });
+  assert(r.touched >= 6, 'need >=6 laundered cages to exercise the near-stall path, got ' + r.touched);
+  assert(r.hasFM, 'fittedSeasonMult should attach a fittedMonths[] array');
+  assert(r.janFitted === false, 'January must NOT be claimed fitted under laundered winter-spanning evidence, got ' + r.janFitted);
+  assert(r.jan < 0.6, 'January should be floored toward the stall (<0.6), not ~1.0, got ' + r.jan);
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;

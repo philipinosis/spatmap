@@ -31,7 +31,7 @@
   /* ── INK (text) ───────────────────────────────────────────────────── */
   --ink:          #E8F1F2;
   --ink-2:        #9FB6BC;
-  --ink-3:        #6E888F;
+  --ink-3:        #8AA0A6;
 
   /* ── BRAND / PRIMARY ACTION ───────────────────────────────────────── */
   --deep:         #0A151B;
@@ -219,7 +219,7 @@ button{ font-family:inherit; cursor:pointer; background:none; border:none; color
 .dc-advisory-tap:active{ filter:brightness(1.08); }
 .dc-advisory-tap .dc-chev{ color:var(--ink-3); font-size:16px; flex:0 0 auto; }
 /* dc-ready is now a tappable button (→ harvest forecast) — strip the native button chrome */
-button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; cursor:pointer; }
+button.dc-ready, button.dc-money{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; cursor:pointer; text-align:left; }
 /* harvest-forecast sheet rows */
 .fc-big{ font:800 26px/1.1 var(--font-num); color:var(--teal); margin-top:4px; }
 .fc-big .fc-sub{ font:600 14px/1 var(--font-ui); color:var(--ink-3); }
@@ -395,6 +395,8 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
   border:1px solid var(--hair); color:var(--ink-2); box-shadow:var(--shadow-card);
   display:flex; align-items:center; justify-content:center; }
 .lp-zbtn:active{ background:var(--teal-tint); color:var(--teal-press); }
+.lp-zbtn:disabled{ opacity:.4; box-shadow:none; pointer-events:none; }
+.lp-zbtn:disabled:active{ background:var(--surface); color:var(--ink-2); }
 /* + Add plot pill */
 .lp-addplot{ position:absolute; left:50%; transform:translateX(-50%);
   bottom:calc(16px + env(safe-area-inset-bottom)); z-index:5;
@@ -666,6 +668,9 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .btn[disabled]{ opacity:.45; pointer-events:none; }
 .btnRow{ display:flex; gap:10px; margin-top:16px; }
 .btnRow .btn{ flex:1; }
+.btnRow.sheet-commit{ position:sticky; bottom:0; margin-left:-16px; margin-right:-16px;
+  padding:12px 16px calc(8px + env(safe-area-inset-bottom)); background:var(--surface);
+  border-top:1px solid var(--hair); box-shadow:0 -8px 16px -10px rgba(0,0,0,.45); z-index:1; }
 
 /* ══════════════════════════════════════════════════════════════════
    INPUTS / FORMS
@@ -2943,17 +2948,21 @@ function renderDashboardCard(farm){
 
   // ── headline row: crop value (or price-CTA) · sale-ready oysters ──
   var head = h('div', { class:'dc-head' });
-  var moneyKids;
+  var money;
+  function openPrices(){ openSheet(typeof buildPrices === 'function' ? buildPrices : buildSettings); }
   if (d.valued){
-    moneyKids = [ h('span', { class:'dc-big' }, fmtMoney(d.cropValue)),
-                  h('span', { class:'dc-cap' }, 'on the water') ];
+    // F15: prices are set → the crop value stays a tappable affordance back into the price editor
+    // (mirrors the dc-ready stat), so the Data tab is never a dead end.
+    money = h('button', { class:'dc-stat dc-money', type:'button', onclick:openPrices,
+        'aria-label':'Edit oyster prices' },
+      h('span', { class:'dc-big' }, fmtMoney(d.cropValue)),
+      h('span', { class:'dc-cap' }, 'on the water ›'));
   } else {
     // no prices yet → the big number is a tappable affordance into settings (never show "$0")
-    moneyKids = [ h('button', { class:'dc-setprice', type:'button',
-        onclick:function(){ openSheet(typeof buildPrices === 'function' ? buildPrices : buildSettings); } }, 'Set oyster prices ',
-        h('span', { class:'dc-chev' }, '›')) ];
+    money = h('div', { class:'dc-stat dc-money' },
+      h('button', { class:'dc-setprice', type:'button', onclick:openPrices }, 'Set oyster prices ',
+        h('span', { class:'dc-chev' }, '›')));
   }
-  var money = h('div', { class:'dc-stat dc-money' }, moneyKids);
   var readyVal = h('span', { class:'dc-big' }, fmtCompact(d.readyOysters));
   var readyCap = h('span', { class:'dc-cap' },
     'oysters sale-ready ›', d.readyCages ? h('span', { class:'dc-sub' }, ' · ' + d.readyCages + (d.readyCages === 1 ? ' cage' : ' cages')) : null);
@@ -4118,6 +4127,15 @@ function applyView(){
   LAYOUT.world.setAttribute('transform',
     'translate(' + v.tx.toFixed(2) + ' ' + v.ty.toFixed(2) + ') scale(' + v.k.toFixed(4) + ')');
   LAYOUT.savedView = { k:v.k, tx:v.tx, ty:v.ty };       // remember camera across commit re-mounts (UX nit)
+  updateZoomButtons();                                   // F14: dim/disable +/- when k is at a clamp bound
+}
+// F14 — disable + dim the +/- zoom buttons when k is pinned at ZOOM_MAX / ZOOM_MIN so a clamped step
+// reads as inert instead of looking tappable. Epsilon-tolerant against float drift from clampZoom.
+function updateZoomButtons(){
+  var k = LAYOUT.view && LAYOUT.view.k; if (k == null) return;
+  var zin = document.getElementById('lpZoomIn'), zout = document.getElementById('lpZoomOut');
+  if (zin) zin.disabled = k >= ZOOM_MAX - 1e-4;
+  if (zout) zout.disabled = k <= ZOOM_MIN + 1e-4;
 }
 function scheduleApplyView(){
   if (LAYOUT.rafPending) return;
@@ -4943,10 +4961,10 @@ function condHistChart(points, opts){
     if (bot > top) svg += '<rect x="'+padL+'" y="'+top.toFixed(1)+'" width="'+(W-padL-padR)+'" height="'+(bot-top).toFixed(1)+'" fill="'+b.fill+'" opacity="0.15"/>';
   });
   svg += '<polyline points="'+points.map(function(p){ return X(p.ms).toFixed(1)+','+Y(p.v).toFixed(1); }).join(' ')+'" fill="none" stroke="'+(opts.color||'#0E7C8B')+'" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>';
-  svg += '<text x="'+(W-padR+3)+'" y="'+(Y(hi-padv)+3).toFixed(1)+'" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#6E878C">'+Math.round(hi-padv)+(opts.unit||'')+'</text>';
-  svg += '<text x="'+(W-padR+3)+'" y="'+(Y(lo+padv)+3).toFixed(1)+'" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#6E878C">'+Math.round(lo+padv)+(opts.unit||'')+'</text>';
-  svg += '<text x="'+padL+'" y="'+(H-3)+'" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#6E878C">'+monthDay(toISOfromMs(xs0))+'</text>';
-  svg += '<text x="'+(W-padR)+'" y="'+(H-3)+'" text-anchor="end" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#6E878C">'+monthDay(toISOfromMs(xs1))+'</text>';
+  svg += '<text x="'+(W-padR+3)+'" y="'+(Y(hi-padv)+3).toFixed(1)+'" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#8AA0A6">'+Math.round(hi-padv)+(opts.unit||'')+'</text>';
+  svg += '<text x="'+(W-padR+3)+'" y="'+(Y(lo+padv)+3).toFixed(1)+'" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#8AA0A6">'+Math.round(lo+padv)+(opts.unit||'')+'</text>';
+  svg += '<text x="'+padL+'" y="'+(H-3)+'" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#8AA0A6">'+monthDay(toISOfromMs(xs0))+'</text>';
+  svg += '<text x="'+(W-padR)+'" y="'+(H-3)+'" text-anchor="end" font-family="ui-monospace,Menlo,monospace" font-size="8" fill="#8AA0A6">'+monthDay(toISOfromMs(xs1))+'</text>';
   svg += '</svg>';
   return svg;
 }
@@ -5904,8 +5922,8 @@ function buildLayoutEditor(farm, mode){
 
   // ── persistent bottom controls ──
   var zoomCluster = h('div', { class:'lp-zoom' },
-    h('button', { class:'lp-zbtn', 'aria-label':'Zoom in', html:icon('plus', 22), onclick:function(){ zoomBy(1.3); } }),
-    h('button', { class:'lp-zbtn', 'aria-label':'Zoom out', html:'<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>', onclick:function(){ zoomBy(1/1.3); } }));
+    h('button', { class:'lp-zbtn', id:'lpZoomIn', 'aria-label':'Zoom in', html:icon('plus', 22), onclick:function(){ zoomBy(1.3); } }),
+    h('button', { class:'lp-zbtn', id:'lpZoomOut', 'aria-label':'Zoom out', html:'<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>', onclick:function(){ zoomBy(1/1.3); } }));
     // note 8: the "Fit all" / full-screen button was removed (owner: "take it away"). Recovery = the
     // breadcrumb zoom-out (view) + double-tap empty water → fit (both modes). zoomOutToAllPlots stays
     // (the breadcrumb uses it).
@@ -6144,6 +6162,13 @@ function updateNeighborCoach(farm){
   var scope = isScopedIntoPlot(farm);                      // zoomed into one plot (by on-screen coverage)
   var hasNeighbor = scope && farm.plots && farm.plots.length > 1;
   el.hidden = !hasNeighbor;
+}
+// F12 — dismiss the post-create first-run coach (#lpFirstRunCoach) on the first canvas action so it
+// stops covering the editor all session. Transient-only (no localStorage flag): it re-shows next time a
+// fresh onboarding editor mounts with obLayoutFirstRun set. No-op if absent / already gone.
+function dismissFirstRunCoach(){
+  var el = document.getElementById('lpFirstRunCoach');
+  if (el && !el.hidden) el.hidden = true;
 }
 // dismissNeighborCoach() — hide + permanently flag the coachmark (called on the first real pan).
 function dismissNeighborCoach(){
@@ -7822,6 +7847,7 @@ function wireLayoutPointers(svg){
   function onDown(e){
     if (e.pointerType === 'mouse' && e.button != null && e.button !== 0) return;
     lastPointerType = e.pointerType || 'mouse';
+    dismissFirstRunCoach();                               // F12: first canvas action retires the first-run coach
     LAYOUT.viewAnim = 0;                                   // a manual pan/pinch supersedes any in-flight camera tween
     refreshSvgRect();
     LAYOUT.ptrs.set(e.pointerId, { x:e.clientX, y:e.clientY });
@@ -10164,7 +10190,7 @@ function buildFillSeedForm(cageIds){
   var dateIn = h('input', { type:'date', value:todayISO(), style:{maxWidth:'200px'} });
   kids.push(field('Date', dateIn));
 
-  kids.push(h('div', { class:'btnRow' },
+  kids.push(h('div', { class:'btnRow sheet-commit' },
     h('button', { class:'btn btn-quiet', onclick:closeSheet }, 'Cancel'),
     h('button', { class:'btn btn-primary', onclick:function(){
       if (photos.busy()){ toast('Photo still saving…'); return; }
@@ -10766,6 +10792,29 @@ function buildWorkSheet(cageIds){
       le ? ('Last: ' + eventLabel(le) + ' · ' + monthDay(le.date)) : 'No work logged yet'));
   }
 
+  // "Work again" reminder — hoisted ABOVE the handling chips so "tumbled + 2 weeks" needs no scroll.
+  // The handling chips submit instantly on tap and read reminderDue from this closure; the interval is
+  // still optional. var reminderDue / function setReminder live here so the chip handlers below can use them.
+  var reminderDue = null;
+  var remChips = h('div', { class:'chips' });
+  function setReminder(days, chip){
+    var iso = days == null ? null : isoDaysAhead(days);
+    reminderDue = (reminderDue === iso && iso != null) ? null : iso;
+    var all = remChips.querySelectorAll('.chip'); for (var i=0;i<all.length;i++) all[i].classList.remove('on');
+    if (reminderDue != null && chip) chip.classList.add('on');
+  }
+  [['1w',7],['2w',14],['4w',28],['8w',56]].forEach(function(p){
+    var chip = h('button', { class:'chip', type:'button' }, p[0]);
+    chip.addEventListener('click', function(){ setReminder(p[1], chip); });
+    remChips.appendChild(chip);
+  });
+  var pickWrap = h('input', { type:'date', style:{maxWidth:'180px', marginTop:'8px'},
+    onchange:function(){ reminderDue = isValidISO(this.value) ? this.value : null;
+      var all = remChips.querySelectorAll('.chip'); for (var i=0;i<all.length;i++) all[i].classList.remove('on'); } });
+  kids.push(h('section', null, h('label', null, 'Work again reminder'),
+    h('div', { class:'fieldHint', style:{marginBottom:'6px'} }, 'Optional — flag this cage on a date.'),
+    remChips, pickWrap));
+
   // method chips → append a worked event on tap
   var methodChips = h('div', { class:'chips' });
   ['tumbled','washed','desiccated','flipped'].forEach(function(m){
@@ -10830,27 +10879,6 @@ function buildWorkSheet(cageIds){
   var workPhotoSlot = h('div', { id:'workPhotoSlot' });
   workPhotoSlot.appendChild(photos.el);
   kids.push(workPhotoSlot);
-
-  // optional "work again" reminder
-  var reminderDue = null;
-  var remChips = h('div', { class:'chips' });
-  function setReminder(days, chip){
-    var iso = days == null ? null : isoDaysAhead(days);
-    reminderDue = (reminderDue === iso && iso != null) ? null : iso;
-    var all = remChips.querySelectorAll('.chip'); for (var i=0;i<all.length;i++) all[i].classList.remove('on');
-    if (reminderDue != null && chip) chip.classList.add('on');
-  }
-  [['1w',7],['2w',14],['4w',28],['8w',56]].forEach(function(p){
-    var chip = h('button', { class:'chip', type:'button' }, p[0]);
-    chip.addEventListener('click', function(){ setReminder(p[1], chip); });
-    remChips.appendChild(chip);
-  });
-  var pickWrap = h('input', { type:'date', style:{maxWidth:'180px', marginTop:'8px'},
-    onchange:function(){ reminderDue = isValidISO(this.value) ? this.value : null;
-      var all = remChips.querySelectorAll('.chip'); for (var i=0;i<all.length;i++) all[i].classList.remove('on'); } });
-  kids.push(h('section', null, h('label', null, 'Work again reminder'),
-    h('div', { class:'fieldHint', style:{marginBottom:'6px'} }, 'Optional — flag this cage on a date.'),
-    remChips, pickWrap));
 
   // history timeline (single-cage), newest first
   if (!bulk){
@@ -12098,6 +12126,14 @@ var SEASON_FIT_MIN_INTERVALS = 6;
 // SEASON_FIT_MIN_N — per-month confidence floor: a month needs this many cage-intervals touching it before
 // its fitted shape is allowed to override the default at all.
 var SEASON_FIT_MIN_N = 3;
+// Near-stall winter guard. Jan/Feb/Dec barely move; a single long winter-SPANNING interval smears its
+// (mostly summer/fall) rate across the cold months and overstates them as if they grew. So a near-stall
+// month (DEFAULT[m] <= SEASON_STALL_DEF) needs MORE evidence (SEASON_FIT_MIN_N_STALL) to override, and even
+// then its fitted value is capped at DEFAULT[m] × SEASON_STALL_CAP. A capped/low-evidence month is NOT
+// flagged "fitted" — the card shows it grey so we never claim confidence the laundered evidence can't back.
+var SEASON_STALL_DEF = 0.30;
+var SEASON_FIT_MIN_N_STALL = 6;
+var SEASON_STALL_CAP = 1.75;
 
 // fittedSeasonMult(farm) — derive the 12-month seasonal SHAPE from the farm's OWN growth checks instead of
 // the hardcoded national Gulf curve. PURE: no DOM, no mutation, no cache. Returns a fresh 12-element array.
@@ -12112,6 +12148,8 @@ var SEASON_FIT_MIN_N = 3;
 // Honesty: every divide is guarded; with < SEASON_FIT_MIN_INTERVALS total intervals we return SEASON_MULT.
 function fittedSeasonMult(farm){
   var DEFAULT = SEASON_MULT.slice();
+  // every `return DEFAULT` path carries an all-false fittedMonths[] so the card never reads undefined.
+  DEFAULT.fittedMonths = [false,false,false,false,false,false,false,false,false,false,false,false];
   if (!farm || !Array.isArray(farm.lines)) return DEFAULT;
   var sumRate = [0,0,0,0,0,0,0,0,0,0,0,0];   // Σ (rate × dayWeight) per month
   var sumW    = [0,0,0,0,0,0,0,0,0,0,0,0];   // Σ dayWeight per month  (rate is per-day, so weight by days)
@@ -12163,23 +12201,38 @@ function fittedSeasonMult(farm){
   if (!(grandMean > 0)) return DEFAULT;                            // no positive growth observed anywhere
 
   // raw shape = month mean / grand mean (so it averages ~1 by construction over data months)
-  var out = [];
+  // fittedMonths[m] tracks which months we actually trust as fitted (teal in the card). A near-stall winter
+  // month must clear a HIGHER evidence bar and, even then, gets capped — a capped or low-evidence month
+  // overrides the projection but is NOT flagged fitted, so the card never overstates winter confidence.
+  var out = [], fittedMonths = [];
   for (m = 0; m < 12; m++){
-    var fitted = (meanRate[m] != null) ? (meanRate[m] / grandMean) : DEFAULT[m];
+    var shape = (meanRate[m] != null) ? (meanRate[m] / grandMean) : DEFAULT[m];
     var n = nInt[m];
-    if (meanRate[m] == null || n < SEASON_FIT_MIN_N){
+    var nearStall = DEFAULT[m] <= SEASON_STALL_DEF;
+    var minN = nearStall ? SEASON_FIT_MIN_N_STALL : SEASON_FIT_MIN_N;
+    if (meanRate[m] == null || n < minN){
       out[m] = DEFAULT[m];                                         // no/low data → default, no override
+      fittedMonths[m] = false;
     } else {
       var alpha = Math.min(1, n / 8);
-      out[m] = alpha * fitted + (1 - alpha) * DEFAULT[m];
+      var blended = alpha * shape + (1 - alpha) * DEFAULT[m];
+      if (nearStall){
+        var cap = DEFAULT[m] * SEASON_STALL_CAP;                   // floor a smeared winter back toward stall
+        if (blended > cap){ out[m] = cap; fittedMonths[m] = false; }   // capped → low-evidence, not "fitted"
+        else { out[m] = blended; fittedMonths[m] = true; }
+      } else {
+        out[m] = blended;
+        fittedMonths[m] = true;
+      }
     }
-    if (!isFinite(out[m]) || out[m] < 0) out[m] = DEFAULT[m];      // belt-and-suspenders: never leak NaN/neg
+    if (!isFinite(out[m]) || out[m] < 0){ out[m] = DEFAULT[m]; fittedMonths[m] = false; }   // never leak NaN/neg
   }
 
   // NORMALIZE to average ~1.0 — redistribute SHAPE only; magnitude stays with the per-cage OLS rate.
   var avg = 0; for (m = 0; m < 12; m++) avg += out[m]; avg /= 12;
   if (avg > 0){ for (m = 0; m < 12; m++) out[m] = out[m] / avg; }
   else return DEFAULT;
+  out.fittedMonths = fittedMonths;   // non-index prop → dropped by JSON.stringify (never persisted)
   return out;
 }
 
@@ -12466,7 +12519,7 @@ function seasonShapeSparkline(fitted, isFitted){
     var x = 4 + i * bw, y = H - padB - bh;
     var fill = (isFitted && isFitted[i]) ? '#0E7C8B' : '#B9C7CA';
     svg += '<rect x="' + (x+1).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (bw-2).toFixed(1) + '" height="' + Math.max(0.5, bh).toFixed(1) + '" rx="1.5" fill="' + fill + '"/>';
-    svg += '<text x="' + (x + bw/2).toFixed(1) + '" y="' + (H-3) + '" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="7" fill="#8A99A0">' + MONTHS[i].charAt(0) + '</text>';
+    svg += '<text x="' + (x + bw/2).toFixed(1) + '" y="' + (H-3) + '" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="7" fill="#A4B6BB">' + MONTHS[i].charAt(0) + '</text>';
   }
   svg += '</svg>';
   return svg;
@@ -12486,14 +12539,18 @@ function buildGrowthCalendarCard(farm){
     // show the DEFAULT shape so the card is never blank (it's what projections use right now)
     fitted = SEASON_MULT.slice();
   } else {
-    // a month is "fitted" (teal) when it differs from the default — i.e. it had enough data to override
+    // a month is "fitted" (teal) when fittedSeasonMult flagged it (clears its evidence bar AND wasn't capped).
+    // Back-compat: an older cached curve with no fittedMonths falls back to the value-difference test.
     isFitted = [];
     var def = SEASON_MULT;
-    for (var m = 0; m < 12; m++){ isFitted[m] = Math.abs(fitted[m] - def[m]) > 0.001 ? true : false; }
+    var fm = fitted.fittedMonths;
+    for (var m = 0; m < 12; m++){
+      isFitted[m] = fm ? !!fm[m] : (Math.abs(fitted[m] - def[m]) > 0.001);
+    }
     legend = 'Fitted to your ' + intervals + ' growth ' + (intervals === 1 ? 'interval' : 'intervals') + '. Teal months use your own pace; grey months still ride the default until you log more checks.';
   }
   card.appendChild(h('div', { html:seasonShapeSparkline(fitted, isFitted) }));
-  card.appendChild(h('div', { style:{fontSize:'10px', color:'#8A99A0', marginTop:'2px'} }, legend));
+  card.appendChild(h('div', { style:{fontSize:'10px', color:'#A4B6BB', marginTop:'2px'} }, legend));
   return card;
 }
 
