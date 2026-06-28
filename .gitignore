@@ -1,3 +1,10 @@
 # Local-only working junk — backups, screenshots, old checkpoints. Never in the repo.
 _local/
 .DS_Store
+tests/node_modules/
+tests/report/
+# Regeneratable audit artifacts — screenshots, CSVs, downloads, run logs. Reports (.md) stay tracked.
+tests/reports/shots/
+tests/reports/csv-fall/
+tests/reports/_dl/
+tests/reports/*.log.json

@@ -82,6 +82,22 @@ Keep the JSON. Import restores it anywhere.
 
 ---
 
+## Phone testing
+
+`tests/smoke.mjs` drives the local `spatmap.html` in real phone viewports (iPhone SE +
+14 Pro Max), seeds the Brightside demo, tours the core screens, and reports friction:
+JS errors, sub-44px tap targets, sub-11px text, horizontal overflow, off-screen controls,
+plus persistence-across-reload and offline-reload checks. Screenshots + `report.md` land in
+`tests/report/`.
+
+```
+cd tests && npm install   # once; browsers are already cached
+npm run smoke             # headless, ~15s
+HEADED=1 npm run smoke    # watch it drive a phone-sized window
+```
+
+---
+
 ## More docs
 
 - **[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** — full farmer walkthrough.

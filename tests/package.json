@@ -1,0 +1,7 @@
+{
+  "name": "spatmap-tests",
+  "private": true,
+  "type": "module",
+  "scripts": { "smoke": "node smoke.mjs" },
+  "dependencies": { "playwright": "1.61.1" }
+}

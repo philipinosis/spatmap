@@ -1,0 +1,2583 @@
+[
+  {
+    "device": "iPhone SE",
+    "scenario": "fresh",
+    "errors": [],
+    "attempts": [
+      {
+        "name": "A1: touchscreen.tap @ area center (160,353) [pre sP=true sA=true k=0.292]",
+        "note": "tap xmqy0suww1c9mzo",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "changed": true
+      },
+      {
+        "name": "A2: touchscreen.tap @ area center (160,353) [pre sP=true sA=true k=0.292]",
+        "note": "tap xmqy0suww1c9mzo",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "3A-5 3A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "changed": true
+      },
+      {
+        "name": "B1: tap cage (1st) → peek",
+        "note": "tap xmqy0suww4e63n",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "3A-5 3A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "3A-5 3A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": true
+        },
+        "changed": true
+      },
+      {
+        "name": "B2: tap SAME cage (2nd) → cage/stock sheet",
+        "note": "tap xmqy0suww4e63n again",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "3A-5 3A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": true
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "changed": true
+      },
+      {
+        "name": "C1: tap area BODY corner (not a cage)",
+        "note": "tap body @(78,292)",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "D1: element.tap() on SVG child (OLD harness path)",
+        "note": "element.tap() on [data-cage-id] succeeded",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": true
+        },
+        "changed": true
+      },
+      {
+        "name": "E1: Data tab → area card Open drill → work map",
+        "note": " | NO .db-q-open found",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "afterData": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "changed": false
+      }
+    ],
+    "setup": {
+      "onboardingShown": true,
+      "plots": 1
+    },
+    "landing": {
+      "viewMode": "overview",
+      "homeMode": "overview",
+      "scope": null,
+      "tier": "farm",
+      "k": 0.292,
+      "scopedPlot": true,
+      "scopedArea": true,
+      "crumb": "Test Farm › Area 1",
+      "mapwell": false,
+      "sheetTxt": "",
+      "peekVis": false,
+      "plots": 1
+    },
+    "enum": {
+      "plots": [
+        {
+          "id": "xmqy0suww1bad8h",
+          "x": 160,
+          "y": 353,
+          "w": 257,
+          "h": 199
+        }
+      ],
+      "areas": [
+        {
+          "id": "xmqy0suww1c9mzo",
+          "x": 160,
+          "y": 353,
+          "w": 234,
+          "h": 175
+        }
+      ],
+      "cages": [
+        {
+          "id": "xmqy0suww4e63n",
+          "x": 68,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww52wpj",
+          "x": 88,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww671aw",
+          "x": 109,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww79pbs",
+          "x": 129,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww8it5m",
+          "x": 150,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww9bdme",
+          "x": 170,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwa2s9z",
+          "x": 191,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwbgyje",
+          "x": 211,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwcc56f",
+          "x": 232,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwdkwl6",
+          "x": 253,
+          "y": 343,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwfiv9b",
+          "x": 68,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwgdzkj",
+          "x": 88,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwh7s6v",
+          "x": 109,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwiexxc",
+          "x": 129,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwjdpgs",
+          "x": 150,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwkbf52",
+          "x": 170,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwlai16",
+          "x": 191,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwmd8p9",
+          "x": 211,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwn5mld",
+          "x": 232,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwofxul",
+          "x": 253,
+          "y": 350,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwq6f0j",
+          "x": 68,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwrkirc",
+          "x": 88,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwsxyu",
+          "x": 109,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwthkn4",
+          "x": 129,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwug8ya",
+          "x": 150,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwv17fe",
+          "x": 170,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwww8pc9",
+          "x": 191,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwxjm28",
+          "x": 211,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwy2apt",
+          "x": 232,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suwwzgodd",
+          "x": 253,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww11apc2",
+          "x": 68,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww1235of",
+          "x": 88,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww13fx5m",
+          "x": 109,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww14fg54",
+          "x": 129,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww15itfz",
+          "x": 150,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww16arfx",
+          "x": 170,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww17kbrr",
+          "x": 191,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww183ibj",
+          "x": 211,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww199inr",
+          "x": 232,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0suww1a2aos",
+          "x": 253,
+          "y": 363,
+          "w": 21,
+          "h": 5
+        }
+      ],
+      "seg": [
+        "Map",
+        "Data"
+      ],
+      "topBtns": [
+        "Map",
+        "Data",
+        "Edit layout",
+        "Menu"
+      ],
+      "openChips": 0
+    },
+    "workMap": {
+      "mapwell": false,
+      "lineStrips": 0,
+      "cages": 0,
+      "viewMode": "overview",
+      "scope": false
+    },
+    "buried": {
+      "steps": [
+        "Menu",
+        "Farm Layout",
+        "viewMode=layout",
+        "tap area",
+        "ERR TimeoutError: locator.tap: Timeout 3000ms exceeded."
+      ],
+      "after": {
+        "v": "layout",
+        "scope": null,
+        "tier": "farm",
+        "k": 0.292,
+        "sP": true,
+        "sA": true,
+        "crumb": "",
+        "mapwell": false,
+        "sheet": "Test Farm Find a cage Search by cage, line, grade, or source Farm Layout Plots, areas, lines — design your wat",
+        "peek": false
+      },
+      "reachedWork": false
+    }
+  },
+  {
+    "device": "iPhone SE",
+    "scenario": "brightside",
+    "errors": [],
+    "attempts": [
+      {
+        "name": "A1: touchscreen.tap @ area center (160,353) [pre sP=true sA=true k=0.292]",
+        "note": "tap xmqy0t5aw5chk7z",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "changed": true
+      },
+      {
+        "name": "A2: touchscreen.tap @ area center (160,353) [pre sP=true sA=true k=0.292]",
+        "note": "tap xmqy0t5aw5chk7z",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "4A-5 4A · Vexar bag · 4 mm mesh Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "changed": true
+      },
+      {
+        "name": "B1: tap cage (1st) → peek",
+        "note": "tap xmqy0t5av7gpvj",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "4A-5 4A · Vexar bag · 4 mm mesh Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "4A-5 4A · Vexar bag · 4 mm mesh Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": true
+        },
+        "changed": true
+      },
+      {
+        "name": "B2: tap SAME cage (2nd) → cage/stock sheet",
+        "note": "tap xmqy0t5av7gpvj again",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "4A-5 4A · Vexar bag · 4 mm mesh Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": true
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "changed": true
+      },
+      {
+        "name": "C1: tap area BODY corner (not a cage)",
+        "note": "tap body @(78,292)",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "D1: element.tap() on SVG child (OLD harness path)",
+        "note": "element.tap() threw: TimeoutError: locator.tap: Timeout 2500ms exceeded.",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "E1: Data tab → area card Open drill → work map",
+        "note": " | NO .db-q-open found",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "afterData": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.292,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "changed": false
+      }
+    ],
+    "landing": {
+      "viewMode": "overview",
+      "homeMode": "overview",
+      "scope": null,
+      "tier": "farm",
+      "k": 0.292,
+      "scopedPlot": true,
+      "scopedArea": true,
+      "crumb": "Brightside Oyster Co. › Area 1",
+      "mapwell": false,
+      "sheetTxt": "",
+      "peekVis": false,
+      "plots": 1
+    },
+    "enum": {
+      "plots": [
+        {
+          "id": "xmqy0t5aw5b69th",
+          "x": 160,
+          "y": 353,
+          "w": 257,
+          "h": 199
+        }
+      ],
+      "areas": [
+        {
+          "id": "xmqy0t5aw5chk7z",
+          "x": 160,
+          "y": 353,
+          "w": 234,
+          "h": 175
+        }
+      ],
+      "cages": [
+        {
+          "id": "xmqy0t5av7gpvj",
+          "x": 68,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5avckvf2",
+          "x": 88,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5avhj8y5",
+          "x": 109,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5avm6vsr",
+          "x": 129,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5avrepvy",
+          "x": 150,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5avw5b1n",
+          "x": 170,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av119luw",
+          "x": 191,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av16kuag",
+          "x": 211,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av1b1r4y",
+          "x": 232,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av1cfjit",
+          "x": 253,
+          "y": 337,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av1eem5i",
+          "x": 69,
+          "y": 343,
+          "w": 23,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av1jgeos",
+          "x": 91,
+          "y": 343,
+          "w": 23,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av1og6mg",
+          "x": 114,
+          "y": 343,
+          "w": 23,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av1te6pq",
+          "x": 137,
+          "y": 343,
+          "w": 23,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av1y1osr",
+          "x": 160,
+          "y": 343,
+          "w": 23,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av1z1efx",
+          "x": 183,
+          "y": 343,
+          "w": 23,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av246w98",
+          "x": 206,
+          "y": 343,
+          "w": 23,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av2937bs",
+          "x": 229,
+          "y": 343,
+          "w": 23,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av2e4owt",
+          "x": 251,
+          "y": 343,
+          "w": 23,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av2kj532",
+          "x": 70,
+          "y": 350,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av2pccsi",
+          "x": 96,
+          "y": 350,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av2u6md7",
+          "x": 121,
+          "y": 350,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av2zifvk",
+          "x": 147,
+          "y": 350,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av34jx5y",
+          "x": 173,
+          "y": 350,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5av398rdb",
+          "x": 199,
+          "y": 350,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw3e8cb8",
+          "x": 224,
+          "y": 350,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw3ffoln",
+          "x": 250,
+          "y": 350,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw3h5ex6",
+          "x": 68,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw3i3bjf",
+          "x": 88,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw3nl19g",
+          "x": 109,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw3ojjtf",
+          "x": 129,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw3t19uv",
+          "x": 150,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw3u63u0",
+          "x": 170,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw3zahs7",
+          "x": 191,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw40l5xz",
+          "x": 211,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw45fvsc",
+          "x": 232,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw46fpte",
+          "x": 253,
+          "y": 356,
+          "w": 21,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4c7cvw",
+          "x": 70,
+          "y": 363,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4d6h9j",
+          "x": 96,
+          "y": 363,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4e2tto",
+          "x": 121,
+          "y": 363,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4fbyoe",
+          "x": 147,
+          "y": 363,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4gk53i",
+          "x": 173,
+          "y": 363,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4h1lkr",
+          "x": 199,
+          "y": 363,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4ifc1w",
+          "x": 224,
+          "y": 363,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4jkwkd",
+          "x": 250,
+          "y": 363,
+          "w": 26,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4l5yku",
+          "x": 72,
+          "y": 369,
+          "w": 29,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4p8ayg",
+          "x": 101,
+          "y": 369,
+          "w": 29,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4t28mi",
+          "x": 131,
+          "y": 369,
+          "w": 29,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw4xixxy",
+          "x": 160,
+          "y": 369,
+          "w": 29,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw514l64",
+          "x": 189,
+          "y": 369,
+          "w": 29,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw55c4j0",
+          "x": 219,
+          "y": 369,
+          "w": 29,
+          "h": 5
+        },
+        {
+          "id": "xmqy0t5aw56fre4",
+          "x": 248,
+          "y": 369,
+          "w": 29,
+          "h": 5
+        }
+      ],
+      "seg": [
+        "Map",
+        "Data"
+      ],
+      "topBtns": [
+        "Map",
+        "Data",
+        "Edit layout",
+        "Menu"
+      ],
+      "openChips": 0
+    },
+    "workMap": {
+      "mapwell": false,
+      "lineStrips": 0,
+      "cages": 0,
+      "viewMode": "overview",
+      "scope": false
+    },
+    "buried": {
+      "steps": [
+        "Menu",
+        "Farm Layout",
+        "viewMode=layout",
+        "tap area",
+        "ERR TimeoutError: locator.tap: Timeout 3000ms exceeded."
+      ],
+      "after": {
+        "v": "layout",
+        "scope": null,
+        "tier": "farm",
+        "k": 0.292,
+        "sP": true,
+        "sA": true,
+        "crumb": "",
+        "mapwell": false,
+        "sheet": "Brightside Oyster Co. Find a cage Search by cage, line, grade, or source Farm Layout Plots, areas, lines — des",
+        "peek": false
+      },
+      "reachedWork": false
+    }
+  },
+  {
+    "device": "iPhone 14 Pro Max",
+    "scenario": "fresh",
+    "errors": [],
+    "attempts": [
+      {
+        "name": "A1: touchscreen.tap @ area center (215,439) [pre sP=true sA=true k=0.392]",
+        "note": "tap xmqy0tigz1c9fam",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "A2: touchscreen.tap @ area center (215,439) [pre sP=true sA=true k=0.392]",
+        "note": "tap xmqy0tigz1c9fam",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "A3: touchscreen.tap @ area center (215,439) [pre sP=true sA=true k=0.392]",
+        "note": "tap xmqy0tigz1c9fam",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "A4: touchscreen.tap @ area center (215,439) [pre sP=true sA=true k=0.392]",
+        "note": "tap xmqy0tigz1c9fam",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "B1: tap cage (1st) → peek",
+        "note": "tap xmqy0tigz465lk",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "changed": true
+      },
+      {
+        "name": "B2: tap SAME cage (2nd) → cage/stock sheet",
+        "note": "tap xmqy0tigz465lk again",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "changed": true
+      },
+      {
+        "name": "C1: tap area BODY corner (not a cage)",
+        "note": "tap body @(105,357)",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "D1: element.tap() on SVG child (OLD harness path)",
+        "note": "element.tap() on [data-cage-id] succeeded",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": true
+        },
+        "changed": true
+      },
+      {
+        "name": "E1: Data tab → area card Open drill → work map",
+        "note": " | NO .db-q-open found",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "afterData": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Test Farm › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · Cage Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "changed": false
+      }
+    ],
+    "setup": {
+      "onboardingShown": true,
+      "plots": 1
+    },
+    "landing": {
+      "viewMode": "overview",
+      "homeMode": "overview",
+      "scope": null,
+      "tier": "farm",
+      "k": 0.392,
+      "scopedPlot": true,
+      "scopedArea": true,
+      "crumb": "Test Farm › Area 1",
+      "mapwell": false,
+      "sheetTxt": "",
+      "peekVis": false,
+      "plots": 1
+    },
+    "enum": {
+      "plots": [
+        {
+          "id": "xmqy0tigz1b4tud",
+          "x": 215,
+          "y": 439,
+          "w": 345,
+          "h": 267
+        }
+      ],
+      "areas": [
+        {
+          "id": "xmqy0tigz1c9fam",
+          "x": 215,
+          "y": 439,
+          "w": 314,
+          "h": 235
+        }
+      ],
+      "cages": [
+        {
+          "id": "xmqy0tigz465lk",
+          "x": 91,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz5cpj7",
+          "x": 118,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz6389d",
+          "x": 146,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz7f6fm",
+          "x": 174,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz8dyat",
+          "x": 201,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz9gbvu",
+          "x": 229,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzaf4sy",
+          "x": 256,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzbiv6b",
+          "x": 284,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzcjdw2",
+          "x": 312,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzdk7e2",
+          "x": 339,
+          "y": 426,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzfej9p",
+          "x": 91,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzggi49",
+          "x": 118,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzhhjpl",
+          "x": 146,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzi3d2n",
+          "x": 174,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzj8gzw",
+          "x": 201,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzknka",
+          "x": 229,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzl4xc6",
+          "x": 256,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzm23jw",
+          "x": 284,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigznk1yx",
+          "x": 312,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzoeiqn",
+          "x": 339,
+          "y": 435,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzqgzpg",
+          "x": 91,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzr4cnb",
+          "x": 118,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzs8c5b",
+          "x": 146,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzt6eez",
+          "x": 174,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzuifax",
+          "x": 201,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzv7tmv",
+          "x": 229,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzwcc2z",
+          "x": 256,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzxbfrz",
+          "x": 284,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzyg5nd",
+          "x": 312,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigzzba3k",
+          "x": 339,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz114306",
+          "x": 91,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz1284gy",
+          "x": 118,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz13fv6h",
+          "x": 146,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz14gbcu",
+          "x": 174,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz15dzeq",
+          "x": 201,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz166y4l",
+          "x": 229,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz177ppw",
+          "x": 256,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz18s7z",
+          "x": 284,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz19gfu",
+          "x": 312,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tigz1aeaeh",
+          "x": 339,
+          "y": 452,
+          "w": 28,
+          "h": 6
+        }
+      ],
+      "seg": [
+        "Map",
+        "Data"
+      ],
+      "topBtns": [
+        "Map",
+        "Data",
+        "Edit layout",
+        "Menu"
+      ],
+      "openChips": 0
+    },
+    "workMap": {
+      "mapwell": false,
+      "lineStrips": 0,
+      "cages": 0,
+      "viewMode": "overview",
+      "scope": false
+    },
+    "buried": {
+      "steps": [
+        "Menu",
+        "Farm Layout",
+        "viewMode=layout",
+        "tap area",
+        "Open ›"
+      ],
+      "after": {
+        "v": "work",
+        "scope": {
+          "plotId": "xmqy0tigz1b4tud",
+          "areaId": "xmqy0tigz1c9fam"
+        },
+        "tier": "farm",
+        "k": 0.392,
+        "sP": false,
+        "sA": false,
+        "crumb": "",
+        "mapwell": true,
+        "sheet": "Test Farm Find a cage Search by cage, line, grade, or source Farm Layout Plots, areas, lines — design your wat",
+        "peek": false
+      },
+      "reachedWork": true
+    }
+  },
+  {
+    "device": "iPhone 14 Pro Max",
+    "scenario": "brightside",
+    "errors": [],
+    "attempts": [
+      {
+        "name": "A1: touchscreen.tap @ area center (215,439) [pre sP=true sA=true k=0.392]",
+        "note": "tap xmqy0tsjp5c2qyq",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "changed": true
+      },
+      {
+        "name": "A2: touchscreen.tap @ area center (215,439) [pre sP=true sA=true k=0.392]",
+        "note": "tap xmqy0tsjp5c2qyq",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "changed": false
+      },
+      {
+        "name": "A3: touchscreen.tap @ area center (215,439) [pre sP=true sA=true k=0.392]",
+        "note": "tap xmqy0tsjp5c2qyq",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "",
+          "peek": true
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "2A-5 2A · OyGro · 9 mm mesh Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "changed": true
+      },
+      {
+        "name": "B1: tap cage (1st) → peek",
+        "note": "tap xmqy0tsjo7kl3m",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "2A-5 2A · OyGro · 9 mm mesh Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "2A-5 2A · OyGro · 9 mm mesh Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": true
+        },
+        "changed": true
+      },
+      {
+        "name": "B2: tap SAME cage (2nd) → cage/stock sheet",
+        "note": "tap xmqy0tsjo7kl3m again",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "2A-5 2A · OyGro · 9 mm mesh Fill Remove Change type EMPTY CAGE Empty — nothing has been stocked here yet.",
+          "peek": true
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "changed": true
+      },
+      {
+        "name": "C1: tap area BODY corner (not a cage)",
+        "note": "tap body @(105,357)",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "D1: element.tap() on SVG child (OLD harness path)",
+        "note": "element.tap() threw: TimeoutError: locator.tap: Timeout 2500ms exceeded.",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "changed": false
+      },
+      {
+        "name": "E1: Data tab → area card Open drill → work map",
+        "note": " | NO .db-q-open found",
+        "before": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "afterData": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "after": {
+          "v": "overview",
+          "scope": null,
+          "tier": "farm",
+          "k": 0.392,
+          "sP": true,
+          "sA": true,
+          "crumb": "Brightside Oyster Co. › Area 1",
+          "mapwell": false,
+          "sheet": "1A-1 1A · FlipFarm · 6 mm mesh Work Pull Photo Change type 28 mm Count 1.8k Ploidy Triploid Hatchery Grand Isl",
+          "peek": false
+        },
+        "changed": false
+      }
+    ],
+    "landing": {
+      "viewMode": "overview",
+      "homeMode": "overview",
+      "scope": null,
+      "tier": "farm",
+      "k": 0.392,
+      "scopedPlot": true,
+      "scopedArea": true,
+      "crumb": "Brightside Oyster Co. › Area 1",
+      "mapwell": false,
+      "sheetTxt": "",
+      "peekVis": false,
+      "plots": 1
+    },
+    "enum": {
+      "plots": [
+        {
+          "id": "xmqy0tsjp5b6wd4",
+          "x": 215,
+          "y": 439,
+          "w": 345,
+          "h": 267
+        }
+      ],
+      "areas": [
+        {
+          "id": "xmqy0tsjp5c2qyq",
+          "x": 215,
+          "y": 439,
+          "w": 314,
+          "h": 235
+        }
+      ],
+      "cages": [
+        {
+          "id": "xmqy0tsjo7kl3m",
+          "x": 91,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjoc818u",
+          "x": 118,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjoh8gx3",
+          "x": 146,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjom3ik5",
+          "x": 174,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjore30a",
+          "x": 201,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjow165y",
+          "x": 229,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo11c92x",
+          "x": 256,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo161me",
+          "x": 284,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo1bdnzm",
+          "x": 312,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo1c7f40",
+          "x": 339,
+          "y": 417,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo1eab6j",
+          "x": 92,
+          "y": 426,
+          "w": 31,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo1j6z8r",
+          "x": 123,
+          "y": 426,
+          "w": 31,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo1oax4e",
+          "x": 154,
+          "y": 426,
+          "w": 31,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo1tklz4",
+          "x": 184,
+          "y": 426,
+          "w": 31,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo1ya4p",
+          "x": 215,
+          "y": 426,
+          "w": 31,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo1zbpsj",
+          "x": 246,
+          "y": 426,
+          "w": 31,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo242yhr",
+          "x": 276,
+          "y": 426,
+          "w": 31,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo29hufb",
+          "x": 307,
+          "y": 426,
+          "w": 31,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjo2esbo",
+          "x": 338,
+          "y": 426,
+          "w": 31,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp2k6am",
+          "x": 94,
+          "y": 435,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp2p7t8v",
+          "x": 129,
+          "y": 435,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp2ua12v",
+          "x": 163,
+          "y": 435,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp2zk2i3",
+          "x": 198,
+          "y": 435,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp34e0g4",
+          "x": 232,
+          "y": 435,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp39guu5",
+          "x": 267,
+          "y": 435,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp3e9aoy",
+          "x": 301,
+          "y": 435,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp3fjo5s",
+          "x": 336,
+          "y": 435,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp3hlatc",
+          "x": 91,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp3il8yf",
+          "x": 118,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp3nhzp6",
+          "x": 146,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp3o90na",
+          "x": 174,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp3t3zu9",
+          "x": 201,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp3ujjz6",
+          "x": 229,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp3zgw07",
+          "x": 256,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp402vvj",
+          "x": 284,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp458b2j",
+          "x": 312,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp466my0",
+          "x": 339,
+          "y": 443,
+          "w": 28,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4ccron",
+          "x": 94,
+          "y": 452,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4df6b5",
+          "x": 129,
+          "y": 452,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4e3lju",
+          "x": 163,
+          "y": 452,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4f832",
+          "x": 198,
+          "y": 452,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4g58r0",
+          "x": 232,
+          "y": 452,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4hesgh",
+          "x": 267,
+          "y": 452,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4i8rnv",
+          "x": 301,
+          "y": 452,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4j198b",
+          "x": 336,
+          "y": 452,
+          "w": 35,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4l4gi9",
+          "x": 97,
+          "y": 461,
+          "w": 39,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4p2763",
+          "x": 136,
+          "y": 461,
+          "w": 39,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4t371d",
+          "x": 176,
+          "y": 461,
+          "w": 39,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp4xf9nf",
+          "x": 215,
+          "y": 461,
+          "w": 39,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp51ld7l",
+          "x": 254,
+          "y": 461,
+          "w": 39,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp55gxab",
+          "x": 294,
+          "y": 461,
+          "w": 39,
+          "h": 6
+        },
+        {
+          "id": "xmqy0tsjp564w5i",
+          "x": 333,
+          "y": 461,
+          "w": 39,
+          "h": 6
+        }
+      ],
+      "seg": [
+        "Map",
+        "Data"
+      ],
+      "topBtns": [
+        "Map",
+        "Data",
+        "Edit layout",
+        "Menu"
+      ],
+      "openChips": 0
+    },
+    "workMap": {
+      "mapwell": false,
+      "lineStrips": 0,
+      "cages": 0,
+      "viewMode": "overview",
+      "scope": false
+    },
+    "buried": {
+      "steps": [
+        "Menu",
+        "Farm Layout",
+        "viewMode=layout",
+        "tap area",
+        "Open ›"
+      ],
+      "after": {
+        "v": "work",
+        "scope": {
+          "plotId": "xmqy0tsjp5b6wd4",
+          "areaId": "xmqy0tsjp5c2qyq"
+        },
+        "tier": "farm",
+        "k": 0.392,
+        "sP": false,
+        "sA": false,
+        "crumb": "",
+        "mapwell": true,
+        "sheet": "Brightside Oyster Co. Find a cage Search by cage, line, grade, or source Farm Layout Plots, areas, lines — des",
+        "peek": false
+      },
+      "reachedWork": true
+    }
+  }
+]
