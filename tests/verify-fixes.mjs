@@ -527,6 +527,58 @@ test('T9-coldstart-import', async (ctx) => {
   assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
 });
 
+// T10 — OFFLINE risk insight. The Water-conditions sheet's risk flags (heat / Vibrio / spawn / near-stall /
+// low-salinity) used to render ONLY on the online USGS path; offline it showed raw charts with no flags, even
+// though the temp/salinity needed to compute them is already on-device. The fix extracts the insight-card
+// builder and runs it in paintFromLog too (reshape the on-device log like stockAdvisory, condDailyAgg →
+// condInsights). Here we seed a WARM on-device log over 7 distinct UTC days, go offline, open the sheet, and
+// assert the offline card shows the flags. Pre-fix this fails (no flags offline).
+test('T10-offline-risk', async (ctx) => {
+  const { page, errors, assert } = ctx;
+
+  // seed: pick the conditions site + a warm on-device conditions log spanning 7 distinct UTC days.
+  // Each day gets a cool-ish morning sample and a hot afternoon sample so daily min<max:
+  //   avg temp well over 20 °C   → Vibrio season
+  //   afternoon max 30 °C (>28)  → heat-stress days
+  //   min ≤27 °C and max ≥25 °C  → spawning window hit
+  await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    condSetSite({ id:'07380249', name:'Caminada Pass', state:'LA', lat:29.23, lng:-90.04 });
+    const DAY = 86400000;
+    const base = Date.UTC(2026, 5, 1, 6, 0, 0);   // 2026-06-01 06:00 UTC
+    const log = [];
+    for (let i = 0; i < 7; i++){
+      const d0 = base + i * DAY;
+      log.push({ ms: d0,                  t: 26, s: 22, g: 1.2 });   // warm morning
+      log.push({ ms: d0 + 8 * 3600000,    t: 30, s: 21, g: 1.3 });   // afternoon peak >28°C
+    }
+    const all = condLSget(COND_K_HIST) || {};
+    all['07380249'] = log;
+    condLSset(COND_K_HIST, all);
+  });
+
+  // go offline so the USGS fetch rejects and the sheet falls back to the on-device painter
+  await ctx.context.setOffline(true);
+  await page.evaluate(() => openSheet(buildCondHistory));
+  await page.waitForSelector('#sheet', { timeout: 5000 });
+  // the offline partial-record note proves paintFromLog ran (the USGS fetch rejected)
+  await page.waitForFunction(
+    () => /partial on-device record/i.test((document.getElementById('sheet') || {}).innerText || ''),
+    { timeout: 10000 });
+
+  const txt = await page.evaluate(() => document.getElementById('sheet').innerText);
+  assert(/vibrio/i.test(txt), 'offline insight card should flag Vibrio season, got: ' + txt.slice(0, 500));
+  assert(/heat/i.test(txt),   'offline insight card should flag Heat-stress days, got: ' + txt.slice(0, 500));
+  assert(/spawn/i.test(txt),  'offline insight card should flag the Spawning window, got: ' + txt.slice(0, 500));
+
+  await ctx.context.setOffline(false);
+  // Being offline makes the real USGS fetch fail — that browser-level "Failed to load resource /
+  // ERR_INTERNET_DISCONNECTED" console log is this test's own premise, not an app fault. Assert no OTHER
+  // (real JS) errors leaked from rendering the offline card.
+  const jsErrors = errors.filter(e => !/Failed to load resource|ERR_INTERNET_DISCONNECTED|ERR_NETWORK|net::ERR/i.test(e));
+  assert(jsErrors.length === 0, 'no JS errors expected (offline network noise aside), got: ' + jsErrors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;

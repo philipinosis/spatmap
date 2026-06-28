@@ -3408,7 +3408,8 @@ function reindexLines(farm){
     }
     var label = (rowIdx + 1) + seg;                 // e.g. "1A" (or just "1" for orphans)
     if (l.auto !== false) l.name = label;           // DERIVED name unless user-renamed
-    l.cages.forEach(function(c, ci){ c.label = label + '-' + (ci + 1); });
+    var pfx = l.name || label;                       // cage labels track the line's effective name (custom or derived)
+    l.cages.forEach(function(c, ci){ c.label = pfx + '-' + (ci + 1); });
   });
 }
 
@@ -4977,14 +4978,11 @@ function buildCondHistory(){
       h('span', { style:{fontSize:'13px', color:'#42525A'} }, label),
       h('span', { style:{fontSize:'13px', fontWeight:'600', color: hot ? '#B4541E' : '#1B2B30'} }, val));
   }
-
-  function paintFromUsgs(series){
-    body.innerHTML = '';
-    var daily = condDailyAgg(series), ins = condInsights(daily);
-    var tempC = series['00010'] || [], sal = series['00480'] || [], gage = series['00065'] || [];
-    var tempF = tempC.map(function(p){ return { ms:p.ms, v:cToF(p.v) }; });
-
-    // ── INSIGHT card (the "didn't know you could track this" part) ──
+  // insightCard(ins, srcNote) — the "didn't know you could track this" card. heat/Vibrio/spawn/near-stall/
+  // low-salinity are pure threshold math over the daily aggregate, so the SAME card renders online (from USGS)
+  // AND offline (from the on-device log) — only the source note differs. srcNote keeps the offline copy honest
+  // about being a partial on-device record rather than the full USGS history.
+  function insightCard(ins, srcNote){
     var card = h('div', { style:{background:'#F7F5EF', borderRadius:'12px', padding:'10px 12px', marginTop:'6px'} });
     card.appendChild(h('div', { style:{fontWeight:'700', fontSize:'13px', marginBottom:'4px', color:'#1B2B30'} }, 'Last ' + ins.days + ' days · what it means for your oysters'));
     if (ins.avgT != null) card.appendChild(statRow('Water temp', Math.round(cToF(ins.minT)) + '–' + Math.round(cToF(ins.maxT)) + '°F (avg ' + Math.round(cToF(ins.avgT)) + ')'));
@@ -4995,8 +4993,18 @@ function buildCondHistory(){
     if (ins.spawnWatch) card.appendChild(statRow('Spawning window hit', '25–27°C — diploids may spawn'));
     if (ins.avgS != null) card.appendChild(statRow('Salinity', Math.round(ins.minS) + '–' + Math.round(ins.maxS) + ' ppt (avg ' + Math.round(ins.avgS) + ')'));
     if (ins.lowSalDays) card.appendChild(statRow('Low-salinity days <10 ppt', ins.lowSalDays + ' — freshwater stress', true));
-    card.appendChild(h('div', { style:{fontSize:'10px', color:'#8A99A0', marginTop:'6px'} }, 'Guidance from public USGS data — not a substitute for your shellfish-control authority.'));
-    body.appendChild(card);
+    card.appendChild(h('div', { style:{fontSize:'10px', color:'#8A99A0', marginTop:'6px'} }, srcNote));
+    return card;
+  }
+
+  function paintFromUsgs(series){
+    body.innerHTML = '';
+    var daily = condDailyAgg(series), ins = condInsights(daily);
+    var tempC = series['00010'] || [], sal = series['00480'] || [], gage = series['00065'] || [];
+    var tempF = tempC.map(function(p){ return { ms:p.ms, v:cToF(p.v) }; });
+
+    // ── INSIGHT card (the "didn't know you could track this" part) ──
+    body.appendChild(insightCard(ins, 'Guidance from public USGS data — not a substitute for your shellfish-control authority.'));
 
     // ── charts ──
     if (tempF.length) body.appendChild(chartCard('Water temperature (°F)', condHistChart(tempF, { unit:'°', color:'#C77A2E',
@@ -5013,6 +5021,22 @@ function buildCondHistory(){
     var all = condLSget(COND_K_HIST) || {}, log = all[site.id] || [];
     if (!log.length){ body.appendChild(h('div', { class:'emptyNote', style:{marginTop:'14px'} }, 'Could not reach USGS, and no local readings logged yet.\nOpen the app on the water with signal to start building a record here.')); return; }
     body.appendChild(h('div', { style:{padding:'6px 0', color:'#6E878C', fontSize:'12px'} }, 'Offline — showing ' + log.length + ' readings logged on this device.'));
+
+    // Same risk-insight card the online path shows — heat/Vibrio/spawn/near-stall/low-salinity are pure
+    // threshold math over the logged t/s, so they are fully computable offline (exactly when a no-signal boat
+    // needs them). Reshape the on-device log into the {param:[{ms,v}]} series condDailyAgg expects — mirroring
+    // stockAdvisory() — then run the same daily-agg + flags. Single-sample days give minT==maxT, so a flag can
+    // only ever be UNDER-reported offline, never fabricated. The NWS forecast and the continuous 30-day USGS
+    // density are genuinely online-only, so they stay absent here.
+    var series = { '00010':[], '00480':[] };
+    log.forEach(function(x){
+      if (x.t != null) series['00010'].push({ ms:x.ms, v:x.t });
+      if (x.s != null) series['00480'].push({ ms:x.ms, v:x.s });
+    });
+    var daily = condDailyAgg(series);
+    if (daily.length) body.appendChild(insightCard(condInsights(daily),
+      'Partial on-device record — flags from the readings logged on this phone, not a full USGS history. Not a substitute for your shellfish-control authority.'));
+
     var tF = log.filter(function(x){ return x.t != null; }).map(function(x){ return { ms:x.ms, v:cToF(x.t) }; });
     var sP = log.filter(function(x){ return x.s != null; }).map(function(x){ return { ms:x.ms, v:x.s }; });
     if (tF.length) body.appendChild(chartCard('Water temperature (°F)', condHistChart(tF, { unit:'°', color:'#C77A2E' })));
@@ -7063,6 +7087,7 @@ function bulkRenameLines(prefix){
   prefix = String(prefix == null ? '' : prefix).trim().slice(0, 24);   // guard: trim + cap length
   var before = lines.map(function(l){ return { id:l.id, name:l.name, auto:l.auto }; });
   lines.forEach(function(l, i){ l.name = prefix + (i+1); l.auto = false; });
+  reindexLines(farm);                                 // re-derive cage labels so they track the new line names
   commit(); layoutRedraw();
   undoable('Renamed ' + lines.length + ' lines', function(){
     var f = getFarm(); before.forEach(function(sn){ var l = lineByIdLocal(f,sn.id); if (l){ l.name = sn.name; l.auto = sn.auto; } });
@@ -7087,6 +7112,10 @@ function buildBulkLinesSheet(){
   frag.push(field('Cages per line', cagesStep, 'Grows with empty cages; shrinking trims empty end cages (stocked cages are kept).'));
   var typeSel = h('select', { onchange:function(){ bulkSetType(this.value); refreshSheet(); } });
   farm.cageTypes.forEach(function(t){ typeSel.appendChild(h('option', { value:t.id }, typeLabel(t))); });
+  // F10: reflect the selection's current cage type so the combobox shows the applied value (not the
+  // first option) after bulkSetType + refreshSheet; leave the default when types are mixed.
+  var selTypes = []; lines.forEach(function(l){ l.cages.forEach(function(c){ selTypes.push(c.typeId); }); });
+  if (selTypes.length && selTypes.every(function(t){ return t === selTypes[0]; })) typeSel.value = selTypes[0];
   frag.push(field('Set all cages to type', typeSel));
   var pat = h('input', { type:'text', placeholder:'e.g. A' });
   frag.push(field('Relabel as <prefix>1, 2, 3…',
