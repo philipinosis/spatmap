@@ -3328,6 +3328,8 @@ function addLine(p0, p1){
   farm.lines.push(line);
   reindexLines(farm);
   rebuildLineIds(farm);
+  if (freeDraw) line.auto = false;   // hand-drawn line is not an auto/grid line (F7). Set AFTER reindex so its
+                                     // name was derived once; cage labels keep deriving (reindexLines, always).
   if (!freeDraw){
     var ao = areaOfLine(farm, line);                     // F-B2: derive a/b for the new line from its area grid
     if (ao) relayoutAreaLines(farm, ao.area);            // (guarded: keeps placed lines)
@@ -3347,6 +3349,16 @@ function plotAtWorld(farm, wx, wy){
   for (var i=0; i<plots.length; i++){ var p = plots[i];
     if (wx>=p.x && wx<=p.x+p.w && wy>=p.y && wy<=p.y+p.h) return p; }
   return null;
+}
+// innermostPlotAt(farm, wx, wy) — SMALLEST-area plot whose rect contains the world point (nested plots:
+// the inner one wins so a +Area dropped inside a child plot joins the child, not the enclosing parent),
+// else null. (FB/F5)
+function innermostPlotAt(farm, wx, wy){
+  var plots = (farm && farm.plots) || [], best = null, bestArea = Infinity;
+  for (var i=0; i<plots.length; i++){ var p = plots[i];
+    if (wx>=p.x && wx<=p.x+p.w && wy>=p.y && wy<=p.y+p.h){
+      var ar = p.w * p.h; if (ar < bestArea){ bestArea = ar; best = p; } } }
+  return best;
 }
 // stampLineArea(farm, line) — set line.plotId/areaId. Honors viewScope (drilled-in area) when
 // it points at a real area in this farm; otherwise falls to the farm's default area. The
@@ -7159,8 +7171,8 @@ function commitCreate(tool, p0, p1){
   var x=Math.min(p0.x,p1.x), y=Math.min(p0.y,p1.y), w=Math.abs(p1.x-p0.x), hh=Math.abs(p1.y-p0.y);
   if (w < EDIT_MIN_W || hh < EDIT_MIN_H){ toast('Drag a bigger rectangle'); return; }
   if (tool === 'plot'){ addPlotToFarm({ x:x, y:y, w:w, h:hh }); return; }
-  var host = plotAtWorld(getFarm(), x + w/2, y + hh/2);     // area drops into the plot under its center
-  if (!host){ toast('Drop the area inside a plot'); return; }
+  var host = innermostPlotAt(getFarm(), x + w/2, y + hh/2);  // area drops into the INNERMOST plot under its center (F5)
+  if (!host){ toast('Draw inside a plot'); return; }
   addAreaToPlot(host, { x:x, y:y, w:w, h:hh });
 }
 // marqueeSelectLines — replace selLines with every line whose rope touches the dragged box (C2).
@@ -11759,14 +11771,13 @@ function cohortStats(farm){
   });
 
   var groups = {};   // key → accumulator
-  function keyFor(hatchery, seed){
-    var h = (hatchery || '').trim() || 'Unknown source';
-    return seed ? (h + ' · ' + seed) : h;
-  }
-  function grp(hatchery, seed){
-    var k = keyFor(hatchery, seed);
+  // group by HATCHERY NAME only — seedCohortId is minted fresh per fill, so grouping by it
+  // would fragment one hatchery into many cards. seedCohortId stays stamped/persisted elsewhere.
+  function keyFor(hatchery){ return (hatchery || '').trim() || 'Unknown source'; }
+  function grp(hatchery){
+    var k = keyFor(hatchery);
     if (!groups[k]){
-      groups[k] = { key:k, hatchery:(hatchery || '').trim() || 'Unknown source', seedCohortId:seed || null,
+      groups[k] = { key:k, hatchery:(hatchery || '').trim() || 'Unknown source', seedCohortId:null,
         cages:0, alive:0, lost:0, stocked:0, causes:{},
         harvested:0, revenue:0, revenueKnown:false, daysToMarket:[], lineNames:{} };
     }
@@ -11777,7 +11788,7 @@ function cohortStats(farm){
   farm.lines.forEach(function(line){ (line.cages || []).forEach(function(cage){
     if (!cage.batch) return;
     var b = cage.batch;
-    var g = grp(b.hatchery, b.seedCohortId);
+    var g = grp(b.hatchery);
     var surv = cageSurvival(cage);   // count-scoped to THIS batch
     g.cages++;
     if (line && line.name) g.lineNames[line.name] = true;
@@ -11813,7 +11824,7 @@ function cohortStats(farm){
       if (rev != null){ unatt.revenue += rev; unatt.revenueKnown = true; }
       return;
     }
-    var g = grp(hatch, seed);
+    var g = grp(hatch);
     g.harvested += cnt;
     if (rev != null){ g.revenue += rev; g.revenueKnown = true; }
     // days-to-market: harvest date − earliest seed stockedDate among the linked batches we know
@@ -11871,7 +11882,7 @@ function buildCohortScorecard(){
   }
   cs.groups.forEach(function(g){
     var card = h('div', { class:'card' });
-    var title = g.seedCohortId ? (g.hatchery + ' · ' + g.seedCohortId) : g.hatchery;
+    var title = g.hatchery;
     card.appendChild(h('div', { class:'eyebrow' }, title));
     // status chip: in-progress vs harvested; thin gets a "counts only" note
     var statusBits = [];

@@ -454,6 +454,38 @@ test('T7-stock-csv-tub', async (ctx) => {
   assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
 });
 
+// T8 — seed-source scorecard groups by HATCHERY NAME ONLY. seedCohortId is minted fresh per fill,
+// so grouping by (hatchery, seedCohortId) fragmented ONE hatchery into many cards titled by raw uids
+// ("XMKMQ0DFH5D6HZY"). Fix groups by hatchery and titles the card with the hatchery name, never the
+// hash. seedCohortId stays stamped/persisted (cohort highlight still uses it) — it is just no longer a
+// grouping dimension or a card title. Here we force every stocked batch onto ONE hatchery while KEEPING
+// distinct seedCohortIds (the exact shape that used to fragment) and assert one Acme card, no hash titles.
+test('T8-cohort-grouping', async (ctx) => {
+  const { page, errors, assert } = ctx;
+  const eyebrows = await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    const f = SpatMapDebug.getFarm();
+    // simulate many fills of the same hatchery: same hatchery name, distinct seedCohortIds left intact
+    (f.batches || []).forEach(b => { b.hatchery = 'Acme Hatchery'; });
+    (f.lines || []).forEach(l => (l.cages || []).forEach(c => { if (c.batch) c.batch.hatchery = 'Acme Hatchery'; }));
+    SpatMapDebug.save();
+    SpatMapDebug.render();
+    openSheet(buildCohortScorecard);
+    return Array.from(document.querySelectorAll('#sheet .card .eyebrow')).map(e => e.textContent.trim());
+  });
+
+  // .eyebrow uppercases via CSS (text-transform) — compare against the uppercased form
+  const up = eyebrows.map(t => t.toUpperCase());
+  const acme = up.filter(t => t.includes('ACME HATCHERY'));
+  assert(acme.length === 1,
+    'exactly ONE eyebrow should read "ACME HATCHERY" (one card per hatchery, not per fill), got ' + acme.length + ' of ' + JSON.stringify(eyebrows));
+  const hashLeak = up.filter(t => /\bX[A-Z0-9]{10,}\b/.test(t));
+  assert(hashLeak.length === 0,
+    'no eyebrow should leak a raw seedCohortId uid as a title (the old hash-title bug), got ' + JSON.stringify(hashLeak));
+
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;
