@@ -3163,6 +3163,30 @@ function harvestForecast(farm){
       byMonth[key].cages++; byMonth[key].oysters += cnt;
     });
   });
+  // Fold the TUB into the SAME tallies so its stock is forecast exactly ONCE (fixes B + C). tubEntries()
+  // is the single source for tub stock — the unsorted remainder AND every split — so we never iterate
+  // farm.barge.splits separately (that would double-count). Each entry is a sized snapshot, not a cage, so
+  // its timing comes from projectMarketDate, anchored at the pull date when known (else today). Counts join
+  // the grade inventory; the per-bucket "cages" counters stay cage-only because a tub pile is not a cage.
+  var bg = farm.barge, splitIx = 0;
+  tubEntries(farm).forEach(function(e){
+    var cnt = (e.count != null) ? e.count : 0;
+    var g = e.grade || 'Ungraded';
+    if (!gradeMap[g]) gradeMap[g] = { grade:g, oysters:0, cages:0, readyOysters:0 };
+    gradeMap[g].oysters += cnt;
+    var anchor = null;
+    if (e.kind === 'remainder') anchor = (bg && bg.origin && bg.origin.pulledDate) || null;
+    else { var sp = (bg && Array.isArray(bg.splits)) ? bg.splits[splitIx++] : null; anchor = (sp && sp.origin && sp.origin.pulledDate) || null; }
+    var mp = projectMarketDate(farm, e.sizeMm, anchor);
+    if (mp.readyNow){ gradeMap[g].readyOysters += cnt; out.readyNow.oysters += cnt; return; }
+    var pms = mp.projectedDate ? isoToMs(mp.projectedDate) : NaN;
+    if (isNaN(pms) || mp.capped || pms > horizonMs){ out.later.oysters += cnt; return; }
+    var key, kms;
+    if (pms <= todayMs){ kms = todayMs; key = monthYear(todayISO()); }
+    else { kms = pms; key = monthYear(mp.projectedDate); }
+    if (!byMonth[key]){ byMonth[key] = { label:key, cages:0, oysters:0, ms:kms }; order.push(key); }
+    byMonth[key].oysters += cnt;
+  });
   out.months = order.map(function(k){ return byMonth[k]; }).sort(function(a, b){ return a.ms - b.ms; });
   out.grades = Object.keys(gradeMap).map(function(k){ return gradeMap[k]; }).sort(function(a, b){ return b.oysters - a.oysters; });
   return out;
@@ -10854,6 +10878,10 @@ function buildHarvestSheet(farm){
       var sub = [];
       if (s.count != null) sub.push(fmtCompact(s.count));
       if (s.grade) sub.push(s.grade);
+      // C: a split is a sized snapshot, not a cage — show WHEN it reaches market so it isn't a dead end.
+      var mp = projectMarketDate(farm, s.sizeMm, (s.origin && s.origin.pulledDate) || null);
+      var mkt = mp.readyNow ? 'ready now' : (mp.projectedDate ? '≈' + monthYear(mp.projectedDate) : (mp.capped ? '1+ yr' : null));
+      if (mkt) sub.push(mkt);
       var on = (s.id === activeFillSplitId);
       var chip = h('button', { class:'chip batchChip' + (on ? ' on' : ''), type:'button',
         onclick:(function(id, nm){ return function(){
@@ -12120,6 +12148,25 @@ function growthModel(cage, farm){
   else model.confidence = 'medium';
 
   return model;
+}
+
+// projectMarketDate(farm, sizeMm, fromISO) — market date for a sized snapshot that is NOT a cage
+// (a barge split / tub pile). Uses the farm's fitted season curve + the juvenile prior, the same math as
+// growthModel's no-points branch. Returns { readyNow, projectedDate, capped, daysToMarket }. PURE.
+function projectMarketDate(farm, sizeMm, fromISO){
+  var market = farm.settings.marketSizeMm, seasonArr = farmSeasonMult(farm);
+  var rate = DEFAULT_GROWTH_MM_DAY, todayMs = isoToMs(todayISO());
+  var anchorMs = isValidISO(fromISO) ? isoToMs(fromISO) : todayMs;
+  var size = (typeof sizeMm === 'number') ? sizeMm : 15;
+  if (anchorMs < todayMs){
+    var est = integrateGrowth(anchorMs, size, rate, Infinity,
+      Math.min(MAX_PROJECTION_DAYS, Math.round((todayMs-anchorMs)/86400000)), market, seasonArr);
+    size = est.size;
+  }
+  if (size >= market) return { readyNow:true, projectedDate:null, capped:false, daysToMarket:0 };
+  var proj = integrateGrowth(todayMs, size, rate, market, MAX_PROJECTION_DAYS, market, seasonArr);
+  return { readyNow:false, projectedDate: proj.reached ? toISOfromMs(proj.ms) : null,
+           capped: !proj.reached, daysToMarket: proj.days };
 }
 
 // projectionLabel(model, farm) — honest copy (§4.5)

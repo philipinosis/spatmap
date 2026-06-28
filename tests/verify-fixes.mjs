@@ -330,6 +330,80 @@ test('T5-pull-nondestructive', async (ctx) => {
   assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
 });
 
+// T6 — harvest forecast folds the TUB in exactly ONCE (fixes B: "Inventory by grade" ignored the tub;
+// C: split sub-batches had no projected market date and never appeared in the forecast). tubEntries() is
+// the single source of tub stock, so the remainder + every split are counted once — splitting moves stock
+// between them without changing the forecast total. projectMarketDate() dates a sized snapshot that is NOT
+// a cage; split chips now carry that market hint.
+test('T6-forecast-tub', async (ctx) => {
+  const { page, errors, assert } = ctx;
+
+  // ── projectMarketDate sanity + single-count BEFORE any split ──
+  const a = await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();                 // tub = { pile, 3200 Standard @ 60mm }
+    const f = SpatMapDebug.getFarm();
+    SpatMapDebug.save();
+    const market = f.settings.marketSizeMm;
+    const today = todayISO();
+    const s55 = projectMarketDate(f, 55, null);                // below market
+    const sReady = projectMarketDate(f, market + 5, null);     // at/above market
+    const fc = harvestForecast(f);
+    const gradeTotal = fc.grades.reduce((t, g) => t + g.oysters, 0);
+    const stdInv = (fc.grades.find(g => g.grade === 'Standard') || { oysters: 0 }).oysters;
+    let cageSum = 0;
+    (f.lines || []).forEach(l => (l.cages || []).forEach(c => {
+      if (c && c.batch && typeof c.batch.count === 'number') cageSum += c.batch.count;
+    }));
+    const bargeTotal = bargeTotalCount(f.barge);
+    return { market, today, s55, sReady, gradeTotal, stdInv, cageSum, bargeTotal };
+  });
+
+  // projectMarketDate sanity: at/above market → readyNow; below market → a future date OR honestly capped.
+  assert(a.sReady.readyNow === true, 'a snapshot at/above market should be readyNow, got ' + JSON.stringify(a.sReady));
+  const dateOk = (typeof a.s55.projectedDate === 'string'
+    && /^\d{4}-\d{2}-\d{2}$/.test(a.s55.projectedDate)
+    && a.s55.projectedDate > a.today
+    && a.s55.readyNow === false);
+  assert(dateOk || a.s55.capped === true,
+    'a 55mm (sub-market) snapshot should project a FUTURE date OR be capped, got ' + JSON.stringify(a.s55));
+
+  // single-count: grade inventory total = on-line cage oysters + the whole tub, counted exactly once.
+  // BEFORE this fix the tub was missing, so this equality failed (gradeTotal == cageSum only).
+  assert(typeof a.bargeTotal === 'number', 'Brightside tub should be fully counted, bargeTotalCount got ' + a.bargeTotal);
+  assert(a.gradeTotal === a.cageSum + a.bargeTotal,
+    'forecast grade total ' + a.gradeTotal + ' should equal cages ' + a.cageSum + ' + tub ' + a.bargeTotal + ' (tub folded in once)');
+  // the tub grade (Brightside tub is 3200 Standard) now shows up with >= its count
+  assert(a.stdInv >= 3200, 'Standard grade inventory should include the 3200 tub, got ' + a.stdInv);
+
+  // ── carve a split from the remainder → tubEntries covers remainder + split, so the total must NOT move ──
+  const b = await page.evaluate(() => {
+    splitBarge([{ count: 500, sizeMm: 55, grade: 'Standard', label: 'Grow-out' }]);
+    const f = SpatMapDebug.getFarm();
+    const fc = harvestForecast(f);
+    return {
+      gradeTotal: fc.grades.reduce((t, g) => t + g.oysters, 0),
+      nSplits: (f.barge.splits || []).length,
+      bargeTotal: bargeTotalCount(f.barge)
+    };
+  });
+  assert(b.nSplits >= 1, 'splitBarge should add a split, got ' + b.nSplits);
+  assert(b.bargeTotal === a.bargeTotal, 'splitting must conserve tub count, got ' + b.bargeTotal + ' vs ' + a.bargeTotal);
+  assert(b.gradeTotal === a.gradeTotal,
+    'splitting moves stock between remainder and split — grade total must be UNCHANGED, got ' + b.gradeTotal + ' vs ' + a.gradeTotal);
+
+  // ── UI: the Grow-out split chip in the harvest sheet carries a market hint ──
+  const chipText = await page.evaluate(() => {
+    openSheet(function(){ return buildHarvestSheet(getFarm()); });
+    const chips = Array.from(document.querySelectorAll('#sheet .batchChip'));
+    const chip = chips.find(c => /Grow-out/.test(c.textContent));
+    return chip ? chip.textContent : null;
+  });
+  assert(chipText, 'the Grow-out split should render a chip in the harvest sheet');
+  assert(/ready now|≈|1\+ yr/.test(chipText), 'the split chip should show a market hint, got ' + JSON.stringify(chipText));
+
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;
