@@ -233,6 +233,103 @@ test('T4-revenue-backfill', async (ctx) => {
   assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
 });
 
+// T5 — pulls are NON-DESTRUCTIVE. Pulling cages of DIFFERENT (grade,size) used to pool them into one
+// remainder pile that lied: grade collapsed to null and sizeMm collapsed to the MAX (60mm Jumbo + 82mm → 82),
+// so a later quick-sale logged the wrong size at $0. Fix: a heterogeneous, fully-counted pull auto-carves into
+// one self-contained barge.splits[] entry per (grade,size); homogeneous pulls still make ONE honest pile.
+// HARD GATES verified here: count conservation (bargeTotalCount) and a clean snapBarge undo.
+test('T5-pull-nondestructive', async (ctx) => {
+  const { page, errors, assert } = ctx;
+
+  // ── heterogeneous pull: 1000 Jumbo/60 + 1400 Standard/82 into an EMPTY tub ──
+  const r = await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    const f = SpatMapDebug.getFarm();
+    f.barge = freshBarge();                                  // empty tub, no pre-existing pile
+    const filled = [];
+    (f.lines || []).forEach(line => (line.cages || []).forEach(c => { if (c && c.batch) filled.push(c); }));
+    const A = filled[0], B = filled[1];
+    // strip later sized events so latestSize falls back to batch.sizeMm (deterministic)
+    const stripSized = c => { c.events = (c.events || []).filter(ev => !(ev.type === 'growth' || ev.type === 'stocked' || ev.type === 'filled')); };
+    A.batch.grade = 'Jumbo';    A.batch.sizeMm = 60; A.batch.count = 1000; stripSized(A);
+    B.batch.grade = 'Standard'; B.batch.sizeMm = 82; B.batch.count = 1400; stripSized(B);
+    SpatMapDebug.commit();
+
+    const sumBefore = 1000 + 1400;
+    const idA = A.id, idB = B.id;
+    const lsA = latestSize(A), lsB = latestSize(B);          // sanity: must read batch.sizeMm now
+
+    const undo = pullSelectedCages([idA, idB]);              // capture the returned guarded-undo
+
+    const fb = SpatMapDebug.getFarm().barge;
+    const out = {
+      nFilled: filled.length, sumBefore, lsA, lsB,
+      undoIsFn: typeof undo === 'function',
+      splits: (fb.splits || []).map(s => ({ grade: s.grade, sizeMm: s.sizeMm, count: s.count })),
+      bargeTotal: bargeTotalCount(fb),
+      aEmpty: cageById(idA).batch === null,
+      bEmpty: cageById(idB).batch === null
+    };
+
+    // UNDO via the returned closure → snapBarge restore must refill sources + empty the tub
+    if (typeof undo === 'function') undo();
+    const fa = SpatMapDebug.getFarm();
+    const a2 = cageById(idA), b2 = cageById(idB);
+    out.aRefilled = !!(a2 && a2.batch); out.aCount = a2 && a2.batch ? a2.batch.count : null;
+    out.bRefilled = !!(b2 && b2.batch); out.bCount = b2 && b2.batch ? b2.batch.count : null;
+    out.hasContentAfterUndo = bargeHasContent(fa.barge);
+    return out;
+  });
+
+  assert(r.nFilled >= 2, 'Brightside should seed >=2 filled cages, got ' + r.nFilled);
+  assert(r.lsA === 60 && r.lsB === 82, 'latestSize should read batch.sizeMm (60/82), got ' + r.lsA + '/' + r.lsB);
+  assert(r.undoIsFn, 'pullSelectedCages should return an undo function');
+
+  // structured fix: two splits, one per (grade,size) — NOT one collapsed pile
+  assert(r.splits.length === 2, 'heterogeneous pull should carve into 2 splits, got ' + r.splits.length);
+  const jumbo = r.splits.find(s => s.grade === 'Jumbo');
+  const std   = r.splits.find(s => s.grade === 'Standard');
+  assert(jumbo && jumbo.sizeMm === 60 && jumbo.count === 1000, 'Jumbo split should be {60mm, 1000}, got ' + JSON.stringify(jumbo));
+  assert(std   && std.sizeMm   === 82 && std.count   === 1400, 'Standard split should be {82mm, 1400}, got ' + JSON.stringify(std));
+  // the OLD bug must be gone: not both 82mm, not both null-grade
+  assert(!(r.splits[0].sizeMm === 82 && r.splits[1].sizeMm === 82), 'size must not collapse to 82-for-both (the old MAX lie)');
+  assert(!(r.splits[0].grade == null && r.splits[1].grade == null), 'grade must not collapse to null-for-both');
+
+  // HARD GATE 1 — count conservation
+  assert(r.bargeTotal === 2400, 'bargeTotalCount should conserve to 2400, got ' + r.bargeTotal);
+  assert(r.aEmpty && r.bEmpty, 'source cages should be emptied by the pull');
+
+  // HARD GATE 2 — undo fully reverts (refill sources, empty tub)
+  assert(r.aRefilled && r.bRefilled, 'undo should refill both source cages');
+  assert(r.aCount === 1000 && r.bCount === 1400, 'undo should restore source counts, got ' + r.aCount + '/' + r.bCount);
+  assert(r.hasContentAfterUndo === false, 'undo should leave the tub empty, bargeHasContent should be false');
+
+  // ── homogeneous control: same grade AND size → ONE pile, no splits (byte-for-byte legacy path) ──
+  const h = await page.evaluate(() => {
+    SpatMapDebug.loadBrightside();
+    const f = SpatMapDebug.getFarm();
+    f.barge = freshBarge();
+    const filled = [];
+    (f.lines || []).forEach(line => (line.cages || []).forEach(c => { if (c && c.batch) filled.push(c); }));
+    const A = filled[0], B = filled[1];
+    const stripSized = c => { c.events = (c.events || []).filter(ev => !(ev.type === 'growth' || ev.type === 'stocked' || ev.type === 'filled')); };
+    A.batch.grade = 'Jumbo'; A.batch.sizeMm = 60; A.batch.count = 500; stripSized(A);
+    B.batch.grade = 'Jumbo'; B.batch.sizeMm = 60; B.batch.count = 700; stripSized(B);
+    SpatMapDebug.commit();
+    pullSelectedCages([A.id, B.id]);
+    const fb = SpatMapDebug.getFarm().barge;
+    return { splitsLen: (fb.splits || []).length, state: fb.state, grade: fb.grade, sizeMm: fb.sizeMm, count: fb.count, bargeTotal: bargeTotalCount(fb) };
+  });
+  assert(h.splitsLen === 0, 'homogeneous pull should NOT create splits, got ' + h.splitsLen);
+  assert(h.state === 'pile', 'homogeneous pull should make a single pile, state=' + h.state);
+  assert(h.grade === 'Jumbo', 'homogeneous pile grade should be Jumbo, got ' + h.grade);
+  assert(h.sizeMm === 60, 'homogeneous pile sizeMm should be 60, got ' + h.sizeMm);
+  assert(h.count === 1200, 'homogeneous pile count should be 1200, got ' + h.count);
+  assert(h.bargeTotal === 1200, 'homogeneous conservation should hold at 1200, got ' + h.bargeTotal);
+
+  assert(errors.length === 0, 'no JS errors expected, got: ' + errors.join(' | '));
+});
+
 // ===================== END TESTS =====================
 
 let pass = 0, fail = 0;

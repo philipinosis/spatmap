@@ -389,7 +389,7 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .lp-rot{ cursor:grab; }
 .lp-guides line{ pointer-events:none; }
 /* bottom-left zoom cluster */
-.lp-zoom{ position:absolute; left:14px; bottom:calc(82px + env(safe-area-inset-bottom)); z-index:5;
+.lp-zoom{ position:absolute; left:14px; bottom:calc(82px + env(safe-area-inset-bottom)); z-index:7;
   display:flex; flex-direction:column; gap:8px; }
 .lp-zbtn{ width:var(--tap); height:var(--tap); border-radius:var(--radius-sm); background:var(--surface);
   border:1px solid var(--hair); color:var(--ink-2); box-shadow:var(--shadow-card);
@@ -406,7 +406,7 @@ button.dc-ready{ background:none; border:0; padding:0; margin:0; font:inherit; c
 .lp-toolbar{ position:absolute; left:50%; transform:translateX(-50%);
   top:calc(56px + env(safe-area-inset-top)); z-index:6; box-shadow:var(--shadow-pop); }
 /* selection action bar (docked above the add-plot pill) */
-.lp-actionbar{ position:absolute; left:14px; right:14px; bottom:calc(78px + env(safe-area-inset-bottom));
+.lp-actionbar{ position:absolute; left:calc(14px + var(--tap) + 12px); right:14px; bottom:calc(78px + env(safe-area-inset-bottom));
   z-index:6; display:none; align-items:center; gap:10px;
   background:var(--surface); border:1px solid var(--hair); border-radius:var(--radius-sm);
   box-shadow:var(--shadow-pop); padding:10px 12px; }
@@ -809,6 +809,11 @@ label{ display:block; font:700 12px/1 var(--font-ui); letter-spacing:.06em; text
   user-select:none; -webkit-user-select:none; touch-action:manipulation; }
 .opeek-card .op-hint:hover{ color:var(--teal); }
 .opeek-card .op-hint:active{ color:var(--teal-press); }
+/* F8: footer row — cage "Open ›" + line "Open line ›" share one border-topped band (each hint stays
+   its own ≥tappable target; the border/margin moves up to the row so the two don't double-rule). */
+.opeek-card .op-foot{ display:flex; gap:16px; align-items:center; flex-wrap:wrap;
+  margin-top:7px; padding:6px 2px 0; border-top:1px solid var(--hair); }
+.opeek-card .op-foot .op-hint{ margin-top:0; padding:4px 0; border-top:none; }
 
 /* ══════════════════════════════════════════════════════════════════
    NEEDS-WORK / READY indicators (cards)
@@ -8307,6 +8312,17 @@ function handleLayoutTap(e, target){
           if (zAreaId && zPlotId) break;
           zEl = zEl.parentNode;
         }
+        // F3: an AREA tiled with cages is covered by cage cells (data-cage-id) and rope hit-strokes
+        // (data-line-body) that paint ON TOP of the area body but carry NO data-area-id/data-plot-id, so
+        // the walk-up above finds nothing and the tap dead-ends (no zoom, no peek). Resolve the owning
+        // area+plot from the cell's / rope's LINE so a tap on a full plot still PROGRESSES the zoom.
+        if (!zAreaId || !zPlotId){
+          var zCageId = cageIdFromTarget(target);
+          var zLineId2 = null, zLe = target;
+          while (zLe && zLe !== LAYOUT.svg){ if (zLe.getAttribute && !zLineId2) zLineId2 = zLe.getAttribute('data-line-body'); if (zLineId2) break; zLe = zLe.parentNode; }
+          var zLine = zLineId2 ? lineByIdLocal(farm, zLineId2) : (zCageId ? lineOfCage(zCageId) : null);
+          if (zLine){ if (!zAreaId) zAreaId = zLine.areaId; if (!zPlotId) zPlotId = zLine.plotId; }
+        }
         if (!scopedPlot){
           // all-plots framing → zoom to the tapped plot (or the plot owning the tapped area)
           var zPlot = zPlotId ? (farm.plots || []).filter(function(q){ return q.id === zPlotId; })[0] : null;
@@ -10108,11 +10124,13 @@ function pullSelectedCages(cageIds){
   var snapBarge = JSON.parse(JSON.stringify(barge));
   var snapSources = sources.map(function(c){ return { id:c.id, batch:JSON.parse(JSON.stringify(c.batch)), evLen:c.events.length }; }); // clone, don't alias (C1)
 
-  // pool: counts add (null-aware), size = max, grade = common-or-null, origin = union
+  // pool: counts add (null-aware), grade = common-or-null, origin = union.
+  // SIZE: B-i replaces the old running-MAX with a distinct-size SET → one size or honest null (never the max).
   var startCount = (barge.state === 'pile') ? barge.count : 0;
   var anyUncounted = (barge.state === 'pile' && barge.count == null);
   var total = startCount || 0;
-  var maxSize = (barge.state === 'pile' && typeof barge.sizeMm === 'number') ? barge.sizeMm : null;
+  var sizes = {}; if (barge.state === 'pile' && typeof barge.sizeMm === 'number') sizes[barge.sizeMm] = barge.sizeMm;
+  var pulled = [];   // B-ii: per-just-pulled-source facts (cages get emptied below), for the heterogeneous split-carve
   var grades = {}; if (barge.state === 'pile' && barge.grade) grades[barge.grade] = 1;
   // B6: pool ploidy + hatchery the same common-or-null way grade pools, so a barge-filled child
   // can carry them forward when every source agrees. Seed from the existing pile (if any).
@@ -10127,7 +10145,7 @@ function pullSelectedCages(cageIds){
     var b = cage.batch;
     if (b.count == null) anyUncounted = true; else total += b.count;
     var sz = latestSize(cage);
-    if (typeof sz === 'number' && (maxSize == null || sz > maxSize)) maxSize = sz;
+    if (typeof sz === 'number') sizes[sz] = sz;                             // B-i: collect distinct sizes (no MAX lie)
     if (b.grade) grades[b.grade] = 1;
     if (b.ploidy) ploidies[b.ploidy] = 1;                                   // B6: track distinct ploidies
     if (b.hatchery) hatcheries[b.hatchery] = 1;                             // B6: track distinct hatcheries
@@ -10135,6 +10153,10 @@ function pullSelectedCages(cageIds){
     if (cage.label && cageLabels.indexOf(cage.label) < 0) cageLabels.push(cage.label);
     if (ln && ln.name && lineNames.indexOf(ln.name) < 0) lineNames.push(ln.name);
     if (parentIds.indexOf(b.id) < 0) parentIds.push(b.id);
+    // B-ii: snapshot this source's facts NOW (cage.batch is nulled below) for a possible per-(grade,size) split-carve
+    pulled.push({ grade:(b.grade||null), sizeMm:(typeof sz === 'number' ? sz : null), count:(b.count != null ? b.count : null),
+                  ploidy:(b.ploidy||null), hatchery:(b.hatchery||''), parentBatchId:b.id,
+                  cageLabel:(cage.label||null), lineName:(ln && ln.name) ? ln.name : null });
     // per-source: pulled event (count), then empty the cage.
     // Carry the batch's stock photos onto the summary event so they survive in the permanent timeline.
     var pulledEv = newEvent('pulled', b.id, { count: (b.count != null ? b.count : null) });
@@ -10145,18 +10167,57 @@ function pullSelectedCages(cageIds){
   });
 
   var gradeKeys = Object.keys(grades);
+  var sizeKeys = Object.keys(sizes);
   var ploidyKeys = Object.keys(ploidies);
   var hatchKeys = Object.keys(hatcheries);
-  // keep ONE pile batchId; create one if the barge was empty
-  if (barge.state !== 'pile' || !barge.batchId) barge.batchId = uid();
-  barge.state = 'pile';
-  barge.count = anyUncounted ? null : total;
-  barge.sizeMm = maxSize;
-  barge.grade = (gradeKeys.length === 1) ? gradeKeys[0] : null;
-  // B6: carry the common ploidy/hatchery forward; mixed sources → leave blank (don't invent a value)
-  barge.ploidy = (ploidyKeys.length === 1) ? ploidyKeys[0] : null;
-  barge.hatchery = (hatchKeys.length === 1) ? hatchKeys[0] : '';
-  barge.origin = { parentBatchIds: parentIds, cageLabels: cageLabels, lineNames: lineNames, pulledDate: todayISO() };
+  if (!Array.isArray(barge.splits)) barge.splits = [];   // back-compat: never push onto undefined
+
+  // B-ii: a pull spanning >1 grade OR >1 size is HETEROGENEOUS. When every source is counted, carve it into
+  // one self-contained split per (grade,size) — no comingling, no size/grade collapse. Homogeneous pulls (and
+  // uncounted ones, which have no denominator to carve) fall through to the single remainder pile below, which
+  // B-i now sizes honestly (one distinct size, else null — never the MAX).
+  var heterogeneous = (gradeKeys.length > 1) || (sizeKeys.length > 1);
+
+  if (heterogeneous && !anyUncounted){
+    var groups = {}, order = [];
+    pulled.forEach(function(p){
+      var key = (p.grade || '') + '|' + (p.sizeMm == null ? '' : p.sizeMm);
+      var g = groups[key];
+      if (!g){ g = groups[key] = { grade:p.grade, sizeMm:p.sizeMm, count:0, ploidies:{}, hatcheries:{}, parentBatchIds:[], cageLabels:[], lineNames:[] }; order.push(key); }
+      g.count += (p.count != null ? p.count : 0);                                // anyUncounted is false → every count is a number
+      if (p.ploidy) g.ploidies[p.ploidy] = 1;
+      if (p.hatchery) g.hatcheries[p.hatchery] = 1;
+      if (p.parentBatchId && g.parentBatchIds.indexOf(p.parentBatchId) < 0) g.parentBatchIds.push(p.parentBatchId);
+      if (p.cageLabel && g.cageLabels.indexOf(p.cageLabel) < 0) g.cageLabels.push(p.cageLabel);
+      if (p.lineName && g.lineNames.indexOf(p.lineName) < 0) g.lineNames.push(p.lineName);
+    });
+    order.forEach(function(key){
+      var g = groups[key], pk = Object.keys(g.ploidies), hk = Object.keys(g.hatcheries);
+      barge.splits.push({
+        id: uid(),
+        count: g.count,
+        sizeMm: (typeof g.sizeMm === 'number') ? g.sizeMm : null,
+        grade: (g.grade || null),
+        label: null,
+        ploidy: (pk.length === 1) ? pk[0] : null,
+        hatchery: (hk.length === 1) ? hk[0] : '',
+        origin: { parentBatchIds: g.parentBatchIds.slice(), cageLabels: g.cageLabels.slice(), lineNames: g.lineNames.slice(), pulledDate: todayISO() },
+        parentBatchId: barge.batchId
+      });
+    });
+  } else {
+    // homogeneous (one grade AND one size) OR uncounted-heterogeneous → single remainder pile.
+    // Byte-for-byte the legacy path, except barge.sizeMm is now the one distinct size or honest null (B-i).
+    if (barge.state !== 'pile' || !barge.batchId) barge.batchId = uid();   // keep ONE pile batchId; mint if the barge was empty
+    barge.state = 'pile';
+    barge.count = anyUncounted ? null : total;
+    barge.sizeMm = (sizeKeys.length === 1) ? sizes[sizeKeys[0]] : null;
+    barge.grade = (gradeKeys.length === 1) ? gradeKeys[0] : null;
+    // B6: carry the common ploidy/hatchery forward; mixed sources → leave blank (don't invent a value)
+    barge.ploidy = (ploidyKeys.length === 1) ? ploidyKeys[0] : null;
+    barge.hatchery = (hatchKeys.length === 1) ? hatchKeys[0] : '';
+    barge.origin = { parentBatchIds: parentIds, cageLabels: cageLabels, lineNames: lineNames, pulledDate: todayISO() };
+  }
   if (!Array.isArray(barge.events)) barge.events = [];
   // barge-local pull record — the qty added by THIS pull (sum of just-pulled cages only)
   var pulledNow = 0, pulledUncounted = false;
@@ -11342,6 +11403,38 @@ function openPeekHint(cage){
     'Open ›');
 }
 
+// F8: the rope is occluded by tiled cage cells (~8px gutter), so the Line work sheet (one-tap Harvest,
+// add/remove cages, rename) is otherwise unreachable on the canvas. Give the cage PEEK card a second
+// affordance — "Open line ›" — that opens buildLineMenu for THIS cage's line. Mirrors openPeekHint; the
+// host stays pointer-events:none, only this .op-hint re-enables pointer events. Returns null when the
+// cage has no resolvable line so the caller can skip it.
+function openLinePeekHint(cage){
+  if (!cage) return null;
+  var ln = lineOfCage(cage.id);
+  if (!ln) return null;
+  function fire(e){
+    e.preventDefault(); e.stopPropagation();
+    var line = lineOfCage(cage.id) || ln;
+    if (!line) return;
+    clearCageHighlight();                   // drop the peek + un-dim (matches the cell→sheet open paths)
+    if (typeof swallowNextClick === 'function') swallowNextClick();  // eat a touch's trailing synthetic click
+    openSheet(function(){ return buildLineMenu(line); });
+  }
+  return h('div', { class:'op-hint', role:'button', tabindex:'0', 'aria-label':'Open line work sheet',
+    onClick:fire,
+    onKeydown:function(e){ if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') fire(e); } },
+    'Open line ›');
+}
+
+// F8: footer row holding the cage "Open ›" hint and (when resolvable) the line "Open line ›" hint.
+function peekFooter(cage){
+  var foot = h('div', { class:'op-foot' });
+  foot.appendChild(openPeekHint(cage));
+  var lh = openLinePeekHint(cage);
+  if (lh) foot.appendChild(lh);
+  return foot;
+}
+
 /* ── buildOysterPeek(cage, farm) — a COMPACT read-only glance card (NOT
       the full cage sheet). h()-built (text via createTextNode, never
       innerHTML for user data). The host sets pointer-events:none; only the
@@ -11388,7 +11481,7 @@ function buildOysterPeek(cage, farm){
         }
       }
     }
-    wrap.appendChild(openPeekHint(cage));
+    wrap.appendChild(peekFooter(cage));
     wrap.setAttribute('role', 'status');
     wrap.setAttribute('aria-label', aria.join('. ') + '.');
     return wrap;
@@ -11445,8 +11538,8 @@ function buildOysterPeek(cage, farm){
   if (cage.batch.grade) bits.push(cage.batch.grade);
   if (bits.length){ wrap.appendChild(h('div', { class:'op-row op-muted' }, bits.join(' · '))); aria.push(bits.join(', ')); }
 
-  // footer affordance (visual only — no handler)
-  wrap.appendChild(openPeekHint(cage));
+  // footer affordances — "Open ›" (cage) + "Open line ›" (line work sheet, F8)
+  wrap.appendChild(peekFooter(cage));
   wrap.setAttribute('role', 'status');                  // B5: separator-joined accessible summary (visible card unchanged)
   wrap.setAttribute('aria-label', aria.join('. ') + '.');
   return wrap;
